@@ -28,4 +28,11 @@ assert.equal(parsed.descriptor.game, "th08");
 assert.deepEqual([...parsed.files.keys()], ["entry", "ogg:x"]);
 assert.equal(await parsed.files.get("entry").blob.text(), "html");
 assert.equal(parsed.files.has("data"), false, "missing declared files must remain absent instead of rejecting the ZIP");
+
+const extendedDescriptor = { ...descriptor, notes: "x".repeat(600 * 1024) };
+const extendedZip = zipSync({
+  "package.json": strToU8(JSON.stringify(extendedDescriptor)),
+  "games/th08/runtime.html": strToU8("html"),
+}, { level: 0 });
+assert.equal((await parsePackageZip(new Blob([extendedZip]))).descriptor.notes.length, 600 * 1024);
 console.log("Package ZIP contract: PASS");

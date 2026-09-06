@@ -1,11 +1,14 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { mkdir, rm } from "node:fs/promises";
 import { createServer } from "node:net";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { workspacePath } from "../lib/workspace-layout.mjs";
 
 const project = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const output = "../archive/temporary/playwright-webkit-smoke-site";
+const output = "artifacts/validation/playwright-webkit-smoke-site";
+const artwork = resolve(project, "artifacts/validation/playwright-webkit-smoke-artwork");
 const browserStackDevice = process.argv.find(value => value.startsWith("--browserstack-device="))?.split("=", 2)[1] || "";
 const browserStackOsVersion = process.argv.find(value => value.startsWith("--browserstack-os-version="))?.split("=", 2)[1] || "";
 const requestedGame = process.argv.find(value => value.startsWith("--game="))?.split("=", 2)[1] || "";
@@ -116,20 +119,28 @@ async function waitForHttp(url, timeoutMs = 15000) {
 let port = 0;
 let server = null;
 if (!browserStackUrl) {
+  // Card art/favicon are optional to runtime behavior. Keep this browser gate
+  // independent of image tooling and original-game artwork extraction while
+  // still satisfying package-server's explicit host-artwork ownership input.
+  await rm(artwork, { recursive: true, force: true });
+  await mkdir(artwork, { recursive: true });
   await run(process.execPath, [
     "scripts/package-server.mjs",
     `--output=${output}`,
-    "--th06-build=../th06-eagler/build-web-eagler-thprac-test",
-    "--th06-multiplayer-build=../th06-eagler/build-web-netplay-th06",
-    "--th07-build=../th07-eagler/build-web-eagler-thprac",
-    "--th07-multiplayer-build=../th07-eagler/build-web-th07-netplay",
-    "--th06-assets=../th06-eagler/assets",
-    "--th07-assets=../th07-eagler/assets",
-    "--font=../dependencies/unifont-15.1.05/unifont-15.1.05.otf",
-    "--vanilla-font=../th06-eagler/assets/msgothic.ttc",
-    "--th06-ogg=../th06-eagler/assets-ogg",
-    "--th07-ogg=../th07-eagler/assets-ogg",
+    `--artwork-dir=${artwork}`,
+    "--games=th06,th07",
+    `--th06-build=${workspacePath("th06", "build-web-eagler-thprac-test")}`,
+    `--th06-multiplayer-build=${workspacePath("th06", "build-web-netplay-th06")}`,
+    `--th07-build=${workspacePath("th07", "build-web-eagler-thprac")}`,
+    `--th07-multiplayer-build=${workspacePath("th07", "build-web-th07-netplay")}`,
+    `--th06-assets=${workspacePath("th06", "assets")}`,
+    `--th07-assets=${workspacePath("th07", "assets")}`,
+    `--font=${workspacePath("dependencies", "unifont-15.1.05", "unifont-15.1.05.otf")}`,
+    `--vanilla-font=${workspacePath("th06", "assets", "msgothic.ttc")}`,
+    `--th06-ogg=${workspacePath("th06", "assets-ogg")}`,
+    `--th07-ogg=${workspacePath("th07", "assets-ogg")}`,
     "--music=midi,ogg",
+    "--profile=web-validation",
   ]);
   await run(process.execPath, ["scripts/verify-server-build.mjs", output]);
   port = await freePort();

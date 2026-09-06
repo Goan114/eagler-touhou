@@ -11,8 +11,13 @@ from playwright.sync_api import sync_playwright
 
 def is_runtime_frame(frame_src: str, game: str) -> bool:
     path = urlparse(frame_src or "").path
-    return path.endswith(f"/runtime/{game}/{game}.html") or path.endswith(
-        f"/games/{game}/{game}.html"
+    runtime_names = {f"{game}.html"}
+    if game == "th08":
+        runtime_names.add("th08-modern.html")
+    return any(
+        path.endswith(f"/runtime/{game}/{name}")
+        or path.endswith(f"/games/{game}/{name}")
+        for name in runtime_names
     )
 
 
@@ -518,6 +523,7 @@ def main() -> int:
             """([game, music]) => {
               localStorage.setItem(`eagler-touhou-game-options-v1-${game}`, JSON.stringify({
                 music,
+                musicPreferenceExplicit: true,
                 options: {
                   touchEnabled: true,
                   touchMovementMode: 'touch',
@@ -613,12 +619,21 @@ def main() -> int:
                 managed_data = runtime.evaluate(
                     """
                     (game) => ({
-                      provider: typeof Module?.getPreloadedPackage,
-                      preload: Module?.preloadResults?.[`${game}.data`] || null,
-                      dataPresent: game === 'th07'
-                        ? !!FS.analyzePath('/th07.dat').exists
-                        : ['/紅魔郷CM.DAT', '/紅魔郷ED.DAT', '/紅魔郷IN.DAT', '/紅魔郷MD.DAT', '/紅魔郷ST.DAT', '/紅魔郷TL.DAT']
-                            .every(path => !!FS.analyzePath(path).exists),
+                      provider: game === 'th08'
+                        ? typeof window.parent?.__eaglerPrepareManagedRuntimeDataV1
+                        : typeof Module?.getPreloadedPackage,
+                      preload: game === 'th08'
+                        ? null
+                        : Module?.preloadResults?.[`${game}.data`] || null,
+                      dataPresent: game === 'th08'
+                        ? Array.isArray(Module?.th08RetailFiles)
+                          && Module.th08RetailFiles.length === 2
+                          && typeof Module?._th08_web_allocate_game_data === 'function'
+                          && typeof Module?._th08_web_set_retail_file_sizes === 'function'
+                        : game === 'th07'
+                          ? !!FS.analyzePath('/th07.dat').exists
+                          : ['/紅魔郷CM.DAT', '/紅魔郷ED.DAT', '/紅魔郷IN.DAT', '/紅魔郷MD.DAT', '/紅魔郷ST.DAT', '/紅魔郷TL.DAT']
+                              .every(path => !!FS.analyzePath(path).exists),
                     })
                     """,
                     args.game,
@@ -682,6 +697,46 @@ def main() -> int:
                         "WebKit simultaneous direct-move + hold-focus regression failed: "
                         + json.dumps(multitouch, ensure_ascii=False)
                     )
+                post_release_frames = None
+                if args.game == "th08":
+                    # iOS/WebKit can transiently drop canvas focus as the last
+                    # finger is released.  Exercise that exact lifecycle after
+                    # all synthetic touches are up: losing DOM/canvas focus
+                    # must not stop the Web presentation loop.
+                    before_release_blur = runtime.evaluate(
+                        """() => ({
+                          frames: Module._th08_web_get_presentation_frame_count?.() ?? -1,
+                          callbacks: Module._th08_web_get_callback_count?.() ?? -1,
+                          documentFocus: document.hasFocus(),
+                          activeTag: document.activeElement?.tagName || '',
+                        })"""
+                    )
+                    runtime.evaluate(
+                        """() => {
+                          Module.canvas?.focus?.({ preventScroll: true });
+                          Module.canvas?.blur?.();
+                        }"""
+                    )
+                    page.wait_for_timeout(900)
+                    after_release_blur = runtime.evaluate(
+                        """() => ({
+                          frames: Module._th08_web_get_presentation_frame_count?.() ?? -1,
+                          callbacks: Module._th08_web_get_callback_count?.() ?? -1,
+                          documentFocus: document.hasFocus(),
+                          activeTag: document.activeElement?.tagName || '',
+                        })"""
+                    )
+                    post_release_frames = {
+                        "before": before_release_blur,
+                        "after": after_release_blur,
+                        "frameDelta": after_release_blur["frames"] - before_release_blur["frames"],
+                        "callbackDelta": after_release_blur["callbacks"] - before_release_blur["callbacks"],
+                    }
+                    if post_release_frames["frameDelta"] <= 0 or post_release_frames["callbackDelta"] <= 0:
+                        raise RuntimeError(
+                            "TH08 WebKit post-touch focus-loss froze presentation: "
+                            + json.dumps(post_release_frames, ensure_ascii=False)
+                        )
                 result = {
                     "execution": "browserstack-real-ios" if browserstack_enabled else "desktop-playwright-webkit",
                     "device": args.browserstack_device if browserstack_enabled else None,
@@ -701,6 +756,7 @@ def main() -> int:
                     "blockedRemotePackageRequests": len(blocked),
                     "managedData": managed_data,
                     "simultaneousMoveFocus": multitouch,
+                    "postReleaseFrames": post_release_frames,
                     "status": local_last["status"],
                     "capabilities": capabilities,
                 }

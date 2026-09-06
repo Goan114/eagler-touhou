@@ -31,7 +31,7 @@ for (const [game, promoted] of [["th06", false], ["th06", true], ["th07", false]
   const expression = `new Promise(resolve => {
     if (${promoted}) {
       const style = document.createElement("style");
-      style.textContent = ".game:before{will-change:opacity,transform;backface-visibility:hidden;contain:paint}";
+      style.textContent = ".game .card-art{will-change:opacity,transform;backface-visibility:hidden;contain:paint}";
       document.head.append(style);
     }
     const gaps = [], longTasks = [];

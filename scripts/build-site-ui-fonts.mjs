@@ -4,25 +4,19 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
+import { APP_SHELL_FILES } from "../lib/frontend-manifest.mjs";
 
 const project = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const outputDirectory = resolve(project, "assets", "fonts");
 const sources = [
-  "index.html",
-  "about.html",
-  "faq.html",
-  "migrate.html",
-  "styles.css",
-  "about.css",
-  "touch-guide.css",
+  ...APP_SHELL_FILES.filter(path => !path.startsWith("vendor/") && /\.(?:html|css|js|mjs)$/.test(path)),
   "NOTICE.txt",
   "CHANGELOG.txt",
-  "app.js",
-  "game-data-import.js",
-  "games.json",
+  "product-catalog.mjs",
+  "lib/development-content.mjs",
   "integrations/thcrap.mjs",
   "integrations/thprac.mjs"
-];
+].filter((path, index, all) => all.indexOf(path) === index);
 const upstream = {
   yatra: "https://raw.githubusercontent.com/google/fonts/ec626514f79f831f1ab848a82114a0ce7e2d6372/ofl/yatraone/YatraOne-Regular.ttf",
   chillMedium: "https://cdn.jsdelivr.net/gh/Warren2060/ChillRoundGothic@53505f0818983d2fcdda00dc66e051ad13e81ffb/ttf/ChillRoundGothic_Medium.ttf",

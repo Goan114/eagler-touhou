@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { basename, extname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
@@ -31,14 +32,87 @@ const language = args.get("language") || "lang_zh-hans";
 const repository = args.get("repository");
 const output = resolve(args.get("output") || "prepared/thcrap-static");
 const runtimeVersion = (args.get("runtime-version") || "auto").toLowerCase();
-const thdat = required("thdat");
-const thmsg = required("thmsg");
 const archives = (args.get("archives") || required("archive")).split(";").filter(Boolean).map(value => resolve(value));
 const fontFile = args.get("font-file")
   ? resolve(args.get("font-file"))
   : resolve(workspace, "dependencies", "unifont-15.1.05", "unifont-15.1.05.otf");
 const fontName = args.get("font-name") || "Unifont";
 const fontPython = args.get("font-python") || "python";
+const refresh = ["1", "true", "yes"].includes(String(args.get("refresh") || "").toLowerCase());
+
+async function localInputFingerprint() {
+  const files = [];
+  for (const path of archives) {
+    const info = await stat(path);
+    files.push({ name: basename(path), bytes: info.size, mtimeMs: Math.trunc(info.mtimeMs) });
+  }
+  const fontInfo = await stat(fontFile);
+  const builderFiles = [
+    resolve(project, "scripts/prepare-th06-language-pack.mjs"),
+    resolve(project, "scripts/subset-font.py"),
+    resolve(project, "integrations/thcrap.mjs"),
+    resolve(project, "server/thcrap-compiler.mjs"),
+    resolve(project, "server/thcrap-static-pack.mjs"),
+    resolve(project, "server/thtk-runner.mjs"),
+  ];
+  const builders = [];
+  for (const path of builderFiles) {
+    const info = await stat(path);
+    builders.push({ name: basename(path), bytes: info.size, mtimeMs: Math.trunc(info.mtimeMs) });
+  }
+  const payload = JSON.stringify({
+    schema: "eagler-touhou/language-pack-cache-input/1",
+    game,
+    language,
+    repository: repository || null,
+    runtimeVersion,
+    fontName,
+    archives: files,
+    font: { name: basename(fontFile), bytes: fontInfo.size, mtimeMs: Math.trunc(fontInfo.mtimeMs) },
+    builders,
+  });
+  return createHash("sha256").update(payload).digest("hex");
+}
+
+async function tryReuseCache(fingerprint) {
+  if (refresh) return null;
+  let metadata;
+  let catalog;
+  try {
+    metadata = JSON.parse(await readFile(resolve(output, `${language}.cache.json`), "utf8"));
+    catalog = JSON.parse(await readFile(resolve(output, "catalog.json"), "utf8"));
+  } catch {
+    return null;
+  }
+  if (metadata?.schema !== "eagler-touhou/language-pack-cache/1" || metadata.fingerprint !== fingerprint ||
+      catalog?.schema !== "eagler-touhou/thcrap-static-catalog/1" || catalog.game !== game || !Array.isArray(catalog.languages)) return null;
+  const entry = catalog.languages.find(item => String(item?.id || "").toLowerCase() === language.toLowerCase());
+  if (!entry?.pack?.url || !Number.isSafeInteger(entry.pack.bytes) || !/^[a-f0-9]{64}$/i.test(entry.pack.sha256 || "")) return null;
+  const archivePath = resolve(output, entry.pack.url);
+  let archiveBytes;
+  try { archiveBytes = await readFile(archivePath); } catch { return null; }
+  const digest = createHash("sha256").update(archiveBytes).digest("hex");
+  if (archiveBytes.length !== entry.pack.bytes || digest !== String(entry.pack.sha256).toLowerCase()) return null;
+  return { entry, archiveBytes };
+}
+
+const inputFingerprint = await localInputFingerprint();
+const cached = await tryReuseCache(inputFingerprint);
+if (cached) {
+  console.log(JSON.stringify({
+    output,
+    language,
+    cached: true,
+    files: cached.entry.pack.files ?? null,
+    bytes: cached.archiveBytes.length,
+    sha256: cached.entry.pack.sha256,
+    pack: cached.entry.pack.url,
+  }));
+  process.exit(0);
+}
+
+const thdat = required("thdat");
+const thmsg = required("thmsg");
 const client = createThcrapClient({ repository });
 const runner = new ThtkRunner({ thdat, thmsg });
 const compiler = new ThcrapRuntimeCompiler({ runner, archives: { [game]: archives } });
@@ -79,7 +153,7 @@ async function applyFontOverride(input) {
     const outputFile = join(temporary, outputName);
     await writeFile(characterFile, [...characters].sort().join(""), "utf8");
     const subset = await promisify(execFile)(fontPython, [
-      resolve("scripts/subset-font.py"), fontFile,
+      resolve(project, "scripts/subset-font.py"), fontFile,
       `--text-file=${characterFile}`,
       `--output-file=${outputFile}`
     ], { maxBuffer: 8 * 1024 * 1024 });
@@ -134,5 +208,12 @@ await writeFile(resolve(output, "catalog.json"), `${JSON.stringify({
   runtimeVersion: preparedRuntimeVersion,
   languages: catalog.languages
 }, null, 2)}\n`);
+await writeFile(resolve(output, `${language}.cache.json`), `${JSON.stringify({
+  schema: "eagler-touhou/language-pack-cache/1",
+  fingerprint: inputFingerprint,
+  pack: result.catalog.pack.url,
+  sha256: result.sha256,
+  bytes: result.archive.length,
+}, null, 2)}\n`);
 process.stderr.write("\n");
-console.log(JSON.stringify({ output, language, files: result.manifest.files.length, bytes: result.archive.length, sha256: result.sha256, pack: result.catalog.pack.url }));
+console.log(JSON.stringify({ output, language, cached: false, files: result.manifest.files.length, bytes: result.archive.length, sha256: result.sha256, pack: result.catalog.pack.url }));

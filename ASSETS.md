@@ -1,19 +1,22 @@
-# Public visual assets
+# Site assets and host-generated game visuals
 
 ## Game-card backgrounds
 
-`assets/th06-title00.jpg` and `assets/th07-title00.jpg` are the original
-`title00.jpg` images extracted from game files owned by the deployer. They are
-used as the two game-card backgrounds without the original menu-button layer.
+The final hosted site uses `assets/th06-card.webp`, `assets/th07-card.webp`, and
+`assets/th08-card.webp`. Host assembly extracts the title artwork from original
+game files supplied by the deployer and converts it to WebP without enlarging
+or cropping it. A deployer may instead provide a custom card image; WebP input
+is preserved and PNG/JPEG input is normalized to the same final WebP contract.
 
-These images are derivative, publication-sensitive Touhou Project artwork.
-Their presence in the repository does not make them open-source assets and the
-project claims no copyright over them. A downstream distributor must assess
-whether its use is permitted and may replace them with appropriately licensed
-artwork.
+The original JPG/PNG bytes are staging input only. They are deliberately
+**not** stored in the public source repository, are not copied into the final
+host merely to support the card UI, and are not part of the resource-free
+Runtime Release. The source tree therefore contains references to stable final
+host paths without owning the original-game-derived bytes.
 
-Older local WebP experiments are ignored by Git and excluded from packages. They
-are not used by the current homepage and must not be described as its covers.
+The currently pinned card encoder is Pillow WebP quality 82 / method 6. This is
+a host-delivery policy rather than a game-data identity: custom WebP overrides
+are not transcoded again.
 
 ## Interface font
 
@@ -30,15 +33,16 @@ is no longer loaded by the site UI. Full CJK fonts and the game font are not
 stored in the public repository; a deployer supplies a compatible local
 Japanese font when preparing a private deployment.
 
-The publication audit uses an explicit allowlist for this directory. Review the
-rights and update that allowlist before adding any new visual asset.
+The publication audit uses an explicit allowlist for source-public assets.
+Adding a file under `assets/` does not make it publishable; host-generated
+original-game-derived files are rejected from source publication candidates.
 
 ## Site brand assets
 
-`assets/th06.ico` is reconstructed directly from the application-icon resource
-embedded in the deployer's original `th06.exe` and is used as the site favicon
-and masthead icon. It remains original Touhou Project content and is therefore
-publication-sensitive in the same way as the game-card artwork.
+The final hosted `assets/th06.ico` is reconstructed from the application-icon
+resource in the deployer's original `th06.exe`, unless the deployer supplies a
+custom replacement. Like the card backgrounds, it is generated during host
+assembly and is not tracked as public source content.
 
 `assets/fonts/touhou98.woff2` is the self-hosted Web font from
 `font-touhou98@1.0.0`; the masthead wordmark `eagler☯touhou` uses it. Upstream
@@ -51,8 +55,18 @@ project and license metadata are recorded in `THIRD_PARTY.md`.
 (`@iconify-json/fa7-brands@1.2.4`, Font Awesome Brands 7.3.1). The SVG path is
 stored locally so the announcement does not depend on an icon CDN.
 
+`assets/notice-qq.svg` and `assets/notice-github.svg` use the `qq` and `github`
+glyphs from that same pinned package, with a light fill for the dark notice.
+
 `assets/notice-touhou-cloud.png` is the icon currently declared by
 `https://cloud.touhou.best/` as its `apple-touch-icon` (source URL at capture:
 `https://gitlab.com/img5133819/img/-/raw/main/Image_1742740025373.png`). It is
 used only to identify the CDN provider in the site announcement and is cached
 locally so mirrors/offline packages render consistently.
+
+The masthead collection menu and TH08 maintenance warning embed the `language`,
+`history`, `person`, and `warning` glyph paths from
+`@iconify-json/material-symbols@1.2.86`, matching Mizuki's Material Symbols icon
+system. They are inline in `index.html`, so they add no separate delivery asset
+and remain available offline. Material Symbols are licensed under Apache
+License 2.0.

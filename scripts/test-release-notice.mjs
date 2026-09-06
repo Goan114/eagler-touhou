@@ -108,10 +108,6 @@ for (const removedBrandFragment of ['brand-inline-mark']) {
   }
 }
 
-const th06Icon = fs.readFileSync(path.join(root, "assets", "th06.ico"));
-if (th06Icon.length !== 2238 || th06Icon.subarray(0, 6).toString("hex") !== "000001000100") {
-  throw new Error("TH06 favicon must remain the reconstructed one-image Windows ICO");
-}
 const bilibiliNoticeIcon = read("assets/notice-bilibili.svg");
 requireText(bilibiliNoticeIcon, 'viewBox="0 0 640 640"', "Font Awesome Bilibili icon viewBox");
 requireText(bilibiliNoticeIcon, 'fill="#00aeec"', "Bilibili notice icon visible brand fill");

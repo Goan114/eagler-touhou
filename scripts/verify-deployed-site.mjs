@@ -1,4 +1,9 @@
 import { createHash } from "node:crypto";
+import { PRODUCT_GAMES } from "../product-catalog.mjs";
+import { normalizeResourceMode } from "../resource-mode.mjs";
+import { assertAppShellContract } from "../lib/app-shell-policy.mjs";
+import { RELEASE_CATALOG_FILE } from "../release-catalog.mjs";
+import { HOST_MANIFEST_FILE, validateHostManifest } from "../host-manifest.mjs";
 
 const base = new URL(process.argv[2] || "http://127.0.0.1/");
 if (!base.pathname.endsWith("/")) base.pathname += "/";
@@ -87,12 +92,13 @@ await Promise.all(Array.from({ length: concurrency }, async () => {
   }
 }));
 
-const gamesResult = results.get("eagler-touhou/games.json");
-const legacyGamesResult = results.get("eagler-touhou/legacy-games.json");
-const gameDataModuleResult = results.get("eagler-touhou/game-data-import.js");
+const releaseCatalogResult = results.get(`eagler-touhou/${RELEASE_CATALOG_FILE}`);
+const hostManifestResult = results.get(`eagler-touhou/${HOST_MANIFEST_FILE}`);
+const legacyGamePackResult = results.get("eagler-touhou/legacy-game-pack.mjs");
 const migrationResult = results.get("eagler-touhou/migrate.html");
 const indexResult = results.get("eagler-touhou/index.html");
 const appResult = results.get("eagler-touhou/app.js");
+const appShellWorkerResult = results.get("eagler-touhou/app-shell-sw.js");
 if (!indexResult) failures.push("eagler-touhou/index.html: unavailable");
 else if (!/id="originMigrationOpen"[^>]+href="migrate\.html"[^>]+hidden/.test(new TextDecoder().decode(indexResult.bytes))) {
   failures.push("eagler-touhou/index.html: HTTPS migration entry missing");
@@ -117,52 +123,53 @@ else {
     failures.push("eagler-touhou/migrate.html: migration page is not self-contained");
   }
 }
-if (!gameDataModuleResult) failures.push("eagler-touhou/game-data-import.js: unavailable");
-else if (!/^(?:text|application)\/javascript\b/i.test(gameDataModuleResult.contentType)) {
-  failures.push(`eagler-touhou/game-data-import.js: invalid module MIME ${gameDataModuleResult.contentType || "missing"}`);
+if (!legacyGamePackResult) failures.push("eagler-touhou/legacy-game-pack.mjs: unavailable");
+else if (!/^(?:text|application)\/javascript\b/i.test(legacyGamePackResult.contentType)) {
+  failures.push(`eagler-touhou/legacy-game-pack.mjs: invalid module MIME ${legacyGamePackResult.contentType || "missing"}`);
 }
-if (!gamesResult) failures.push("eagler-touhou/games.json: unavailable");
-else if (!legacyGamesResult) failures.push("eagler-touhou/legacy-games.json: unavailable");
+if (!releaseCatalogResult) failures.push(`eagler-touhou/${RELEASE_CATALOG_FILE}: unavailable`);
+else if (!hostManifestResult) failures.push(`eagler-touhou/${HOST_MANIFEST_FILE}: unavailable`);
 else {
-  const catalog = JSON.parse(new TextDecoder().decode(gamesResult.bytes));
-  const games = JSON.parse(new TextDecoder().decode(legacyGamesResult.bytes));
-  const resourceMode = deployment.resourceMode || "hosted";
-  if (catalog.schema !== "eagler-touhou/release-catalog/1" || !catalog.games || games.shared?.resourceMode !== resourceMode) {
-    failures.push("Release Catalog / legacy manifest resource mode mismatch");
+  const catalog = JSON.parse(new TextDecoder().decode(releaseCatalogResult.bytes));
+  let games;
+  try { games = validateHostManifest(JSON.parse(new TextDecoder().decode(hostManifestResult.bytes))); }
+  catch (error) {
+    failures.push(`eagler-touhou/${HOST_MANIFEST_FILE}: ${error?.message || error}`);
+    games = null;
+  }
+  if (!games) {
+    // Host Manifest validation already recorded the concrete failure.
+  } else {
+  if (!appShellWorkerResult) {
+    failures.push("eagler-touhou/app-shell-sw.js: unavailable");
+  } else {
+    const worker = new TextDecoder().decode(appShellWorkerResult.bytes);
+    try {
+      assertAppShellContract(deployment.appShell, games);
+      if (!worker.includes(deployment.appShell.buildId)) {
+        failures.push("eagler-touhou/app-shell-sw.js: build id does not match deployment App Shell contract");
+      }
+      for (const path of deployment.appShell.entries) {
+        if (path === "./") continue;
+        if (!inventory.has(`eagler-touhou/${path}`)) failures.push(`App Shell contract references file outside deployment inventory: ${path}`);
+      }
+    } catch (error) {
+      failures.push(`App Shell deployment contract invalid: ${error?.message || error}`);
+    }
+  }
+  const declaredResourceMode = deployment.resourceMode || "hosted";
+  const resourceMode = normalizeResourceMode(declaredResourceMode);
+  if (!resourceMode) failures.push(`invalid resourceMode: ${declaredResourceMode}`);
+  if (catalog.schema !== "eagler-touhou/release-catalog/1" || !catalog.games ||
+      normalizeResourceMode(games.shared?.resourceMode || "hosted") !== resourceMode) {
+    failures.push("Release Catalog / Host Manifest resource mode mismatch");
   }
   if (resourceMode !== "hosted") {
     if (games.shared?.vanillaFont != null || games.shared?.unicodeFont != null) failures.push(`${resourceMode}: runtime font URL must be absent`);
     const payloads = [...inventory.keys()].filter(path => path.startsWith("games/") || path.startsWith("shared/"));
     const updates = deployment.runtimeUpdates || [];
-    if (resourceMode === "import-only") {
-      if (Object.keys(catalog.games).length || payloads.length || updates.length) failures.push("import-only deployment exposes game resources or releases");
-    } else if (resourceMode === "import-partial") {
-      const update = updates[0];
-      const expected = new Set(update?.variant === "multiplayer" ? [
-        "games/th07/multiplayer/th07.html",
-        "games/th07/multiplayer/th07.js",
-        "games/th07/multiplayer/th07.wasm",
-      ] : [
-        "games/th07/th07.html",
-        "games/th07/th07.js",
-        "games/th07/th07.wasm",
-      ]);
-      const allowedRuntimeSources = new Set([
-        "games/th07/th07.html",
-        "games/th07/th07.js",
-        "games/th07/th07.wasm",
-        "games/th07/multiplayer/th07.html",
-        "games/th07/multiplayer/th07.js",
-        "games/th07/multiplayer/th07.wasm",
-      ]);
-      if (updates.length !== 1 || update?.game !== "th07" || !["normal", "multiplayer"].includes(update?.variant) ||
-          update?.manifest !== "runtime-update.json" || catalog.games?.th07?.revision !== update?.descriptorRevision ||
-          catalog.games?.th07?.descriptor !== "../th07.package.json" || [...expected].some(path => !payloads.includes(path)) ||
-          payloads.some(path => !allowedRuntimeSources.has(path))) {
-        failures.push("import-partial sparse Runtime publication mismatch");
-      }
-    } else {
-      failures.push(`invalid resourceMode: ${resourceMode}`);
+    if (Object.keys(catalog.games).length || payloads.length || updates.length) {
+      failures.push("import deployment exposes game resources, Runtime updates, or releases");
     }
   } else {
   for (const key of ["vanillaFont", "unicodeFont"]) {
@@ -176,7 +183,8 @@ else {
     if (!entry) failures.push(`shared ${key} missing from manifest: ${path}`);
     else await verifyExactReference(url, entry, true);
   }
-  for (const game of ["th06", "th07"]) {
+  const preloadGames = Object.keys(PRODUCT_GAMES).filter(game => PRODUCT_GAMES[game].dataProvider === "emscripten-preload");
+  for (const game of preloadGames) {
     const runtime = games.games?.[game]?.runtime;
     const runtimeUrl = typeof runtime === "string" ? new URL(runtime, new URL("eagler-touhou/", base)) : null;
     const runtimeVersion = runtimeUrl?.searchParams.get("v");
@@ -222,6 +230,7 @@ else {
     }
   }
   }
+}
 }
 
 

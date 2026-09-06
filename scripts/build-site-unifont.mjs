@@ -4,26 +4,21 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
+import { APP_SHELL_FILES } from "../lib/frontend-manifest.mjs";
 
 const project = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const workspace = resolve(project, "..");
 const font = resolve(workspace, "dependencies", "unifont-15.1.05", "unifont-15.1.05.otf");
 const output = resolve(project, "assets", "fonts", "unifont-site.woff2");
 const sources = [
-  "index.html",
-  "about.html",
-  "faq.html",
-  "migrate.html",
-  "styles.css",
-  "touch-guide.css",
+  ...APP_SHELL_FILES.filter(path => !path.startsWith("vendor/") && /\.(?:html|css|js|mjs)$/.test(path)),
   "NOTICE.txt",
   "CHANGELOG.txt",
-  "app.js",
-  "game-data-import.js",
-  "games.json",
+  "product-catalog.mjs",
+  "lib/development-content.mjs",
   "integrations/thcrap.mjs",
   "integrations/thprac.mjs"
-];
+].filter((path, index, all) => all.indexOf(path) === index);
 
 const characters = new Set(Array.from({ length: 95 }, (_, index) => String.fromCodePoint(0x20 + index)));
 for (const source of sources) {

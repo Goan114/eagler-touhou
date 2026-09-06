@@ -11,8 +11,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $project = Split-Path $PSScriptRoot -Parent
-$workspace = Split-Path $project -Parent
-if (-not $EmsdkDirectory) { $EmsdkDirectory = Join-Path $workspace 'toolchains\emsdk' }
+Import-Module (Join-Path $project 'deploy\WorkspaceLayout.psm1') -Force
+$workspaceLayout = Get-EaglerWorkspaceLayout -ProjectRoot $project
+$workspace = $workspaceLayout.Root
+if (-not $EmsdkDirectory) { $EmsdkDirectory = Get-EaglerWorkspacePath $workspaceLayout 'toolchains' 'emsdk' }
 $emsdk = (Resolve-Path -LiteralPath $EmsdkDirectory).Path
 $emcmake = Join-Path $emsdk 'upstream\emscripten\emcmake.exe'
 if (-not (Test-Path -LiteralPath $emcmake -PathType Leaf)) { throw "emcmake not found: $emcmake" }
@@ -32,19 +34,31 @@ function Find-BuildTool([string] $Value, [string] $Name, [string] $VisualStudioP
 $CMake = Find-BuildTool $CMake 'CMake' 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe'
 $Ninja = Find-BuildTool $Ninja 'Ninja' 'Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe'
 
+function Resolve-RuntimeBuildPlan([string] $Game, [string] $Variant, [string] $AssetRoot) {
+    $resolver = Join-Path $project 'scripts\resolve-runtime-build.mjs'
+    $resolverArgs = @($resolver, "--game=$Game", "--variant=$Variant", '--runtime-extension=')
+    if ($AssetRoot) { $resolverArgs += "--asset-root=$AssetRoot" }
+    $json = & node @resolverArgs
+    if ($LASTEXITCODE -ne 0) { throw "$Game/$Variant Runtime build profile resolution failed: $LASTEXITCODE" }
+    return $json | ConvertFrom-Json
+}
+
 if (-not $EmbedLocalAssets -and ($Th06AssetDirectory -or $Th07AssetDirectory)) {
     throw 'Asset directories require -EmbedLocalAssets'
 }
 $assetDirectories = @{}
 if ($EmbedLocalAssets) {
-    if (-not $Th06AssetDirectory) { $Th06AssetDirectory = Join-Path $workspace 'th06-eagler\assets' }
-    if (-not $Th07AssetDirectory) { $Th07AssetDirectory = Join-Path $workspace 'th07-eagler\assets' }
+    if (-not $Th06AssetDirectory) { $Th06AssetDirectory = Get-EaglerWorkspacePath $workspaceLayout 'th06' 'assets' }
+    if (-not $Th07AssetDirectory) { $Th07AssetDirectory = Get-EaglerWorkspacePath $workspaceLayout 'th07' 'assets' }
     $assetDirectories.th06 = (Resolve-Path -LiteralPath $Th06AssetDirectory).Path
     $assetDirectories.th07 = (Resolve-Path -LiteralPath $Th07AssetDirectory).Path
 }
 
 foreach ($game in @('th06', 'th07')) {
-    $source = Join-Path $workspace "$game-eagler"
+    $variant = if ($EmbedLocalAssets) { 'development' } else { 'external' }
+    $profileAssetRoot = if ($EmbedLocalAssets) { $assetDirectories[$game] } else { $null }
+    $plan = Resolve-RuntimeBuildPlan $game $variant $profileAssetRoot
+    $source = Get-EaglerWorkspacePath $workspaceLayout $plan.workspaceRepository
     if (-not (Test-Path -LiteralPath (Join-Path $source 'CMakeLists.txt') -PathType Leaf)) {
         throw "Runtime source not found: $source"
     }
@@ -52,21 +66,11 @@ foreach ($game in @('th06', 'th07')) {
     # Reconfiguring one directory between TH_EXTERNAL_ASSETS=ON/OFF leaves the
     # development host pointing at a runtime with no game archives.
     $buildName = if ($EmbedLocalAssets) { 'build-web-eagler-default' } else { 'build-web-eagler-external' }
-    $externalAssets = if ($EmbedLocalAssets) { 'OFF' } else { 'ON' }
     $build = Join-Path $source $buildName
     $configureArguments = @(
         '-S', $source, '-B', $build, '-G', 'Ninja', "-DCMAKE_MAKE_PROGRAM=$Ninja",
-        '-DCMAKE_BUILD_TYPE=Release', '-DTH_WEB_MUSIC=BASE', '-DTH_WEB_SHARED_FONT=ON',
-        "-DTH_EXTERNAL_ASSETS=$externalAssets",
-        # Keep the adapter compiled into local runtimes.  It remains inactive
-        # without a language pack, while a selected Web thcrap pack needs the
-        # real Localization implementation rather than LocalizationStub.cpp.
-        '-DTH_ENABLE_THCRAP=ON'
+        @($plan.cmakeArguments)
     )
-    if ($EmbedLocalAssets) {
-        $assetVariable = if ($game -eq 'th06') { 'TH06_ASSET_ROOT' } else { 'TH07_ASSET_ROOT' }
-        $configureArguments += "-D${assetVariable}=$($assetDirectories[$game])"
-    }
     & $emcmake $CMake @configureArguments
     if ($LASTEXITCODE -ne 0) { throw "$game Web configure failed: $LASTEXITCODE" }
     & $CMake --build $build --parallel $Parallel

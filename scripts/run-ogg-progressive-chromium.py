@@ -138,7 +138,7 @@ def main() -> int:
         """, marker_paths)
         updated_generation = page.evaluate("""
           async game => {
-            const catalogUrl = new URL('games.json', location.href).href;
+            const catalogUrl = new URL('release-catalog.json', location.href).href;
             const catalog = await fetch(catalogUrl, { cache: 'no-store' }).then(response => response.json());
             const launcher = await import('./package-launcher.mjs');
             const result = await launcher.installPublishedPackage(game, {

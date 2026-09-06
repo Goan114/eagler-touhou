@@ -44,7 +44,7 @@ The repository contains disabled experimental translation-adapter code informed 
 - License: Unlicense
 - Purpose: future research into language-pack discovery and patch-resource preparation. It is not enabled in the default game builds or public UI.
 
-Server-side conversion of original archive/message formats uses `thdat` and `thmsg` from thtk 12 when they are configured by the server administrator.
+Server-side conversion of original archive/message formats uses `thdat` and `thmsg` from thtk 12. The Quick Host Kit does not redistribute thtk. On Windows, the Host build downloads the pinned official thtk 12 release ZIP from the upstream GitHub release, verifies SHA-256 `f6acc00f377b6537e8d504794aec8445cb1e0d6490d2c89d56b3315677765154`, and stores it under the local `.cache/` build-tool cache. On non-Windows systems, `thdat` and `thmsg` must already be available on `PATH`.
 
 - Project: https://github.com/thpatch/thtk
 - License: 2-clause BSD-style license
@@ -71,8 +71,18 @@ Brands collection referenced by the Mizuki frontend.
 
 - Package: `@iconify-json/fa7-brands@1.2.4` (Font Awesome Brands 7.3.1)
 - License: CC BY 4.0
-- Purpose: identify the Bilibili feedback link in the site announcement.
-- Vendored file: `assets/notice-bilibili.svg`
+- Purpose: identify the Bilibili, QQ group, and GitHub links in the site announcement.
+- Vendored files: `assets/notice-bilibili.svg`, `assets/notice-qq.svg`, `assets/notice-github.svg`
+
+The masthead collection menu uses inline Material Symbols from the same
+Iconify collection and version referenced by Mizuki.
+
+- Project: https://github.com/google/material-design-icons
+- Package: `@iconify-json/material-symbols@1.2.86`
+- License: Apache License 2.0
+- Glyphs: `language`, `history`, `person`, and `warning`
+- Purpose: identify interface language, changelog, and about actions without a
+  runtime icon service or network dependency.
 
 `assets/notice-touhou-cloud.png` is the provider-published icon currently
 declared by `https://cloud.touhou.best/`; it is vendored only as identifying

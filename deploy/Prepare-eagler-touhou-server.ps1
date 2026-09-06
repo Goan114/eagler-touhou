@@ -2,37 +2,73 @@
 param(
     [string] $Th06Directory,
     [string] $Th07Directory,
+    [string] $Th08Directory,
+    [string] $Th08Build,
+    [string] $RuntimeRelease,
     [Parameter(Mandatory)] [string] $OutputDirectory,
     [string[]] $Music = @('midi', 'ogg'),
     [string] $FontFile,
     [string] $VanillaFontFile,
     [string] $Python = 'python',
+    [string] $DeploymentPythonDirectory,
+    [string] $GeneratedCacheDirectory,
     [string] $EmsdkDirectory,
     [string] $CMake,
     [string] $Ninja,
     [string] $Th06LanguagePacks,
     [string] $Th07LanguagePacks,
-    [string] $FeatureConfig
+    [string] $ThtkThanm,
+    [string] $ArtworkDirectory,
+    [string] $FeatureConfig,
+    [string] $HostManifest,
+    [string[]] $Games = @('th06', 'th07', 'th08'),
+    [string] $Profile = 'web-validation-package',
+    [switch] $SuppressCompletionSummary
 )
 
 $ErrorActionPreference = 'Stop'
+$script:SiteProgressId = 6300
+$script:SiteProgressTotal = 4
+
+function Write-SiteBuildStage {
+    param(
+        [Parameter(Mandatory = $true)][int] $Step,
+        [Parameter(Mandatory = $true)][string] $Status
+    )
+    $percent = [Math]::Max(0, [Math]::Min(99, [int](($Step - 1) * 100 / $script:SiteProgressTotal)))
+    Write-Progress -Id $script:SiteProgressId -Activity 'Static site assembly' `
+        -Status "[$Step/$($script:SiteProgressTotal)] $Status" -PercentComplete $percent
+    Write-Host "[Site $Step/$($script:SiteProgressTotal)] $Status"
+}
+
+Import-Module (Join-Path $PSScriptRoot 'DeploymentPython.psm1') -Force
 $project = Split-Path $PSScriptRoot -Parent
-$workspace = Split-Path $project -Parent
-$FontFile = if ($FontFile) { $FontFile } else { Join-Path $workspace 'dependencies\unifont-15.1.05\unifont-15.1.05.otf' }
+Import-Module (Join-Path $PSScriptRoot 'WorkspaceLayout.psm1') -Force
+$workspaceLayout = Get-EaglerWorkspaceLayout -ProjectRoot $project
+$workspace = $workspaceLayout.Root
+$FontFile = if ($FontFile) { $FontFile } else { Get-EaglerWorkspacePath $workspaceLayout 'dependencies' 'unifont-15.1.05\unifont-15.1.05.otf' }
 $VanillaFontFile = if ($VanillaFontFile) { $VanillaFontFile } else { Join-Path $env:WINDIR 'Fonts\msgothic.ttc' }
 $featureConfigPath = if ($FeatureConfig) {
     (Resolve-Path -LiteralPath $FeatureConfig).Path
 } else {
     (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot 'server-features.json')).Path
 }
+$artworkOverride = if ($ArtworkDirectory) { (Resolve-Path -LiteralPath $ArtworkDirectory).Path } else { $null }
 $featureSettings = Get-Content -LiteralPath $featureConfigPath -Raw | ConvertFrom-Json
 if ($featureSettings.schema -ne 'eagler-touhou/server-features/1' -or -not $featureSettings.games) {
     throw "Invalid server feature config: $featureConfigPath"
 }
-$resourceMode = if ($null -ne $featureSettings.resourceMode) { [string]$featureSettings.resourceMode } else { 'hosted' }
-if ($resourceMode -notin @('hosted', 'import-only', 'import-partial')) {
+$configuredResourceMode = if ($null -ne $featureSettings.resourceMode) { [string]$featureSettings.resourceMode } else { 'hosted' }
+if ($configuredResourceMode -notin @('hosted', 'import')) {
     throw "Invalid resourceMode in server feature config: $featureConfigPath"
 }
+$resourceMode = $configuredResourceMode
+$Games = @($Games | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim().ToLowerInvariant() } | Where-Object { $_ })
+if ($Games.Count -eq 0 -or @($Games | Select-Object -Unique).Count -ne $Games.Count -or @($Games | Where-Object { $_ -notin @('th06', 'th07', 'th08') }).Count) {
+    throw 'Games must be a non-empty unique subset of th06, th07 and th08'
+}
+$selectedPreloadGames = @($Games | Where-Object { $_ -in @('th06', 'th07') })
+$selectedHasTh08 = $Games -contains 'th08'
 if ($null -ne $featureSettings.gameDataFallback) {
     $fallbackUrl = [string]$featureSettings.gameDataFallback.url
     if (-not $fallbackUrl -or $fallbackUrl -notmatch '^https://') {
@@ -42,10 +78,13 @@ if ($null -ne $featureSettings.gameDataFallback) {
         throw "Invalid gameDataFallback.hint in server feature config: $featureConfigPath"
     }
 }
-if ($resourceMode -in @('import-only', 'import-partial') -and $null -eq $featureSettings.gameDataFallback) {
-    throw "$resourceMode requires gameDataFallback.url so the Launcher import dialog can open the game-package link: $featureConfigPath"
+if ($null -ne $featureSettings.netplayRelay) {
+    $relayUrl = [string]$featureSettings.netplayRelay
+    if (-not $relayUrl -or $relayUrl -notmatch '^wss?://') {
+        throw "Invalid netplayRelay in server feature config: $featureConfigPath"
+    }
 }
-foreach ($game in @('th06', 'th07')) {
+foreach ($game in $selectedPreloadGames) {
     $entry = $featureSettings.games.$game
     if (-not $entry -or $null -eq $entry.thprac -or -not $entry.languages -or @($entry.languages).Count -eq 0) {
         throw "Invalid $($game.ToUpperInvariant()) server feature entry"
@@ -63,38 +102,98 @@ $stagingRoot = "$output.admin-staging"
 if ($output -eq [IO.Path]::GetPathRoot($output) -or $output -eq $workspace) {
     throw "Unsafe output directory: $output"
 }
+$runtimeReleasePath = if ($RuntimeRelease) { (Resolve-Path -LiteralPath $RuntimeRelease).Path } else { $null }
+if ($runtimeReleasePath) {
+    & node (Join-Path $project 'scripts\verify-runtime-release.mjs') $runtimeReleasePath
+    if ($LASTEXITCODE -ne 0) { throw "Runtime Release verification failed: $LASTEXITCODE" }
+}
 
-if ($resourceMode -in @('import-only', 'import-partial')) {
+function Resolve-RuntimeBuildPlan(
+    [string] $Game,
+    [string] $Variant,
+    [bool] $Thcrap,
+    [bool] $Thprac,
+    [string] $AssetRoot,
+    [AllowEmptyString()] [string] $RuntimeExtension
+) {
+    $resolver = Join-Path $project 'scripts\resolve-runtime-build.mjs'
+    $resolverArgs = @(
+        $resolver,
+        "--game=$Game",
+        "--variant=$Variant",
+        "--thcrap=$($Thcrap.ToString().ToLowerInvariant())",
+        "--thprac=$($Thprac.ToString().ToLowerInvariant())",
+        "--asset-root=$AssetRoot",
+        "--runtime-extension=$RuntimeExtension"
+    )
+    $json = & node @resolverArgs
+    if ($LASTEXITCODE -ne 0) { throw "$Game/$Variant Runtime build profile resolution failed: $LASTEXITCODE" }
+    return $json | ConvertFrom-Json
+}
+
+if ($resourceMode -eq 'import') {
+    if (-not $HostManifest) {
+        throw "$resourceMode requires -HostManifest pointing to a verified hosted host-manifest.json"
+    }
+    $hostManifestPath = (Resolve-Path -LiteralPath $HostManifest).Path
+    $importArtwork = $artworkOverride
+    if (-not $importArtwork) {
+        $hostArtwork = Join-Path (Split-Path $hostManifestPath -Parent) 'assets'
+        if (Test-Path -LiteralPath $hostArtwork -PathType Container) { $importArtwork = $hostArtwork }
+    }
     # App-managed Runtime HTML/JS/WASM are part of the Launcher publication in
-    # every resource mode.  Import-only therefore reuses the already-built,
+    # every resource mode. Import therefore reuses the already-built,
     # locally verified Runtime artifacts instead of compiling from original
     # game assets or expecting imported packs to provide executable Runtime.
-    $runtimeBuilds = @{
-        th06 = Join-Path $workspace 'th06-eagler\build-web-eagler-thprac-test'
-        th06Multiplayer = Join-Path $workspace 'th06-eagler\build-web-netplay-th06'
-        th07 = Join-Path $workspace 'th07-eagler\build-web-eagler-thprac'
-        th07Multiplayer = Join-Path $workspace 'th07-eagler\build-web-th07-netplay'
-    }
-    foreach ($runtime in @(
-        @($runtimeBuilds.th06, 'th06'),
-        @($runtimeBuilds.th06Multiplayer, 'th06'),
-        @($runtimeBuilds.th07, 'th07'),
-        @($runtimeBuilds.th07Multiplayer, 'th07')
-    )) {
-        foreach ($extension in @('html', 'js', 'wasm')) {
-            $runtimeFile = Join-Path $runtime[0] ("$($runtime[1]).$extension")
-            if (-not (Test-Path -LiteralPath $runtimeFile -PathType Leaf)) {
-                throw "Prepared App Runtime artifact not found: $runtimeFile"
+    $runtimeBuilds = @{}
+    if (-not $runtimeReleasePath) {
+        $runtimeSpecs = @()
+        if ($Games -contains 'th06') {
+            $runtimeBuilds.th06 = Get-EaglerWorkspacePath $workspaceLayout 'th06' 'build-web-eagler-thprac-test'
+            $runtimeBuilds.th06Multiplayer = Get-EaglerWorkspacePath $workspaceLayout 'th06' 'build-web-netplay-th06'
+            $runtimeSpecs += ,@($runtimeBuilds.th06, 'th06')
+            $runtimeSpecs += ,@($runtimeBuilds.th06Multiplayer, 'th06')
+        }
+        if ($Games -contains 'th07') {
+            $runtimeBuilds.th07 = Get-EaglerWorkspacePath $workspaceLayout 'th07' 'build-web-eagler-thprac'
+            $runtimeBuilds.th07Multiplayer = Get-EaglerWorkspacePath $workspaceLayout 'th07' 'build-web-th07-netplay'
+            $runtimeSpecs += ,@($runtimeBuilds.th07, 'th07')
+            $runtimeSpecs += ,@($runtimeBuilds.th07Multiplayer, 'th07')
+        }
+        if ($selectedHasTh08) {
+            $runtimeBuilds.th08 = if ($Th08Build) { (Resolve-Path -LiteralPath $Th08Build).Path } else { Get-EaglerWorkspacePath $workspaceLayout 'th08' 'build\web-formal' }
+            $runtimeSpecs += ,@($runtimeBuilds.th08, 'th08-modern')
+        }
+        foreach ($runtime in $runtimeSpecs) {
+            foreach ($extension in @('html', 'js', 'wasm')) {
+                $runtimeFile = Join-Path $runtime[0] ("$($runtime[1]).$extension")
+                if (-not (Test-Path -LiteralPath $runtimeFile -PathType Leaf)) {
+                    throw "Prepared App Runtime artifact not found: $runtimeFile"
+                }
             }
         }
     }
-    & node (Join-Path $project 'scripts\package-server.mjs') `
-        "--output=$output" `
-        "--th06-build=$($runtimeBuilds.th06)" `
-        "--th06-multiplayer-build=$($runtimeBuilds.th06Multiplayer)" `
-        "--th07-build=$($runtimeBuilds.th07)" `
-        "--th07-multiplayer-build=$($runtimeBuilds.th07Multiplayer)" `
-        "--feature-config=$featureConfigPath"
+    $nodeArgs = @(
+        (Join-Path $project 'scripts\package-server.mjs'),
+        "--output=$output",
+        "--feature-config=$featureConfigPath",
+        "--host-manifest=$hostManifestPath",
+        "--games=$([string]::Join(',', $Games))",
+        "--profile=$Profile"
+    )
+    if ($importArtwork) { $nodeArgs += "--artwork-dir=$importArtwork" }
+    if ($runtimeReleasePath) {
+        $nodeArgs += "--runtime-release=$runtimeReleasePath"
+    } elseif ($Games -contains 'th06') {
+        $nodeArgs += "--th06-build=$($runtimeBuilds.th06)"
+        $nodeArgs += "--th06-multiplayer-build=$($runtimeBuilds.th06Multiplayer)"
+    }
+    if (-not $runtimeReleasePath -and $Games -contains 'th07') {
+        $nodeArgs += "--th07-build=$($runtimeBuilds.th07)"
+        $nodeArgs += "--th07-multiplayer-build=$($runtimeBuilds.th07Multiplayer)"
+    }
+    if (-not $runtimeReleasePath -and $selectedHasTh08) { $nodeArgs += "--th08-build=$($runtimeBuilds.th08)" }
+    & node @nodeArgs
     if ($LASTEXITCODE -ne 0) { throw "$resourceMode server packaging failed: $LASTEXITCODE" }
     & node (Join-Path $project 'scripts\verify-server-build.mjs') $output
     if ($LASTEXITCODE -ne 0) { throw "$resourceMode server verification failed: $LASTEXITCODE" }
@@ -103,11 +202,15 @@ if ($resourceMode -in @('import-only', 'import-partial')) {
     return
 }
 
-if (-not $Th06Directory -or -not $Th07Directory) {
-    throw "Hosted resource mode requires -Th06Directory and -Th07Directory"
-}
-$th06Source = (Resolve-Path -LiteralPath $Th06Directory).Path
-$th07Source = (Resolve-Path -LiteralPath $Th07Directory).Path
+if (($Games -contains 'th06') -and -not $Th06Directory) { throw "Hosted resource mode requires -Th06Directory when th06 is selected" }
+if (($Games -contains 'th07') -and -not $Th07Directory) { throw "Hosted resource mode requires -Th07Directory when th07 is selected" }
+if ($selectedHasTh08 -and -not $Th08Directory) { throw "Hosted resource mode requires -Th08Directory when th08 is selected" }
+$th06Source = if ($Games -contains 'th06') { (Resolve-Path -LiteralPath $Th06Directory).Path } else { $null }
+$th07Source = if ($Games -contains 'th07') { (Resolve-Path -LiteralPath $Th07Directory).Path } else { $null }
+$th08Source = if ($selectedHasTh08) { (Resolve-Path -LiteralPath $Th08Directory).Path } else { $null }
+$th08Build = if ($selectedHasTh08 -and -not $runtimeReleasePath) {
+    if ($Th08Build) { (Resolve-Path -LiteralPath $Th08Build).Path } else { Get-EaglerWorkspacePath $workspaceLayout 'th08' 'build\web-formal' }
+} else { $null }
 $font = (Resolve-Path -LiteralPath $FontFile).Path
 $vanillaFont = (Resolve-Path -LiteralPath $VanillaFontFile).Path
 $Music = @($Music | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim().ToLowerInvariant() } | Where-Object { $_ })
@@ -123,19 +226,27 @@ trap {
 }
 
 $th06Archives = @('紅魔郷CM.DAT', '紅魔郷ED.DAT', '紅魔郷IN.DAT', '紅魔郷MD.DAT', '紅魔郷ST.DAT', '紅魔郷TL.DAT')
-$required = @($font, $vanillaFont, (Join-Path $th07Source 'th07.dat'))
-$required += $th06Archives | ForEach-Object { Join-Path $th06Source $_ }
+$required = @($font, $vanillaFont)
+if ($Games -contains 'th06') { $required += $th06Archives | ForEach-Object { Join-Path $th06Source $_ } }
+if ($Games -contains 'th07') { $required += Join-Path $th07Source 'th07.dat' }
+if ($selectedHasTh08) { $required += Join-Path $th08Source 'th08.dat' }
 if ($Music -contains 'wav' -or $Music -contains 'ogg') {
-    $required += 1..17 | ForEach-Object { Join-Path $th06Source ('bgm\th06_{0:d2}.wav' -f $_) }
-    $required += Join-Path $th07Source 'thbgm.dat'
+    if ($Games -contains 'th06') { $required += 1..17 | ForEach-Object { Join-Path $th06Source ('bgm\th06_{0:d2}.wav' -f $_) } }
+    if ($Games -contains 'th07') { $required += Join-Path $th07Source 'thbgm.dat' }
+    if ($selectedHasTh08) { $required += Join-Path $th08Source 'thbgm.dat' }
 }
 foreach ($path in $required) {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Required original resource not found: $path" }
 }
+if ($selectedHasTh08 -and -not $runtimeReleasePath) {
+    foreach ($extension in @('html', 'js', 'wasm')) {
+        $runtimeFile = Join-Path $th08Build ("th08-modern.$extension")
+        if (-not (Test-Path -LiteralPath $runtimeFile -PathType Leaf)) {
+            throw "Prepared TH08 App Runtime artifact not found: $runtimeFile"
+        }
+    }
+}
 
-$emsdk = if ($EmsdkDirectory) { (Resolve-Path -LiteralPath $EmsdkDirectory).Path } else { Join-Path $workspace 'toolchains\emsdk' }
-$emcmake = Join-Path $emsdk 'upstream\emscripten\emcmake.exe'
-if (-not (Test-Path -LiteralPath $emcmake -PathType Leaf)) { throw "emcmake not found: $emcmake" }
 function Find-BuildTool([string] $Value, [string] $Name, [string] $VisualStudioPattern) {
     if ($Value) { return (Get-Command $Value -ErrorAction Stop).Source }
     $command = Get-Command $Name -ErrorAction SilentlyContinue
@@ -147,10 +258,19 @@ function Find-BuildTool([string] $Value, [string] $Name, [string] $VisualStudioP
     }
     throw "$Name not found; pass -$Name with its executable path"
 }
-$cmake = Find-BuildTool $CMake 'CMake' 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe'
-$ninja = Find-BuildTool $Ninja 'Ninja' 'Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe'
-$thpracPortableCMake = Join-Path $workspace 'thprac-reallyportable\portable\cmake\AttachReallyportable.cmake'
-if (($featureSettings.games.th06.thprac -or $featureSettings.games.th07.thprac) -and -not (Test-Path -LiteralPath $thpracPortableCMake -PathType Leaf)) {
+$emsdk = $null
+$emcmake = $null
+$cmake = $null
+$ninja = $null
+if ($selectedPreloadGames.Count -gt 0 -and -not $runtimeReleasePath) {
+    $emsdk = if ($EmsdkDirectory) { (Resolve-Path -LiteralPath $EmsdkDirectory).Path } else { Get-EaglerWorkspacePath $workspaceLayout 'toolchains' 'emsdk' }
+    $emcmake = Join-Path $emsdk 'upstream\emscripten\emcmake.exe'
+    if (-not (Test-Path -LiteralPath $emcmake -PathType Leaf)) { throw "emcmake not found: $emcmake" }
+    $cmake = Find-BuildTool $CMake 'CMake' 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe'
+    $ninja = Find-BuildTool $Ninja 'Ninja' 'Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe'
+}
+$thpracPortableCMake = Get-EaglerWorkspacePath $workspaceLayout 'thprac' 'portable\cmake\AttachReallyportable.cmake'
+if (-not $runtimeReleasePath -and @($selectedPreloadGames | Where-Object { [bool]$featureSettings.games.$_.thprac }).Count -gt 0 -and -not (Test-Path -LiteralPath $thpracPortableCMake -PathType Leaf)) {
     throw "Reallyportable thprac CMake adapter not found: $thpracPortableCMake"
 }
 
@@ -158,57 +278,120 @@ if (Test-Path -LiteralPath $stagingRoot) { Remove-Item -LiteralPath $stagingRoot
 $privateAssets = Join-Path $stagingRoot 'private-assets'
 $th06Assets = Join-Path $privateAssets 'th06'
 $th07Assets = Join-Path $privateAssets 'th07'
-$generated = Join-Path $stagingRoot 'generated'
-New-Item -ItemType Directory -Path $th06Assets, $th07Assets, $generated -Force | Out-Null
-Copy-Item -LiteralPath $font -Destination (Join-Path $th06Assets 'unifont.otf')
-Copy-Item -LiteralPath $font -Destination (Join-Path $th07Assets 'unifont.otf')
-Copy-Item -LiteralPath $vanillaFont -Destination (Join-Path $th06Assets 'msgothic.ttc')
-Copy-Item -LiteralPath $vanillaFont -Destination (Join-Path $th07Assets 'msgothic.ttc')
-foreach ($name in $th06Archives) { Copy-Item -LiteralPath (Join-Path $th06Source $name) -Destination (Join-Path $th06Assets $name) }
-Copy-Item -LiteralPath (Join-Path $th07Source 'th07.dat') -Destination (Join-Path $th07Assets 'th07.dat')
+$generated = if ($GeneratedCacheDirectory) {
+    [IO.Path]::GetFullPath($GeneratedCacheDirectory)
+} else {
+    Join-Path $stagingRoot 'generated'
+}
+New-Item -ItemType Directory -Path $generated -Force | Out-Null
+$hostArtwork = Join-Path $stagingRoot 'host-artwork'
+$deploymentPythonRoot = if ($DeploymentPythonDirectory) { [IO.Path]::GetFullPath($DeploymentPythonDirectory) } else { Join-Path $project '.deploy-python' }
+$uiPython = Resolve-DeploymentPython -Python $Python -EnvironmentDirectory $deploymentPythonRoot `
+    -RequirementsPath (Join-Path $PSScriptRoot 'requirements-ui.txt') -RequiredModules @('PIL') `
+    -RequirePrivateEnvironment:$([bool]$DeploymentPythonDirectory)
+Write-SiteBuildStage 1 'Preparing artwork and shared assets'
+$artworkArgs = @(
+    (Join-Path $project 'scripts\prepare-host-artwork.py'),
+    "--output=$hostArtwork",
+    "--games=$([string]::Join(',', $Games))"
+)
+if ($Games -contains 'th06') { $artworkArgs += "--th06-dir=$th06Source" }
+if ($Games -contains 'th07') { $artworkArgs += "--th07-dir=$th07Source" }
+if ($selectedHasTh08) { $artworkArgs += "--th08-dir=$th08Source" }
+if ($artworkOverride) { $artworkArgs += "--override-dir=$artworkOverride" }
+& $uiPython @artworkArgs
+if ($LASTEXITCODE -ne 0) { throw "Host artwork preparation failed: $LASTEXITCODE" }
+if ($Games -contains 'th06') {
+    New-Item -ItemType Directory -Path $th06Assets -Force | Out-Null
+    Copy-Item -LiteralPath $font -Destination (Join-Path $th06Assets 'unifont.otf')
+    Copy-Item -LiteralPath $vanillaFont -Destination (Join-Path $th06Assets 'msgothic.ttc')
+    foreach ($name in $th06Archives) { Copy-Item -LiteralPath (Join-Path $th06Source $name) -Destination (Join-Path $th06Assets $name) }
+}
+if ($Games -contains 'th07') {
+    New-Item -ItemType Directory -Path $th07Assets -Force | Out-Null
+    Copy-Item -LiteralPath $font -Destination (Join-Path $th07Assets 'unifont.otf')
+    Copy-Item -LiteralPath $vanillaFont -Destination (Join-Path $th07Assets 'msgothic.ttc')
+    Copy-Item -LiteralPath (Join-Path $th07Source 'th07.dat') -Destination (Join-Path $th07Assets 'th07.dat')
+}
+if (($Games -contains 'th06') -and ($Games -contains 'th07')) {
+    if ($ThtkThanm) {
+        $thanm = (Resolve-Path -LiteralPath $ThtkThanm).Path
+        $hitboxStage = Join-Path $stagingRoot 'hitbox-extract'
+        $hitboxAnm = Join-Path $hitboxStage 'etama.anm'
+        New-Item -ItemType Directory -Path $hitboxStage -Force | Out-Null
+        & $uiPython (Join-Path $project 'scripts\touhou_formats.py') extract-pbg4-entry `
+            --archive (Join-Path $th07Source 'th07.dat') --entry 'etama.anm' --output $hitboxAnm
+        if ($LASTEXITCODE -ne 0) { throw 'TH07 etama.anm extraction for the TH06 focus-hitbox failed.' }
+        Push-Location $hitboxStage
+        try {
+            & $thanm -x $hitboxAnm 'data/etama/etama2.png'
+            if ($LASTEXITCODE -ne 0) { throw 'thtk thanm failed to extract the TH06 focus-hitbox texture.' }
+        } finally {
+            Pop-Location
+        }
+        $hitboxPng = Join-Path $hitboxStage 'data\etama\etama2.png'
+        if (-not (Test-Path -LiteralPath $hitboxPng -PathType Leaf)) {
+            throw 'thtk thanm did not produce the TH06 focus-hitbox texture.'
+        }
+        Copy-Item -LiteralPath $hitboxPng -Destination (Join-Path $th06Assets 'eagler-hitbox.png') -Force
+    } else {
+        & $Python (Join-Path $project 'scripts\touhou_formats.py') extract-th07-texture `
+            --archive (Join-Path $th07Source 'th07.dat') --anm 'etama.anm' `
+            --texture 'data/etama/etama2.png' --output (Join-Path $th06Assets 'eagler-hitbox.png')
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning 'TH06 focus-hitbox extraction failed; it will remain disabled unless the selected Runtime DATA layout requires that file.'
+            Remove-Item -LiteralPath (Join-Path $th06Assets 'eagler-hitbox.png') -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
 
 $musicSet = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
 $Music | ForEach-Object { [void] $musicSet.Add($_) }
 [void] $musicSet.Add('midi')
+Write-SiteBuildStage 2 'Preparing music payloads'
 if ($musicSet.Contains('ogg')) {
-    $converterPython = $Python
-    & $Python -c 'import soundfile' 2>$null
-    if ($LASTEXITCODE -ne 0) {
-        $venv = Join-Path $project '.deploy-python'
-        $converterPython = Join-Path $venv 'Scripts\python.exe'
-        if (-not (Test-Path -LiteralPath $converterPython -PathType Leaf)) {
-            & $Python -m venv $venv
-            if ($LASTEXITCODE -ne 0) { throw "Unable to create the private deployment Python environment." }
-        }
-        & $converterPython -m pip install --disable-pip-version-check -r (Join-Path $PSScriptRoot 'requirements.txt')
-        if ($LASTEXITCODE -ne 0) { throw "Unable to install the private OGG conversion dependency." }
+    $converterPython = Resolve-DeploymentPython -Python $Python -EnvironmentDirectory $deploymentPythonRoot `
+        -RequirementsPath (Join-Path $PSScriptRoot 'requirements.txt') -RequiredModules @('soundfile') `
+        -RequirePrivateEnvironment:$([bool]$DeploymentPythonDirectory)
+    if ($Games -contains 'th06') {
+        & $converterPython (Join-Path $project 'scripts\convert_bgm_ogg.py') `
+            --game th06 --original-dir $th06Source --output (Join-Path $generated 'th06\bgm')
+        if ($LASTEXITCODE -ne 0) { throw "TH06 OGG conversion failed. Install deploy/requirements.txt into the selected Python environment." }
     }
-    & $converterPython (Join-Path $workspace 'th06-eagler\scripts\convert_bgm_ogg.py') `
-        --input (Join-Path $th06Source 'bgm') --output (Join-Path $generated 'th06\bgm')
-    if ($LASTEXITCODE -ne 0) { throw "TH06 OGG conversion failed. Install deploy/requirements.txt into the selected Python environment." }
-    & $converterPython (Join-Path $workspace 'th07-eagler\scripts\convert_bgm_ogg.py') `
-        --archive (Join-Path $th07Source 'th07.dat') --pcm (Join-Path $th07Source 'thbgm.dat') `
-        --output (Join-Path $generated 'th07\bgm-ogg')
-    if ($LASTEXITCODE -ne 0) { throw "TH07 OGG conversion failed. Install deploy/requirements.txt into the selected Python environment." }
+    if ($Games -contains 'th07') {
+        & $converterPython (Join-Path $project 'scripts\convert_bgm_ogg.py') `
+            --game th07 --original-dir $th07Source --output (Join-Path $generated 'th07\bgm-ogg')
+        if ($LASTEXITCODE -ne 0) { throw "TH07 OGG conversion failed. Install deploy/requirements.txt into the selected Python environment." }
+    }
+    if ($selectedHasTh08) {
+        & $converterPython (Join-Path $project 'scripts\convert_bgm_ogg.py') `
+            --game th08 --original-dir $th08Source --output (Join-Path $generated 'th08\bgm-ogg')
+        if ($LASTEXITCODE -ne 0) { throw "TH08 OGG conversion failed. Install deploy/requirements.txt into the selected Python environment." }
+    }
 }
 
-$env:EM_CONFIG = Join-Path $emsdk '.emscripten'
-$ninjaArgument = '-DCMAKE_MAKE_PROGRAM=' + $ninja
+$buildPreloadGames = if ($runtimeReleasePath) { @() } else { $selectedPreloadGames }
+$ninjaArgument = if ($buildPreloadGames.Count -gt 0) { '-DCMAKE_MAKE_PROGRAM=' + $ninja } else { $null }
+if ($buildPreloadGames.Count -gt 0) { $env:EM_CONFIG = Join-Path $emsdk '.emscripten' }
 $builds = @{}
-foreach ($game in @('th06', 'th07')) {
-    $source = Join-Path $workspace "$game-eagler"
+foreach ($game in $buildPreloadGames) {
     $build = Join-Path $stagingRoot "build-$game"
-    $assetArgument = if ($game -eq 'th06') { '-DTH06_ASSET_ROOT=' + $th06Assets } else { '-DTH07_ASSET_ROOT=' + $th07Assets }
+    $assetRoot = if ($game -eq 'th06') { $th06Assets } else { $th07Assets }
     $featureEntry = $featureSettings.games.$game
     $downloadableLanguages = @($featureEntry.languages | Where-Object { $_ -ne 'ja' })
     $languagePackPath = if ($game -eq 'th06') { $Th06LanguagePacks } else { $Th07LanguagePacks }
     if ($downloadableLanguages.Count -gt 0 -and -not $languagePackPath) {
         throw "$($game.ToUpperInvariant()) server feature config requests translated languages, but no language-pack directory was provided"
     }
-    $thcrapMode = if ($downloadableLanguages.Count -gt 0) { 'ON' } else { 'OFF' }
-    $thpracMode = if ([bool]$featureEntry.thprac) { 'ON' } else { 'OFF' }
-    $thpracAdapterArgument = if ($thpracMode -eq 'ON') { '-DTH_RUNTIME_EXTENSION_CMAKE=' + $thpracPortableCMake } else { '-DTH_RUNTIME_EXTENSION_CMAKE=' }
-    & $emcmake $cmake -S $source -B $build -G Ninja $ninjaArgument -DCMAKE_BUILD_TYPE=Release -DTH_WEB_MUSIC=BASE -DTH_WEB_SHARED_FONT=ON "-DTH_ENABLE_THCRAP=$thcrapMode" "-DTH_ENABLE_THPRAC=$thpracMode" $thpracAdapterArgument $assetArgument
+    $thcrapEnabled = $downloadableLanguages.Count -gt 0
+    $thpracEnabled = [bool]$featureEntry.thprac
+    $runtimeExtension = if ($thpracEnabled) { $thpracPortableCMake } else { '' }
+    $plan = Resolve-RuntimeBuildPlan $game 'normal' $thcrapEnabled $thpracEnabled $assetRoot $runtimeExtension
+    $source = Get-EaglerWorkspacePath $workspaceLayout $plan.workspaceRepository
+    $configureArguments = @('-S', $source, '-B', $build, '-G', 'Ninja')
+    if ($ninjaArgument) { $configureArguments += $ninjaArgument }
+    $configureArguments += @($plan.cmakeArguments)
+    & $emcmake $cmake @configureArguments
     if ($LASTEXITCODE -ne 0) { throw "$game Web configure failed: $LASTEXITCODE" }
     & $cmake --build $build --parallel 6
     if ($LASTEXITCODE -ne 0) { throw "$game Web build failed: $LASTEXITCODE" }
@@ -219,47 +402,74 @@ foreach ($game in @('th06', 'th07')) {
 # shares the normal Runtime's DATA/layout and localization policy, while thprac
 # stays out of the network-owned binary entirely.
 $multiplayerBuilds = @{}
-foreach ($game in @('th06', 'th07')) {
-    $source = Join-Path $workspace "$game-eagler"
+foreach ($game in $buildPreloadGames) {
     $build = Join-Path $stagingRoot "build-$game-multiplayer"
     $featureEntry = $featureSettings.games.$game
     $downloadableLanguages = @($featureEntry.languages | Where-Object { $_ -ne 'ja' })
-    $thcrapMode = if ($downloadableLanguages.Count -gt 0) { 'ON' } else { 'OFF' }
-    $assetArgument = if ($game -eq 'th06') { '-DTH06_ASSET_ROOT=' + $th06Assets } else { '-DTH07_ASSET_ROOT=' + $th07Assets }
-    & $emcmake $cmake -S $source -B $build -G Ninja $ninjaArgument `
-        -DCMAKE_BUILD_TYPE=Release -DTH_WEB_MUSIC=BASE -DTH_WEB_SHARED_FONT=ON `
-        "-DTH_ENABLE_THCRAP=$thcrapMode" -DTH_ENABLE_THPRAC=OFF `
-        -DTH_ENABLE_MULTIPLAYER_GAMEPLAY=ON -DTH_ENABLE_NETPLAY=ON `
-        -DTH_RUNTIME_EXTENSION_CMAKE= $assetArgument
+    $thcrapEnabled = $downloadableLanguages.Count -gt 0
+    $assetRoot = if ($game -eq 'th06') { $th06Assets } else { $th07Assets }
+    $plan = Resolve-RuntimeBuildPlan $game 'multiplayer' $thcrapEnabled $false $assetRoot ''
+    $source = Get-EaglerWorkspacePath $workspaceLayout $plan.workspaceRepository
+    $configureArguments = @('-S', $source, '-B', $build, '-G', 'Ninja')
+    if ($ninjaArgument) { $configureArguments += $ninjaArgument }
+    $configureArguments += @($plan.cmakeArguments)
+    & $emcmake $cmake @configureArguments
     if ($LASTEXITCODE -ne 0) { throw "$game multiplayer Web configure failed: $LASTEXITCODE" }
     & $cmake --build $build --parallel 6
     if ($LASTEXITCODE -ne 0) { throw "$game multiplayer Web build failed: $LASTEXITCODE" }
     $multiplayerBuilds[$game] = $build
 }
 
+Write-SiteBuildStage 3 'Packaging the static site'
 $nodeArgs = @(
     (Join-Path $project 'scripts\package-server.mjs'),
     "--output=$output",
-    "--th06-build=$($builds.th06)", "--th07-build=$($builds.th07)",
-    "--th06-multiplayer-build=$($multiplayerBuilds.th06)",
-    "--th07-multiplayer-build=$($multiplayerBuilds.th07)",
-    "--th06-assets=$th06Source", "--th07-assets=$th07Source",
     "--font=$font",
     "--vanilla-font=$vanillaFont",
     "--music=$([string]::Join(',', $musicSet))",
-    "--feature-config=$featureConfigPath"
+    "--feature-config=$featureConfigPath",
+    "--artwork-dir=$hostArtwork",
+    "--games=$([string]::Join(',', $Games))",
+    "--profile=$Profile"
 )
-if ($musicSet.Contains('ogg')) {
-    $nodeArgs += "--th06-ogg=$(Join-Path $generated 'th06')"
-    $nodeArgs += "--th07-ogg=$(Join-Path $generated 'th07')"
+if ($runtimeReleasePath) {
+    $nodeArgs += "--runtime-release=$runtimeReleasePath"
 }
-if ($Th06LanguagePacks) { $nodeArgs += "--th06-language-packs=$((Resolve-Path -LiteralPath $Th06LanguagePacks).Path)" }
-if ($Th07LanguagePacks) { $nodeArgs += "--th07-language-packs=$((Resolve-Path -LiteralPath $Th07LanguagePacks).Path)" }
+if (-not $runtimeReleasePath -and $Games -contains 'th06') {
+    $nodeArgs += "--th06-build=$($builds.th06)"
+    $nodeArgs += "--th06-multiplayer-build=$($multiplayerBuilds.th06)"
+}
+if ($Games -contains 'th06') {
+    $nodeArgs += "--th06-assets=$th06Source"
+    $nodeArgs += "--th06-data-assets=$th06Assets"
+}
+if (-not $runtimeReleasePath -and $Games -contains 'th07') {
+    $nodeArgs += "--th07-build=$($builds.th07)"
+    $nodeArgs += "--th07-multiplayer-build=$($multiplayerBuilds.th07)"
+}
+if ($Games -contains 'th07') {
+    $nodeArgs += "--th07-assets=$th07Source"
+}
+if ($selectedHasTh08) {
+    if (-not $runtimeReleasePath) { $nodeArgs += "--th08-build=$th08Build" }
+    $nodeArgs += "--th08-assets=$th08Source"
+}
+if ($musicSet.Contains('ogg')) {
+    if ($Games -contains 'th06') { $nodeArgs += "--th06-ogg=$(Join-Path $generated 'th06')" }
+    if ($Games -contains 'th07') { $nodeArgs += "--th07-ogg=$(Join-Path $generated 'th07')" }
+    if ($selectedHasTh08) { $nodeArgs += "--th08-ogg=$(Join-Path $generated 'th08')" }
+}
+if (($Games -contains 'th06') -and $Th06LanguagePacks) { $nodeArgs += "--th06-language-packs=$((Resolve-Path -LiteralPath $Th06LanguagePacks).Path)" }
+if (($Games -contains 'th07') -and $Th07LanguagePacks) { $nodeArgs += "--th07-language-packs=$((Resolve-Path -LiteralPath $Th07LanguagePacks).Path)" }
 & node @nodeArgs
 if ($LASTEXITCODE -ne 0) { throw "Server packaging failed: $LASTEXITCODE" }
+Write-SiteBuildStage 4 'Verifying the generated site'
 & node (Join-Path $project 'scripts\verify-server-build.mjs') $output
 if ($LASTEXITCODE -ne 0) { throw "Server verification failed: $LASTEXITCODE" }
 
 Remove-Item -LiteralPath $stagingRoot -Recurse -Force
-Write-Host "Deployment is ready: $output"
-Write-Host "Serve this directory as a static site and open /eagler-touhou/."
+Write-Progress -Id $script:SiteProgressId -Activity 'Static site assembly' -Completed
+if (-not $SuppressCompletionSummary) {
+    Write-Host "Deployment is ready: $output"
+    Write-Host "Serve this directory as a static site and open /eagler-touhou/."
+}

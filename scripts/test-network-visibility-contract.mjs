@@ -35,7 +35,7 @@ assert.match(launcher, /fetchImpl\(descriptorUrl, \{ cache: "no-store", signal \
   "Package Descriptor acquisition must remain injectable through the tracked fetch owner while accepting a blocking-operation AbortSignal");
 assert.match(browserTest, /sawNetworkTransfer/,
   "Real browser first-install E2E must verify that the transfer box actually showed network activity");
-assert.match(app, /const multiplayerSurface = state\.runtimeVariant === "multiplayer" \|\| isMultiplayerProduct\(\);[\s\S]*!new Set\(\["th06", "th07"\]\)\.has\(state\.game\) \|\| !multiplayerSurface/,
+assert.match(app, /const multiplayerSurface = state\.runtimeVariant === "multiplayer" \|\| isMultiplayerProduct\(\);[\s\S]*const multiplayer = PRODUCT_GAMES\[state\.game\]\?\.multiplayer;[\s\S]*if \(!multiplayer \|\| !multiplayerSurface\) return null/,
   "multiplayer diagnostics must support both games while remaining hidden for ordinary Runtime surfaces");
 assert.match(app, /if \(mode !== "lan"\) return null/,
   "multiplayer diagnostics must require the running LAN Runtime, not only Launcher selection state");

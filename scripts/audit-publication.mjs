@@ -4,15 +4,21 @@ import { readFile, readdir, stat } from "node:fs/promises";
 import { extname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const project = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const workspace = resolve(project, "..");
+const args = process.argv.slice(2);
+const directoryArgument = args.find(value => value.startsWith("--directory="));
+const workspaceAudit = args.includes("--workspace");
+if (args.some(value => value !== "--workspace" && !value.startsWith("--directory=")) ||
+    args.filter(value => value.startsWith("--directory=")).length > 1 ||
+    (directoryArgument && workspaceAudit)) {
+  throw new Error("usage: node scripts/audit-publication.mjs [--workspace | --directory=SOURCE_EXPORT]");
+}
+const project = directoryArgument ? resolve(directoryArgument.slice("--directory=".length))
+  : resolve(fileURLToPath(new URL("..", import.meta.url)));
 const forbiddenExtensions = new Set([".dat", ".data", ".wav", ".ogg", ".mid", ".midi", ".rpy", ".ttc"]);
-const publicArtwork = new Set([
-  "assets/th06-card.webp", "assets/th07-card.webp",
-  "assets/th06-title00.jpg", "assets/th07-title00.jpg",
+const publicAssets = new Set([
   "assets/touch-rotate-landscape.webp",
-  "assets/th06.ico",
   "assets/notice-bilibili.svg", "assets/notice-touhou-cloud.png",
+  "assets/notice-github.svg", "assets/notice-qq.svg",
   "assets/fonts/touhou98.woff2",
   "assets/fonts/unifont-site.woff2",
   "assets/fonts/noto-serif-sc-touhou.woff2", "assets/fonts/OFL-NotoSerifSC.txt",
@@ -20,7 +26,19 @@ const publicArtwork = new Set([
   "assets/fonts/OFL-YatraOne.txt", "assets/fonts/OFL-ChillRoundGothic.txt",
   "assets/fonts/NotoSansCJKsc-Regular.otf", "assets/fonts/OFL-NotoSansCJK.txt"
 ]);
+const hostGeneratedOriginalAssets = new Set([
+  "assets/th06-card.webp",
+  "assets/th07-card.webp",
+  "assets/th08-card.webp",
+  // Legacy/intermediate names remain forbidden too. They are useful as a
+  // guard against accidentally copying extraction staging back into source.
+  "assets/th06-title00.jpg",
+  "assets/th07-title00.jpg",
+  "assets/th08-title00.png",
+  "assets/th06.ico",
+]);
 const failures = [];
+let workspaceChecked = null;
 const runtimeBuildScript = await readFile(resolve(project, "scripts/Build-eagler-runtimes.ps1"), "utf8");
 const readme = await readFile(resolve(project, "README.md"), "utf8");
 if (!runtimeBuildScript.includes("build-web-eagler-external") ||
@@ -36,27 +54,49 @@ if (!readme.includes("故障排查：声音和输入初始化后游戏立即退�
     !readme.includes("不得在同一 CMake 构建目录中切换 `TH_EXTERNAL_ASSETS`")) {
   failures.push("missing external-assets failure and recovery documentation");
 }
-for (const repo of ["th06-eagler", "th07-eagler"]) {
-  const root = resolve(workspace, repo);
-  if (!existsSync(resolve(root, ".git"))) continue;
-  const tracked = execFileSync("git", ["-C", root, "ls-files", "-z"], { encoding: "utf8" }).split("\0").filter(Boolean);
-  for (const file of tracked) {
-    if (forbiddenExtensions.has(extname(file).toLowerCase()) || /(^|\/)assets(?:-ogg)?\//i.test(file)) failures.push(`${repo}/${file}`);
+if (workspaceAudit) {
+  const { WORKSPACE_REPOSITORIES, workspacePath } = await import("../lib/workspace-layout.mjs");
+  workspaceChecked = [
+    WORKSPACE_REPOSITORIES.launcher,
+    `${WORKSPACE_REPOSITORIES.th06} tracked files`,
+    `${WORKSPACE_REPOSITORIES.th07} tracked files`,
+  ];
+  for (const owner of ["th06", "th07"]) {
+    const repo = WORKSPACE_REPOSITORIES[owner];
+    const root = workspacePath(owner);
+    if (!existsSync(resolve(root, ".git"))) throw new Error(`workspace publication audit requires sibling repository: ${repo}`);
+    const tracked = execFileSync("git", ["-C", root, "ls-files", "-z"], { encoding: "utf8" }).split("\0").filter(Boolean);
+    for (const file of tracked) {
+      if (forbiddenExtensions.has(extname(file).toLowerCase()) || /(^|\/)assets(?:-ogg)?\//i.test(file)) failures.push(`${repo}/${file}`);
+    }
   }
+}
+async function inspect(path) {
+  const rel = relative(project, path).replaceAll("\\", "/");
+  if (hostGeneratedOriginalAssets.has(rel)) failures.push(`eagler-touhou/${rel} (original-game-derived host asset must not be source-published)`);
+  else if (rel.startsWith("assets/") && !publicAssets.has(rel)) failures.push(`eagler-touhou/${rel} (unreviewed public asset)`);
+  if (forbiddenExtensions.has(extname(rel).toLowerCase())) failures.push(`eagler-touhou/${rel}`);
+  if ((await stat(path)).size > 50 * 1024 * 1024) failures.push(`eagler-touhou/${rel} (>50 MiB)`);
 }
 async function walk(directory) {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     if (["node_modules", ".npm-cache", ".deploy-python", "design", "screenshots"].includes(entry.name)) continue;
     const path = resolve(directory, entry.name);
     if (entry.isDirectory()) await walk(path);
-    else {
-      const rel = relative(project, path).replaceAll("\\", "/");
-      if (rel.startsWith("assets/") && !publicArtwork.has(rel)) failures.push(`eagler-touhou/${rel} (unreviewed public artwork)`);
-      if (forbiddenExtensions.has(extname(rel).toLowerCase())) failures.push(`eagler-touhou/${rel}`);
-      if ((await stat(path)).size > 50 * 1024 * 1024) failures.push(`eagler-touhou/${rel} (>50 MiB)`);
-    }
+    else await inspect(path);
   }
 }
-await walk(project);
+if (!directoryArgument && existsSync(resolve(project, ".git"))) {
+  // Source publication candidates are tracked + nonignored new source, not
+  // private local validation outputs. Force-added ignored assets remain tracked
+  // and therefore still fail. A concrete export is audited with --directory.
+  const files = new Set(execFileSync("git", ["-C", project, "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+    {encoding:"utf8"}).split("\0").filter(Boolean));
+  for (const asset of publicAssets) if (existsSync(resolve(project, asset))) files.add(asset);
+  for (const file of files) if (existsSync(resolve(project, file)) && (await stat(resolve(project, file))).isFile()) {
+    await inspect(resolve(project, file));
+  }
+} else await walk(project);
 if (failures.length) throw new Error(`publication contains private/generated resources:\n${failures.join("\n")}`);
-console.log(JSON.stringify({ safe: true, checked: ["eagler-touhou", "th06-eagler tracked files", "th07-eagler tracked files"] }));
+console.log(JSON.stringify({ safe: true, scope: directoryArgument ? "explicit-source-export" : "git-source-candidates",
+  checked: workspaceChecked || ["eagler-touhou"] }));

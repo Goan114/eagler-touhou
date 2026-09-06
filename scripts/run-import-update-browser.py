@@ -99,7 +99,7 @@ def main() -> int:
         page.wait_for_function("() => document.getElementById('playerStatus')?.textContent === '运行中' && window.__importUpdateFirstFrame === true", timeout=180_000)
 
         updated = page.evaluate(snapshot_js, args.game)
-        catalog = page.evaluate("fetch('games.json', { cache: 'no-store' }).then(response => response.json())")
+        catalog = page.evaluate("fetch('release-catalog.json', { cache: 'no-store' }).then(response => response.json())")
         expected_revision = catalog["games"][args.game]["revision"]
         if updated["generation"]["descriptor"]["revision"] != expected_revision:
             raise AssertionError("imported content did not update to the associated remote release")

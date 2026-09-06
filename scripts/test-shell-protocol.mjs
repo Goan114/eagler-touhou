@@ -1,22 +1,21 @@
 import { readFile } from "node:fs/promises";
 import { webcrypto } from "node:crypto";
-import { resolve } from "node:path";
 import vm from "node:vm";
+import { workspacePath } from "../lib/workspace-layout.mjs";
 
-const workspace = resolve(new URL("../..", import.meta.url).pathname.replace(/^\/(?:([A-Za-z]:))/, "$1"));
 const cases = [
-  { game: "th06", shell: "th06-eagler/resources/shell.html", packs: {
+  { game: "th06", shell: workspacePath("th06", "resources", "shell.html"), packs: {
     wav: [{ url: "http://test.local/music.wav", path: "/bgm/th06_01.wav" }],
     ogg: [{ url: "http://test.local/music.ogg", path: "/bgm/th06_01.ogg" }]
   } },
-  { game: "th07", shell: "th07-eagler/resources/shell.html", packs: {
+  { game: "th07", shell: workspacePath("th07", "resources", "shell.html"), packs: {
     wav: [{ url: "http://test.local/thbgm.dat", path: "/thbgm.dat" }],
     ogg: [{ url: "http://test.local/music.ogg", path: "/bgm-ogg/th07_01.ogg" }]
   } }
 ];
 
 for (const game of ["th06", "th07"]) {
-  const sdlAudio = await readFile(resolve(workspace, `${game}-eagler/vendored/SDL/src/audio/emscripten/SDL_emscriptenaudio.c`), "utf8");
+  const sdlAudio = await readFile(workspacePath(game, "vendored", "SDL", "src", "audio", "emscripten", "SDL_emscriptenaudio.c"), "utf8");
   if (!sdlAudio.includes("scriptProcessorNode") || !sdlAudio.includes("setup a ScriptProcessorNode")) {
     throw new Error(`${game}: SDL Emscripten playback must retain the verified ScriptProcessor baseline`);
   }
@@ -31,7 +30,7 @@ for (const game of ["th06", "th07"]) {
 }
 
 for (const test of cases) {
-  const html = await readFile(resolve(workspace, test.shell), "utf8");
+  const html = await readFile(test.shell, "utf8");
   const source = html.match(/<script>\s*([\s\S]*?)<\/script>/)?.[1];
   if (!source) throw new Error(`${test.game}: inline shell script missing`);
   const listeners = new Map();

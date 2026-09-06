@@ -62,9 +62,9 @@ def main() -> int:
         # the online preparation phase free of App Shell reload/first-frame
         # timing, and makes the first actual Runtime launch happen offline.
         online = page.evaluate("""async game => {
-          const catalogUrl = new URL('games.json', location.href).href;
+          const catalogUrl = new URL('release-catalog.json', location.href).href;
           const catalog = await fetch(catalogUrl, { cache: 'no-store' }).then(r => {
-            if (!r.ok) throw new Error(`games.json HTTP ${r.status}`);
+            if (!r.ok) throw new Error(`release-catalog.json HTTP ${r.status}`);
             return r.json();
           });
           const { installPublishedPackage } = await import('./package-launcher.mjs');

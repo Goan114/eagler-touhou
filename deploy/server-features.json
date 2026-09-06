@@ -3,11 +3,11 @@
   "resourceMode": "hosted",
   "games": {
     "th06": {
-      "languages": ["ja", "lang_zh-hans", "lang_en"],
+      "languages": ["ja"],
       "thprac": true
     },
     "th07": {
-      "languages": ["ja", "lang_zh-hans", "lang_en"],
+      "languages": ["ja"],
       "thprac": true
     }
   }

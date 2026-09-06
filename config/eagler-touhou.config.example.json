@@ -1,0 +1,10 @@
+{
+  "schema": "eagler-touhou/host-config/1",
+  "netplay": {
+    "relay": ""
+  },
+  "externalImportSource": {
+    "url": "",
+    "hint": ""
+  }
+}

@@ -28,11 +28,11 @@ runtime/    # official Linux x64 Node LTS archive for local relay mode
 
 ## Build the application publication on Windows
 
-For a low-bandwidth origin, build `import-only` or `import-partial`; players
-then obtain game-content packages from the separately managed download/CDN
-location. The Launcher and its App-managed Runtime still belong in `site/`.
+For an origin that does not provide game content, build `import`; players then
+obtain game-content packages from the separately managed download/CDN location.
+The Launcher and its App-managed Runtime still belong in `site/`.
 
-First copy `server-features-import-only.example.json` to a deployment-private
+First copy `server-features-import.example.json` to a deployment-private
 configuration and add the real HTTPS `gameDataFallback.url` for the CDN/game
 package download page. Do not put provider credentials in that file.
 

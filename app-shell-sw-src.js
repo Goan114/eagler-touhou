@@ -1,7 +1,8 @@
 "use strict";
 
-// App Shell only. Game content and Runtime preparation are intentionally not
-// routed through this worker.
+// App Shell only. Package/game content and Package DATA preparation are not
+// routed through this worker. Deployment builds may add App-owned Runtime
+// HTML/JS/WASM to this same precache so an installed game can start offline.
 const CACHE_PREFIX = "eagler-touhou-app-shell-";
 const CACHE_NAME = `${CACHE_PREFIX}__APP_SHELL_BUILD_ID__`;
 const CACHE_RETENTION = 2;

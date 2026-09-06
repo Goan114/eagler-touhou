@@ -1,4 +1,4 @@
-import { parseStoredZip } from "./game-data-import.mjs";
+import { parseStoredZip } from "./stored-zip.mjs";
 import { validatePackageDescriptor } from "./package-descriptor.mjs";
 import { packageMimeType } from "./package-store.mjs";
 
@@ -9,7 +9,6 @@ export async function parsePackageZip(blob) {
   const entries = await parseStoredZip(blob);
   const descriptorEntry = entries.get(PACKAGE_ZIP_DESCRIPTOR);
   if (!descriptorEntry) throw new Error(`Package ZIP is missing ${PACKAGE_ZIP_DESCRIPTOR}`);
-  if (descriptorEntry.uncompressedSize > 512 * 1024) throw new Error("Package Descriptor is too large");
   let descriptor;
   try {
     descriptor = JSON.parse(await blob.slice(

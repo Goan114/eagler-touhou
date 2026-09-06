@@ -1,3 +1,4 @@
-感谢 [车万云](https://cloud.touhou.best/) 无偿提供 CDN 支持。
-欢迎提出反馈，可前往 [B站](https://www.bilibili.com/video/BV1yogK69EVy) 视频留言。
-反馈问题前，请先阅读 [常见问题](faq.html)。
+本项目是[车万云](https://cloud.touhou.best/)的一个子项目。
+交流、联机、反馈等，欢迎加 [QQ群](https://qm.qq.com/q/PFbEgcofUQ) 或在 [B站](https://www.bilibili.com/video/BV1yogK69EVy) 留言。
+反馈问题前，请先阅读[常见问题](faq.html)。
+求 Star！Star 是我切切实实的维护动力！[Github](https://github.com/YomotsuHisami/eagler-touhou)

@@ -1,48 +1,96 @@
-import { spawnSync } from "node:child_process";
+import { readdir } from "node:fs/promises";
+import { extname, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { spawn } from "node:child_process";
+import { availableParallelism } from "node:os";
+import {
+  REPOSITORY_NODE_TESTS,
+  REPOSITORY_PYTHON_TESTS,
+  WORKSPACE_NODE_TESTS,
+  WORKSPACE_PRECHECKS,
+  WORKSPACE_PYTHON_TESTS,
+} from "../tests/test-plan.mjs";
+
+const project = resolve(fileURLToPath(new URL("..", import.meta.url)));
+const workspaceMode = process.argv.includes("--workspace");
+const unknownArgs = process.argv.slice(2).filter(arg => arg !== "--workspace");
+if (unknownArgs.length) throw new Error("usage: node scripts/check.mjs [--workspace]");
+const startedAt = Date.now();
+const requestedJobs = Number(process.env.EAGLER_CHECK_JOBS || 0);
+const jobs = Number.isInteger(requestedJobs) && requestedJobs > 0
+  ? requestedJobs
+  : Math.max(1, Math.min(8, availableParallelism()));
 
 function run(command, args) {
-  const result = spawnSync(command, args, { stdio: "inherit", shell: false });
-  if (result.error) throw result.error;
-  if (result.status !== 0) process.exit(result.status || 1);
+  return new Promise((resolvePromise, reject) => {
+    const child = spawn(command, args, { cwd: project, stdio: "inherit", shell: false });
+    child.once("error", reject);
+    child.once("exit", (code, signal) => {
+      if (code === 0) return resolvePromise();
+      reject(new Error(`${command} ${args.join(" ")} failed${signal ? ` (${signal})` : ""} with exit code ${code ?? "unknown"}`));
+    });
+  });
 }
 
-const nodeChecks = [
-  "app-shell-sw-src.js", "scripts/build-app-shell.mjs", "app.js", "app-shell-sw.js",
-  "game-data-import.mjs", "network-activity.mjs", "package-descriptor.mjs",
-  "package-generation.mjs", "package-store.mjs", "runtime-preparation.mjs",
-  "package-zip.mjs", "package-installer.mjs", "release-catalog.mjs",
-  "product-catalog.mjs", "package-launcher.mjs",
-  "scripts/run-launcher-package-first-install-browser-test.mjs",
-  "scripts/run-launcher-package-import-browser-test.mjs",
-  "scripts/run-playwright-webkit-gate.mjs", "scripts/game-data-layout.mjs",
-  "integrations/thcrap.mjs", "integrations/thprac.mjs", "server/thcrap-service.mjs",
-  "server/thcrap-compiler.mjs", "server/thcrap-ascii-contract.mjs",
-  "server/thcrap-static-pack.mjs", "server/thtk-runner.mjs", "scripts/vendor.mjs",
-  "scripts/serve.mjs", "scripts/package-test.mjs", "scripts/package-game-data.mjs",
-  "scripts/package-offline-game.mjs", "scripts/package-server.mjs",
-  "scripts/verify-test-build.mjs", "scripts/verify-server-build.mjs",
-  "scripts/verify-deployed-site.mjs", "scripts/verify-origin-cutover.mjs",
-  "scripts/audit-publication.mjs", "scripts/verify-unified-layout.mjs",
-  "scripts/verify-dom-contract.mjs", "scripts/prepare-th06-language-pack.mjs",
-];
+async function runPool(tasks, concurrency = jobs) {
+  let next = 0;
+  async function worker() {
+    while (true) {
+      const index = next++;
+      if (index >= tasks.length) return;
+      const [command, args] = tasks[index];
+      await run(command, args);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, tasks.length) }, () => worker()));
+}
 
-const tests = [
-  "verify-dom-contract.mjs", "test-server-feature-contract.mjs", "audit-publication.mjs",
-  "test-shell-protocol.mjs", "test-game-data-import.mjs",
-  "test-network-activity.mjs", "test-network-visibility-contract.mjs",
-  "test-package-descriptor.mjs", "test-package-generation.mjs",
-  "test-package-store-contract.mjs", "test-package-zip.mjs",
-  "test-package-installer-contract.mjs", "test-release-catalog.mjs",
-  "test-package-launcher.mjs", "test-local-launcher-contract.mjs", "test-th06-netplay-launcher-contract.mjs",
-  "test-multiplayer-replay-launcher-contract.mjs", "test-multiplayer-spectator-launcher-contract.mjs", "test-server.mjs",
-];
-
-run(process.execPath, ["scripts/build-app-shell.mjs"]);
-for (const file of nodeChecks) run(process.execPath, ["--check", file]);
-run("python", ["-m", "py_compile",
-  "scripts/subset-font.py",
-  "scripts/run-launcher-playwright-webkit.py",
-  "scripts/run-import-update-browser.py",
-  "scripts/run-ogg-progressive-chromium.py",
+const excludedDirectories = new Set([
+  ".git", ".npm-cache", ".deploy-python", "node_modules", "artifacts", "archive",
+  "archivetemporary", "dist", "design", "screenshots", "vendor", "private-assets",
+  "generated-assets", "server-output", "__pycache__",
 ]);
-for (const test of tests) run(process.execPath, [`scripts/${test}`]);
+
+async function collectSourceFiles(directory = project) {
+  const result = [];
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    if (entry.isDirectory() && excludedDirectories.has(entry.name)) continue;
+    const path = resolve(directory, entry.name);
+    const rel = relative(project, path).replaceAll("\\", "/");
+    if (entry.isDirectory()) {
+      if (rel === "eagler-touhou" || rel === "android-webview-lab/out") continue;
+      result.push(...await collectSourceFiles(path));
+      continue;
+    }
+    if ([".js", ".mjs", ".cjs", ".py"].includes(extname(entry.name).toLowerCase())) result.push(rel);
+  }
+  return result.sort();
+}
+
+const sourceFiles = await collectSourceFiles();
+const javascriptFiles = sourceFiles.filter(file => [".js", ".mjs", ".cjs"].includes(extname(file)));
+const pythonFiles = sourceFiles.filter(file => extname(file) === ".py");
+await runPool(javascriptFiles.map(file => [process.execPath, ["--check", file]]));
+if (pythonFiles.length) await run("python", ["-m", "py_compile", ...pythonFiles]);
+
+// App Shell generation is build output only. The repository gate exercises the
+// builder without writing a generated Service Worker into the source tree.
+await run(process.execPath, ["scripts/build-app-shell.mjs", "--check"]);
+
+// Repo-local, deterministic behavior/format gates. These must work in an
+// ordinary standalone clone without sibling game repositories or private game
+// resources.
+await runPool(REPOSITORY_NODE_TESTS.map(test => [process.execPath, [test]]), Math.min(jobs, 6));
+await runPool(REPOSITORY_PYTHON_TESTS.map(test => ["python", [test]]), Math.min(jobs, 4));
+await run(process.execPath, ["scripts/audit-publication.mjs"]);
+
+// Cross-repository integration is intentionally explicit. These checks are
+// valuable, but they are not reproducible from the Launcher repository alone.
+if (workspaceMode) {
+  for (const [command, args] of WORKSPACE_PRECHECKS) await run(command, [...args]);
+  for (const test of WORKSPACE_NODE_TESTS) await run(process.execPath, [test]);
+  for (const test of WORKSPACE_PYTHON_TESTS) await run("python", [test]);
+}
+
+const elapsedSeconds = ((Date.now() - startedAt) / 1000).toFixed(1);
+console.log(`Check: PASS (${workspaceMode ? "workspace integration" : "repository core"}, ${elapsedSeconds}s, jobs=${jobs})`);

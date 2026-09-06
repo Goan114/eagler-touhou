@@ -1,0 +1,117 @@
+import { createHash } from "node:crypto";
+import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { PRODUCT_GAMES } from "../product-catalog.mjs";
+import { RUNTIME_RELEASE_SCHEMA, runtimeStem, validateRuntimeReleaseManifest, verifyRuntimeRelease } from "../lib/runtime-release.mjs";
+import { extractGameDataLayout } from "../lib/runtime-data-layout.mjs";
+import { assertRuntimeDataShell } from "../lib/runtime-data-provider.mjs";
+
+const project = resolve(fileURLToPath(new URL("..", import.meta.url)));
+const args = Object.fromEntries(process.argv.slice(2).map(value => {
+  const split = value.indexOf("=");
+  if (!value.startsWith("--") || split < 3) throw new Error(`invalid argument: ${value}`);
+  return [value.slice(2, split), value.slice(split + 1)];
+}));
+const required = name => {
+  if (!args[name]) throw new Error(`missing --${name}=PATH`);
+  return resolve(args[name]);
+};
+const output = required("output");
+const staging = `${output}.staging`;
+const builds = {
+  th06: required("th06-build"),
+  th06Multiplayer: required("th06-multiplayer-build"),
+  th07: required("th07-build"),
+  th07Multiplayer: required("th07-multiplayer-build"),
+  th08: required("th08-build"),
+};
+
+async function identity(path) {
+  const bytes = await readFile(path);
+  return { bytes: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") };
+}
+
+async function compileAttestation(build) {
+  try {
+    return await readFile(resolve(build, "compile_commands.json"), "utf8");
+  } catch {
+    return "";
+  }
+}
+
+async function copyVariant(game, build, root, variant) {
+  const stem = runtimeStem(game);
+  const html = await readFile(resolve(build, `${stem}.html`), "utf8");
+  assertRuntimeDataShell(html, game, variant);
+  await mkdir(resolve(staging, root), { recursive: true });
+  const files = {};
+  for (const extension of ["html", "js", "wasm"]) {
+    const name = `${stem}.${extension}`;
+    const source = resolve(build, name);
+    await cp(source, resolve(staging, root, name));
+    files[name] = await identity(source);
+  }
+  return files;
+}
+
+await rm(staging, { recursive: true, force: true });
+await mkdir(staging, { recursive: true });
+
+const games = {};
+for (const game of Object.keys(PRODUCT_GAMES)) {
+  const product = PRODUCT_GAMES[game];
+  const normalBuild = builds[game];
+  const normalRoot = `runtime/${game}`;
+  const runtime = { root: normalRoot, files: await copyVariant(game, normalBuild, normalRoot, "normal") };
+  let multiplayerRuntime = null;
+  if (product.multiplayerRuntime) {
+    const multiplayerBuild = builds[`${game}Multiplayer`];
+    const multiplayerRoot = `runtime/${game}/multiplayer`;
+    multiplayerRuntime = { root: multiplayerRoot, files: await copyVariant(game, multiplayerBuild, multiplayerRoot, "multiplayer") };
+  }
+
+  let dataLayout = null;
+  let normalLayout = null;
+  if (product.dataProvider === "emscripten-preload") {
+    const normalJs = await readFile(resolve(normalBuild, `${game}.js`), "utf8");
+    normalLayout = extractGameDataLayout(normalJs, game);
+    dataLayout = normalLayout.layout;
+    if (multiplayerRuntime) {
+      const multiplayerJs = await readFile(resolve(builds[`${game}Multiplayer`], `${game}.js`), "utf8");
+      const multiplayerLayout = extractGameDataLayout(multiplayerJs, game);
+      if (normalLayout.layout !== multiplayerLayout.layout || normalLayout.bytes !== multiplayerLayout.bytes) {
+        throw new Error(`${game}: normal and multiplayer Runtime DATA layouts differ`);
+      }
+    }
+  } else {
+    // TH08's retail-memory provider uses the product's declared original-content layout.
+    const { PRODUCT_CONTENT } = await import("../lib/content-definition.mjs");
+    dataLayout = PRODUCT_CONTENT[game]?.dataLayout;
+  }
+
+  const compile = await compileAttestation(normalBuild);
+  games[game] = {
+    dataProvider: product.dataProvider,
+    dataLayout,
+    runtime,
+    ...(multiplayerRuntime ? { multiplayerRuntime } : {}),
+    features: {
+      thprac: !!product.features.thprac && compile.includes("THPRAC_PORTABLE_ENABLED=1"),
+      languages: !!product.features.languages && compile.includes("-DTH_ENABLE_THCRAP "),
+      focusHitbox: !!product.features.focusHitbox && !!normalLayout?.files.some(([path]) => path === "/eagler-hitbox.png"),
+    },
+  };
+}
+
+const manifest = validateRuntimeReleaseManifest({
+  schema: RUNTIME_RELEASE_SCHEMA,
+  protocol: "eagler-touhou/1",
+  games,
+});
+await writeFile(resolve(staging, "runtime-release.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+await verifyRuntimeRelease(staging);
+await rm(output, { recursive: true, force: true });
+await cp(staging, output, { recursive: true });
+await rm(staging, { recursive: true, force: true });
+console.log(JSON.stringify({ output, games: Object.keys(games), schema: RUNTIME_RELEASE_SCHEMA }));

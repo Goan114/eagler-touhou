@@ -19,9 +19,9 @@ def open_mp(page, url, package_zip=None):
     }""")
     close_changelog(page)
     if package_zip:
-        # Model the actual import-only user path: choose ordinary TH07, press
+        # Model the actual import user path: choose ordinary TH07, press
         # the primary "导入游戏资源" action, then import the package from the
-        # import-only window. This path marks the acquisition as import-only,
+        # import window. This path marks the acquisition as import,
         # so a successful import must NOT transiently launch the normal TH07
         # Runtime before the multiplayer test begins.
         page.locator('button.game-th07:not([data-product="th07mp"])').click()
@@ -65,7 +65,7 @@ def open_mp(page, url, package_zip=None):
         page.evaluate("document.querySelector('#changelogDialog')?.close()")
         assert not page.locator("#player").evaluate(
             "element => element.classList.contains('open')"
-        ), "import-only package acquisition must not auto-launch normal TH07"
+        ), "import package acquisition must not auto-launch normal TH07"
 
     page.locator('[data-product="th07mp"]').click()
     page.wait_for_selector("#mpShell:not([hidden])")

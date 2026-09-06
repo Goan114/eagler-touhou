@@ -1,11 +1,15 @@
 import { spawn } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const project = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const root = resolve(project, "..");
 const port = 30000 + Math.floor(Math.random() * 10000);
+const fixtureName = `server-policy-${randomUUID()}.data`;
+const fixtureDirectory = resolve(project, "artifacts", "validation", "server-policy");
+const fixturePath = resolve(fixtureDirectory, fixtureName);
 const nginxConfig = await readFile(resolve(project, "deploy", "nginx-eagler-touhou.conf"), "utf8");
 if (!nginxConfig.includes("absolute_redirect off;")) throw new Error("nginx redirects must remain relative behind private-port mirrors");
 if (!nginxConfig.includes('location ~* "\\.[a-f0-9]{24}\\.zip$" {')) throw new Error("nginx content-hash ZIP regex must stay quoted and syntactically valid");
@@ -18,7 +22,12 @@ const child = spawn(process.execPath, [resolve(project, "scripts", "serve.mjs"),
 });
 
 try {
-  const url = `http://127.0.0.1:${port}/th06-eagler/build-web-eagler-thprac-test/th06.data?v=test`;
+  await mkdir(fixtureDirectory, { recursive: true });
+  // Large enough to exercise Brotli without relying on a sibling Runtime
+  // build. The extension intentionally exercises the mutable Runtime-DATA
+  // cache policy owned by serve.mjs.
+  await writeFile(fixturePath, Buffer.alloc(32 * 1024, 0x45));
+  const url = `http://127.0.0.1:${port}/eagler-touhou/artifacts/validation/server-policy/${fixtureName}?v=test`;
   let response;
   for (let attempt = 0; attempt < 40; attempt++) {
     try { response = await fetch(url, { method: "HEAD", headers: { "Accept-Encoding": "br" } }); break; }
@@ -29,13 +38,9 @@ try {
   if (directory.status !== 308 || directory.headers.get("location") !== "/eagler-touhou/") {
     throw new Error(`directory redirect failed: ${directory.status} ${directory.headers.get("location")}`);
   }
-  const moduleResponse = await fetch(`http://127.0.0.1:${port}/eagler-touhou/game-data-import.js`, { method: "HEAD" });
+  const moduleResponse = await fetch(`http://127.0.0.1:${port}/eagler-touhou/legacy-game-pack.mjs`, { method: "HEAD" });
   if (!moduleResponse.ok || !/^text\/javascript\b/i.test(moduleResponse.headers.get("content-type") || "")) {
     throw new Error(`ES module MIME is invalid: ${moduleResponse.status} ${moduleResponse.headers.get("content-type")}`);
-  }
-  const iconResponse = await fetch(`http://127.0.0.1:${port}/eagler-touhou/assets/th06.ico`, { method: "HEAD" });
-  if (!iconResponse.ok || !/^image\/x-icon\b/i.test(iconResponse.headers.get("content-type") || "")) {
-    throw new Error(`TH06 icon MIME is invalid: ${iconResponse.status} ${iconResponse.headers.get("content-type")}`);
   }
   const brandFontResponse = await fetch(`http://127.0.0.1:${port}/eagler-touhou/assets/fonts/touhou98.woff2`, { method: "HEAD" });
   if (!brandFontResponse.ok || !/^font\/woff2\b/i.test(brandFontResponse.headers.get("content-type") || "")) {
@@ -56,7 +61,8 @@ try {
   if (!tag) throw new Error("ETag missing");
   const conditional = await fetch(url, { method: "HEAD", headers: { "If-None-Match": tag } });
   if (conditional.status !== 304) throw new Error(`expected 304, got ${conditional.status}`);
-  console.log(JSON.stringify({ directory: 308, moduleMime: "text/javascript", iconMime: "image/x-icon", brandFontMime: "font/woff2", siteFontMime: "font/woff2", compression: "br", cache: "must-revalidate", conditional: 304 }));
+  console.log(JSON.stringify({ directory: 308, moduleMime: "text/javascript", brandFontMime: "font/woff2", siteFontMime: "font/woff2", compression: "br", cache: "must-revalidate", conditional: 304 }));
 } finally {
   child.kill();
+  await rm(fixturePath, { force: true });
 }

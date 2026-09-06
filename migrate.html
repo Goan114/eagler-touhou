@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <title>EAGLER TOUHOU 旧站迁移</title>
+  <title>EAGLER TOUHOU 存档恢复</title>
   <link rel="icon" href="assets/th06.ico" type="image/x-icon">
   <link rel="preload" href="assets/fonts/chill-round-gothic-site-medium.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="assets/fonts/yatra-one-latin.woff2" as="font" type="font/woff2" crossorigin>
@@ -141,7 +141,7 @@
   <section class="panel">
     <header class="hero">
       <div class="mode-row"><span class="mode-badge" id="modeBadge">检测中</span><span class="brand">EAGLER☯TOUHOU</span></div>
-      <h1 id="pageTitle">旧站迁移</h1>
+      <h1 id="pageTitle">存档恢复</h1>
       <p id="sideHint" hidden></p>
     </header>
     <div class="content">
@@ -211,7 +211,7 @@
   const randomNonce = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, "0")).join("");
   const sameHost = (a, b) => new URL(a).hostname === new URL(b).hostname;
 
-  function setSide(side, badge, hint, heading = "旧站迁移") {
+  function setSide(side, badge, hint, heading = "存档恢复") {
     document.body.dataset.side = side;
     modeBadge.textContent = badge;
     pageTitle.textContent = heading;
@@ -556,7 +556,7 @@
   async function initReceiver() {
     nonce = params.get("receive") || "";
     peerOrigin = params.get("source") || "";
-    if (!nonce || !peerOrigin || !window.opener) throw new Error("缺少旧站迁移会话，请从 HTTP 旧站的 migrate.html 发起迁移");
+    if (!nonce || !peerOrigin || !window.opener) throw new Error("缺少存档恢复会话，请从 HTTP 旧站的 migrate.html 发起迁移");
     const source = new URL(peerOrigin);
     const standardPair = location.protocol === "https:" && source.protocol === "http:" && sameHost(peerOrigin, location.origin);
     if (!standardPair) {
@@ -589,7 +589,7 @@
   function prepareSourceLink() {
     const source = legacyHttpSource();
     const target = migrationTarget();
-    if (location.protocol !== "https:") throw new Error("请在 HTTPS 新站准备旧站迁移地址");
+    if (location.protocol !== "https:") throw new Error("请在 HTTPS 新站准备存档恢复地址");
     if (target.origin !== location.origin) {
       throw new Error(`当前新站是 ${location.origin}，但迁移目标变成了 ${target.origin}。请从真正的新站重新打开迁移页。`);
     }
@@ -607,7 +607,7 @@
     setSide("https", upgraded ? "旧站未打开" : "数据迁移", upgraded
       ? "浏览器把旧站跳回了 HTTPS。请填写能直接打开旧站的 HTTP 地址。"
       : "",
-      upgraded ? "无法进入旧站" : "旧站迁移");
+      upgraded ? "无法进入旧站" : "存档恢复");
     const source = inferredHttpSource();
     const target = params.get("target") ? normalizeMigrationPage(params.get("target"), "https:") : inferredHttpsTarget();
     sourceAddress.value = source.href;
@@ -634,7 +634,7 @@
       setStatus("当前页面不是可用的 HTTP 旧站。", "bad");
       return;
     }
-    setSide("http", "旧站", "", "旧站迁移");
+    setSide("http", "旧站", "", "存档恢复");
     sourceAddress.value = new URL(location.pathname, location.origin).href;
     targetAddress.value = params.get("target") ? normalizeMigrationPage(params.get("target"), "https:").href : inferredHttpsTarget().href;
     openHttp.hidden = true;

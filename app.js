@@ -1,13 +1,11 @@
-import {
-  GAME_DATA_CACHE_NAME,
-  importedGameDataMetadataKey,
-  importedOggMetadataKey,
-  localGameDataCacheUrl,
-  localOggCacheUrl,
-  parseStoredGameDataPack
-} from "./game-data-import.js";
+import { parseStoredGameDataPack } from "./legacy-game-pack.mjs";
 import { parsePackageZip } from "./package-zip.mjs";
-import { installParsedPackageZip } from "./package-installer.mjs";
+import { installPackageFromAcquisition, installParsedPackageZip } from "./package-installer.mjs";
+import { adaptLegacyGamePackToPackage } from "./legacy-package-adapter.mjs";
+import {
+  migrateLegacyStoredImport,
+} from "./legacy-import-storage.mjs";
+import { PACKAGE_DESCRIPTOR_SCHEMA } from "./package-descriptor.mjs";
 import { installPublishedPackage } from "./package-launcher.mjs";
 import { componentFileIds } from "./package-generation.mjs";
 import { garbageCollectPackageStore, readCurrentPackageGeneration, readPackageObject } from "./package-store.mjs";
@@ -17,33 +15,30 @@ import {
   readManagedRuntimeResource,
 } from "./runtime-preparation.mjs";
 import { createNetworkActivityTracker } from "./network-activity.mjs";
-import { HOST_PROTOCOL, createLocalProductManifest } from "./product-catalog.mjs";
+import { HOST_PROTOCOL, PRODUCT_GAMES, createLocalProductManifest, resolveMusicMode } from "./product-catalog.mjs";
 import {
-  RELEASE_CATALOG_SCHEMA,
+  RELEASE_CATALOG_FILE,
   releaseCatalogEntryUrl,
-  releaseCatalogFromLegacyManifest,
-  validateReleaseCatalog,
 } from "./release-catalog.mjs";
+import { validateHostManifest } from "./host-manifest.mjs";
+import { loadRemoteMetadata } from "./remote-metadata.mjs";
+import { getUiLocale, initUiLocale, t } from "./i18n.js";
+import { createAppShellClient } from "./app-shell-client.mjs";
 
 const bootWatchdog = window.__eaglerBoot || null;
 bootWatchdog?.mark("app-module-executing");
+initUiLocale();
 
-let appShellRegistration = null;
-let appShellRegistrationPromise = Promise.resolve(null);
-let appShellUpdateReady = false;
-let appShellUpdateCheckFailed = false;
-let appShellUpdateError = null;
-let appShellReloadPending = false;
-let appShellReloadScheduled = false;
+let appShellClient = null;
 let serverUpdateState = "unknown";
 
 function remoteFailureReason(error) {
-  if (navigator.onLine === false) return "设备离线";
+  if (navigator.onLine === false) return t("status.deviceOffline");
   const message = String(error?.message || error || "");
   const httpStatus = message.match(/\bHTTP\s+(\d{3})\b/i)?.[1];
   if (httpStatus) return `HTTP ${httpStatus}`;
-  if (/超时|timeout|timed out|没有完成请求/i.test(message)) return "请求超时";
-  return "连接失败";
+  if (/超时|timeout|timed out|没有完成请求/i.test(message)) return t("status.requestTimeout");
+  return t("status.connectionFailed");
 }
 
 function showPlayerDebug(message) {
@@ -65,24 +60,6 @@ function showPlayerDebug(message) {
   if (debug.lastRejection) lines.push(`rejection=${debug.lastRejection}`);
   box.textContent = lines.join("\n");
   box.hidden = false;
-}
-
-function playerOpenForAppShellUpdate() {
-  // The launch gesture opens the Player before Runtime/SW readiness so it can
-  // request fullscreen while user activation is still available. That visual
-  // pre-launch state must NOT veto an App Shell handoff reload. Only a game
-  // that has actually entered callMain is protected from update reloads.
-  return state.launched === true;
-}
-
-function maybeReloadForAppShellUpdate() {
-  if (!appShellUpdateReady || !appShellReloadPending || appShellReloadScheduled || playerOpenForAppShellUpdate()) return;
-  appShellReloadScheduled = true;
-  // Reload only after the new worker has completed installation/activation.
-  // The worker may already control this page via clients.claim(), but defer
-  // the document reload until the Player is closed so a running game is not
-  // destroyed by an App Shell update.
-  window.setTimeout(() => location.reload(), 0);
 }
 
 function mpLobbySend(message) {
@@ -326,25 +303,26 @@ async function mpLaunchRoomGame() {
 function renderServerStatusNote() {
   const note = document.getElementById("serverStatusNote");
   if (!note) return;
+  const appShell = appShellClient?.snapshot() || {};
   let text = "";
   let kind = "";
   if (serverConfigurationWarning) {
     kind = "offline";
     text = serverConfigurationWarning;
-  } else if (appShellUpdateReady) {
+  } else if (appShell.updateReady) {
     kind = "update";
-    text = playerOpenForAppShellUpdate()
-      ? "网站已有更新，退出游戏后自动应用。"
-      : "网站已有更新，正在自动应用…";
+    text = state.launched === true
+      ? t("status.siteUpdateAfterExit")
+      : t("status.applyingSiteUpdate");
   } else if (serverUpdateState === "unavailable") {
     kind = "offline";
-    text = `无法连接到远程服务器（${remoteFailureReason(remoteCatalogError)}）`;
+    text = t("status.remoteUnavailable", { reason: remoteFailureReason(remoteCatalogError) });
   } else if (serverUpdateState === "retrying") {
     kind = "checking";
-    text = "服务器连接已恢复，正在重新检查网站和游戏更新…";
-  } else if (appShellUpdateCheckFailed) {
+    text = t("status.connectionRestored");
+  } else if (appShell.updateCheckFailed) {
     kind = "offline";
-    text = `网站更新检查失败（${remoteFailureReason(appShellUpdateError)}）`;
+    text = t("status.updateCheckFailed", { reason: remoteFailureReason(appShell.updateError) });
   }
   note.hidden = !text;
   if (!text) {
@@ -356,85 +334,24 @@ function renderServerStatusNote() {
   note.textContent = text;
 }
 
-async function checkAppShellUpdate(registration = appShellRegistration) {
-  if (!registration) return;
-  try {
-    await registration.update();
-    appShellUpdateCheckFailed = false;
-    appShellUpdateError = null;
-    renderServerStatusNote();
-  } catch (error) {
-    appShellUpdateCheckFailed = true;
-    appShellUpdateError = error;
-    renderServerStatusNote();
-    console.warn("App Shell update check unavailable", error);
-  }
-}
-
-function watchAppShellRegistration(registration) {
-  appShellRegistration = registration;
-  const inspectWaiting = () => {
-    if (registration.waiting && navigator.serviceWorker.controller) {
-      appShellUpdateReady = true;
-      appShellReloadPending = true;
-      renderServerStatusNote();
-    }
-  };
-  inspectWaiting();
-  registration.addEventListener("updatefound", () => {
-    const worker = registration.installing;
-    if (!worker) return;
-    // Snapshot ownership at discovery time. With clients.claim(), a first-ever
-    // install gains a controller by the time the worker reaches activated;
-    // looking at navigator.serviceWorker.controller only inside statechange
-    // would then misclassify that first install as an App Shell update and
-    // reload the Launcher underneath the user. Only workers discovered while
-    // this page was already controlled are genuine in-place updates.
-    const replacingControlledWorker = !!navigator.serviceWorker.controller;
-    worker.addEventListener("statechange", () => {
-      if (!replacingControlledWorker) return;
-      if (worker.state === "installed") {
-        appShellUpdateReady = true;
-        appShellReloadPending = true;
-        renderServerStatusNote();
-        return;
-      }
-      if (worker.state === "activated") {
-        appShellUpdateReady = true;
-        appShellReloadPending = true;
-        renderServerStatusNote();
-        maybeReloadForAppShellUpdate();
-      }
-    });
-  });
-  void checkAppShellUpdate(registration);
-}
-
-// Service Workers are a pure App Shell enhancement.  isSecureContext is the
-// browser-owned gate: HTTPS and trustworthy loopback HTTP may use it, while
-// ordinary HTTP servers automatically keep the existing no-SW Launcher path.
-if (window.isSecureContext && "serviceWorker" in navigator) {
-  appShellRegistrationPromise = navigator.serviceWorker.register("./app-shell-sw.js", {
-    scope: "./",
-    updateViaCache: "none",
-  }).then(registration => {
-    watchAppShellRegistration(registration);
-    return registration;
-  }).catch(error => {
-    console.warn("App Shell Service Worker unavailable; continuing without it", error);
-    return navigator.serviceWorker.getRegistration("./").catch(() => null);
-  });
-}
+// The App Shell client owns Service Worker registration/update lifecycle. It is
+// independent of game/package loading; the Launcher only supplies UI callbacks
+// and the rule that an already-running Runtime blocks automatic page reload.
+appShellClient = createAppShellClient({
+  shouldDeferReload: () => state.launched === true,
+  onChange: renderServerStatusNote,
+});
 
 const protocol = HOST_PROTOCOL;
 let manifest = createLocalProductManifest();
 let releaseCatalog = null;
-let releaseCatalogUrl = new URL("games.json", location.href).href;
-let legacyRemoteAvailable = false;
+let releaseCatalogUrl = new URL(RELEASE_CATALOG_FILE, location.href).href;
+let hostManifestAvailable = false;
+let hostManifestError = null;
 let remoteCatalogError = null;
 let gameDataFallback = null;
 let serverResourceMode = "hosted";
-let importOnlyServer = false;
+let importServer = false;
 
 let networkActivitySnapshot = { active: [], count: 0, loaded: 0, total: 0 };
 let networkActivityRenderQueued = false;
@@ -514,6 +431,34 @@ function packageNetworkMeta(gameId, input) {
 const packageTrackedFetch = gameId => (input, init) => networkActivity.xhrFetch(input, init, packageNetworkMeta(gameId, input));
 
 const installedPackageSnapshots = new Map();
+async function migrateLegacyStoredImports() {
+  for (const gameId of Object.keys(manifest.games)) {
+    let currentRevision = null;
+    try { currentRevision = (await readCurrentPackageGeneration(gameId))?.generation?.descriptor?.revision || null; } catch {}
+    try {
+      const result = await migrateLegacyStoredImport(gameId, {
+        protocol: HOST_PROTOCOL,
+        fallbackGameData: manifest.games?.[gameId]?.gameData || null,
+        currentRevision,
+        install: parsed => installParsedPackageZip(parsed),
+        origin: location.origin,
+      });
+      if (result.status === "migrated" || result.status === "already-current") {
+        const installed = await readCurrentPackageGeneration(gameId);
+        if (installed?.generation) installedPackageSnapshots.set(gameId, installed.generation);
+        console.info(`${gameId}: legacy imported storage ${result.status}; Package Store is authoritative`);
+      } else if (result.status === "incomplete") {
+        console.warn(`${gameId}: legacy imported storage is incomplete; compatibility state retained`, result.missing);
+      }
+    } catch (error) {
+      // Migration is one-way and cleanup occurs only after Package commit. A
+      // failed migration therefore leaves the historical compatibility state
+      // intact instead of making an old user's only local copy disappear.
+      console.warn(`${gameId}: legacy imported storage migration deferred`, error);
+    }
+  }
+}
+await migrateLegacyStoredImports();
 await Promise.all(Object.keys(manifest.games).map(async gameId => {
   try {
     const installed = await readCurrentPackageGeneration(gameId);
@@ -557,119 +502,80 @@ async function promptLegacyHttpMigration() {
   cleanUrl.searchParams.delete(legacyHttpEntryParam);
   history.replaceState(history.state, "", cleanUrl.href);
   const choice = await askDecision({
-    message: "你刚从 HTTP 旧站进入 HTTPS。浏览器会把 HTTP 与 HTTPS 的本地数据分开保存；如果旧站有存档、录像、设置或已安装游戏包，可以进入旧站迁移把它们带过来。",
+    message: "你刚从 HTTP 旧站进入 HTTPS。浏览器会把 HTTP 与 HTTPS 的本地数据分开保存；如果旧站有存档、录像、设置或已安装游戏包，可以进入存档恢复把它们带过来。",
     confirmText: "进入迁移",
     cancelText: "暂不迁移",
   });
   if (choice === "confirm") location.href = new URL("migrate.html", location.href).href;
 }
 
-const validOggManifest = ogg => ogg == null ||
-  (typeof ogg.version === "string" && ogg.version.length > 0 &&
-   Array.isArray(ogg.files) && Array.isArray(ogg.sizes) &&
-   ogg.files.length === ogg.sizes.length &&
-   (ogg.sha256 == null ||
-    (Array.isArray(ogg.sha256) && ogg.files.length === ogg.sha256.length &&
-     ogg.sha256.every(hash => /^[a-f0-9]{64}$/i.test(hash)))));
-const validOfflineCompatibility = (item, resourceMode) => resourceMode === "hosted" ||
-  (item.offlineCompatibility?.schema === "eagler-touhou/offline-game-pack/1" &&
-   item.offlineCompatibility.runtimeCompatibility?.protocol === protocol &&
-   item.offlineCompatibility.runtimeCompatibility?.dataLayout === item.gameData?.layout &&
-   item.offlineCompatibility.runtimeCompatibility?.versionSource === "offline-pack" &&
-   Array.isArray(item.offlineCompatibility.requiredShared) &&
-   ["/msgothic.ttc", "/unifont.otf"].every(target => item.offlineCompatibility.requiredShared.includes(target)) &&
-   item.offlineCompatibility.languages?.source === "offline-pack" &&
-   Array.isArray(item.offlineCompatibility.languages?.baseline) && item.offlineCompatibility.languages.baseline.includes("ja"));
-
-function validateLegacyManifest(value) {
-  const resourceMode = value?.shared?.resourceMode || "hosted";
-  const importOnly = resourceMode !== "hosted";
-  const fallback = value?.shared?.gameDataFallback;
-  const fallbackValid = fallback == null ||
-    (typeof fallback === "object" && typeof fallback.url === "string" && /^https:\/\//.test(fallback.url) &&
-     (fallback.hint == null || typeof fallback.hint === "string"));
-  if (value?.protocol !== protocol || !["hosted", "import-only", "import-partial"].includes(resourceMode) ||
-      (!importOnly && (typeof value.shared?.vanillaFont !== "string" || typeof value.shared?.unicodeFont !== "string")) ||
-      !fallbackValid || !value.games?.th06 || !value.games?.th07 ||
-      ![value.games.th06, value.games.th07].every(item => typeof item.multiplayerRuntime === "string") ||
-      !Object.values(value.games).every(item => typeof item.runtime === "string" && item.music?.midi &&
-      typeof item.gameData?.version === "string" && /^sha256-[a-f0-9]{64}$/i.test(item.gameData.version) &&
-      typeof item.gameData?.layout === "string" && /^sha256-[a-f0-9]{64}$/i.test(item.gameData.layout) &&
-      typeof item.gameData?.path === "string" && /^th0[67]\.data$/.test(item.gameData.path) &&
-      Number.isInteger(item.gameData?.bytes) && item.gameData.bytes > 0 &&
-      /^[a-f0-9]{64}$/i.test(item.gameData?.sha256 || "") &&
-      validOggManifest(item.music?.ogg) && validOfflineCompatibility(item, resourceMode))) {
-    throw new Error("legacy games manifest 的协议或游戏清单无效");
-  }
-  return value;
-}
-
-function applyLegacyManifest(value) {
-  manifest = validateLegacyManifest(value);
+function applyHostManifest(value) {
+  manifest = validateHostManifest(value);
   serverResourceMode = manifest.shared?.resourceMode || "hosted";
-  importOnlyServer = serverResourceMode !== "hosted";
+  importServer = serverResourceMode !== "hosted";
   gameDataFallback = manifest.shared?.gameDataFallback || null;
-  serverConfigurationWarning = importOnlyServer && !gameDataFallback
-    ? "部署配置错误：import-only / import-partial 必须填写 gameDataFallback.url，否则用户无法通过「打开链接」取得游戏包。"
+  state.netplay.url = typeof manifest.shared?.netplayRelay === "string" ? manifest.shared.netplayRelay : "";
+  serverConfigurationWarning = importServer && !gameDataFallback
+    ? "当前站点未配置外部游戏包下载链接；用户仍可导入自己已有的本地游戏包。"
     : "";
-  legacyRemoteAvailable = true;
+  if (mpUiState.room && state.netplay.url) mpReconnectLobbyNow();
+  hostManifestAvailable = true;
   renderServerStatusNote();
 }
 
 async function refreshRemoteReleaseState() {
   bootWatchdog?.mark("catalog-request");
-  try {
-    const primary = await fetchJsonWithTimeout("games.json", 12000, { label: "检查服务器发行信息" });
-    if (primary?.schema === RELEASE_CATALOG_SCHEMA) {
-      releaseCatalog = validateReleaseCatalog(primary);
-      releaseCatalogUrl = new URL("games.json", location.href).href;
-      try {
-        applyLegacyManifest(await fetchJsonWithTimeout("legacy-games.json", 12000, { label: "读取服务器兼容清单" }));
-      } catch (error) {
-        console.warn("legacy remote compatibility unavailable", error);
-      }
-    } else {
-      applyLegacyManifest(primary);
-      try { releaseCatalog = releaseCatalogFromLegacyManifest(primary); } catch {}
-    }
+  const metadata = await loadRemoteMetadata((file, kind) => fetchJsonWithTimeout(file, 12000, {
+    label: kind === "host-manifest" ? "读取服务器运行清单" : "检查服务器发行信息",
+  }));
+  if (metadata.hostManifest.ok) {
+    applyHostManifest(metadata.hostManifest.value);
+    await migrateLegacyStoredImports();
+    hostManifestError = null;
+  } else {
+    hostManifestError = metadata.hostManifest.error;
+    console.warn("remote Host Manifest unavailable; local product defaults remain available", hostManifestError);
+  }
+  if (metadata.releaseCatalog.ok) {
+    releaseCatalog = metadata.releaseCatalog.value;
+    releaseCatalogUrl = new URL(RELEASE_CATALOG_FILE, location.href).href;
     remoteCatalogError = null;
     serverUpdateState = "ready";
-    renderServerStatusNote();
-    bootWatchdog?.mark("catalog-ok");
-    setTimeout(() => { try { render(); } catch {} }, 0);
-  } catch (error) {
-    remoteCatalogError = error;
+  } else {
+    remoteCatalogError = metadata.releaseCatalog.error;
     serverUpdateState = "unavailable";
-    renderServerStatusNote();
-    bootWatchdog?.mark("catalog-unavailable");
-    console.warn("remote Release Catalog unavailable; installed game startup remains available", error);
+    console.warn("remote Release Catalog unavailable; installed game startup remains available", remoteCatalogError);
   }
+  renderServerStatusNote();
+  bootWatchdog?.mark(metadata.releaseCatalog.ok ? "catalog-ok" : "catalog-unavailable");
+  setTimeout(() => { try { render(); } catch {} }, 0);
 }
 let remoteReleasePromise = refreshRemoteReleaseState();
 
 function retryRemoteUpdateChecks() {
-  if (serverUpdateState === "unavailable" || remoteCatalogError) {
-    serverUpdateState = "retrying";
+  if (serverUpdateState === "unavailable" || remoteCatalogError || hostManifestError) {
+    if (serverUpdateState === "unavailable" || remoteCatalogError) serverUpdateState = "retrying";
     renderServerStatusNote();
     remoteReleasePromise = refreshRemoteReleaseState();
   }
-  if (appShellRegistration) void checkAppShellUpdate();
+  void appShellClient.checkForUpdate();
 }
 
 window.addEventListener("offline", () => {
   remoteCatalogError = remoteCatalogError || new Error("offline");
+  if (!hostManifestAvailable) hostManifestError = hostManifestError || new Error("offline");
   serverUpdateState = "unavailable";
   renderServerStatusNote();
 });
 window.addEventListener("online", retryRemoteUpdateChecks);
 window.addEventListener("focus", () => {
-  if (remoteCatalogError) retryRemoteUpdateChecks();
-  else if (appShellRegistration) void checkAppShellUpdate();
+  if (remoteCatalogError || hostManifestError) retryRemoteUpdateChecks();
+  else void appShellClient.checkForUpdate();
 });
-function beginImportOnlyAttempt() {
+function beginImportAttempt() {
   clearGameDataAttempt();
   const id = ++gameDataAttemptSerial;
-  gameDataAttempt = { id, firstByte: false, downloadComplete: false, unlocked: true, dialogDismissed: false, startTimer: null, completeTimer: null, importOnly: true };
+  gameDataAttempt = { id, firstByte: false, downloadComplete: false, unlocked: true, dialogDismissed: false, startTimer: null, completeTimer: null, importFlow: true };
   $("#gameDataImportReason").textContent = gameDataFallbackText("当前没有可启动的本地游戏资源。");
   updateGameDataLinkWindow();
   openGameDataImportWindow();
@@ -871,7 +777,7 @@ function updateGameZoomUi() {
   gameZoomState.active = available;
   gameZoomToggle.hidden = !available;
   gameZoomToggle.classList.remove("is-on");
-  gameZoomToggle.querySelector("strong").textContent = "复位";
+  gameZoomToggle.querySelector("strong").textContent = t("action.reset");
   $("#gameZoomScale").textContent = `${Math.round(gameZoomState.scale * 100)}%`;
   player.classList.remove("game-zoom-editing");
 }
@@ -880,10 +786,11 @@ function updatePlayerOrientationUi() {
   const available = (mobileDevice || navigator.maxTouchPoints > 0) && state.launched && !touchLayoutEditing;
   orientationToggle.hidden = !available;
   if (!available) return;
-  const targetTitle = touchLayoutOrientation() === "landscape" ? "竖屏" : "横屏";
+  const targetLandscape = touchLayoutOrientation() !== "landscape";
+  const targetTitle = t(targetLandscape ? "touch.landscape" : "touch.portrait");
   $("#orientationTarget").textContent = targetTitle;
-  orientationToggle.setAttribute("aria-label", `切换到${targetTitle}`);
-  orientationToggle.title = `切换到${targetTitle}`;
+  orientationToggle.setAttribute("aria-label", t(targetLandscape ? "player.switchLandscape" : "player.switchPortrait"));
+  orientationToggle.title = t("player.switchOrientationTitle");
 }
 
 function applyGameZoomTransform(scale = gameZoomState.scale, x = gameZoomState.x, y = gameZoomState.y) {
@@ -1081,17 +988,6 @@ async function loadChangelog() {
     return false;
   }
 }
-function readImportedOggMeta(gameId = state.game) {
-  try {
-    const value = JSON.parse(localStorage.getItem(importedOggMetadataKey(gameId)) || "null");
-    if (!value || value.source !== "local-import" || value.game !== gameId || typeof value.version !== "string" ||
-        !Array.isArray(value.files) || !value.files.every(name => typeof name === "string" && /^[A-Za-z0-9_.-]+\.ogg$/.test(name))) return null;
-    return value;
-  } catch {
-    return null;
-  }
-}
-
 async function showChangelog(automatic = false) {
   const dialog = $("#changelogDialog");
   if (dialog.open) return;
@@ -1125,40 +1021,33 @@ if (typeof window.AudioContext !== "function" && typeof window.webkitAudioContex
 }
 const webAudioAvailable = typeof window.AudioContext === "function";
 
-function defaultNetplayRelayUrl() {
-  const hostname = location.hostname || "127.0.0.1";
-  const wsProtocol = location.protocol === "https:" ? "wss:" : "ws:";
-  const loopback = hostname === "127.0.0.1" || hostname === "localhost" || hostname === "::1";
-  if (loopback) return `${wsProtocol}//${hostname}:18142/?room=eagler-mp&player=0`;
-  const url = new URL("/eagler-netplay/", location.href);
-  url.protocol = wsProtocol;
-  url.searchParams.set("room", "eagler-mp");
-  url.searchParams.set("player", "0");
-  return url.href;
-}
-
 const state = {
   game: "th06", hasSelection: false, music: "ogg-stream", ready: false, launched: false, replayViewer: false,
   musicPreferenceExplicit: false,
+  musicPreference: "ogg-stream",
   request: 0, pending: new Map(), source: "", sourceIdentity: "", mobileOpen: false,
   product: "th06", options: { ...defaultOptions }, language: "ja", lessMotion: false, runtimeVariant: "normal",
   netplay: {
-    url: defaultNetplayRelayUrl(),
+    url: "",
     player: 0, playerCount: 2, seed: 19005, difficulty: 1,
     iceServers: [{ urls: ["stun:stun.cloudflare.com:3478"] }],
     loadouts: [{ character: 0, shot: 0 }, { character: 1, shot: 0 }, { character: 2, shot: 0 }],
     spectator: false, spectatorId: "", spectatorCount: 0,
   }
 };
-const multiplayerProducts = new Set(["th06mp", "th07mp"]);
+const multiplayerProducts = new Map(Object.entries(PRODUCT_GAMES)
+  .filter(([, product]) => product.multiplayerRuntime && product.multiplayer)
+  .map(([gameId]) => [`${gameId}mp`, gameId]));
+const productIds = new Set([...Object.keys(PRODUCT_GAMES), ...multiplayerProducts.keys()]);
 const isMultiplayerProduct = (product = state.product) => multiplayerProducts.has(product);
-const gameFromProduct = product => product === "th06mp" ? "th06" : product === "th07mp" ? "th07" : product;
-const multiplayerProductForGame = gameId => `${gameId}mp`;
-const mpDifficultyMax = (gameId = state.game) => gameId === "th06" ? 4 : 5;
+const gameFromProduct = product => multiplayerProducts.get(product) || product;
+const multiplayerProductForGame = gameId => {
+  const product = `${gameId}mp`;
+  return multiplayerProducts.has(product) ? product : null;
+};
+const mpDifficultyMax = (gameId = state.game) => PRODUCT_GAMES[gameId]?.multiplayer?.difficultyMax ?? 0;
 const mpTransportRoomId = (code, product = state.product) => `${product}-${code}`;
-const productTitle = product => product === "th06mp" ? "东方红魔乡 联机版"
-  : product === "th07mp" ? "东方妖妖梦 联机版"
-  : game().title;
+const productTitle = product => isMultiplayerProduct(product) ? t(`game.title.${product}`) : game().title;
 const mpUiState = {
   room: null,
   seat: null,
@@ -1180,13 +1069,12 @@ function restoreMpProductPreferences(product = state.product) {
   }
   try { mpShareSingleplayerSettings = localStorage.getItem(mpShareSettingsKeyForProduct(product)) !== "0"; }
   catch { mpShareSingleplayerSettings = true; }
-  const maxLoadout = product === "th06mp" ? 4 : 6;
+  const maxLoadout = PRODUCT_GAMES[gameFromProduct(product)]?.multiplayer?.loadoutCount ?? 0;
   let savedLoadout = 0;
   try { savedLoadout = Number(localStorage.getItem(mpLoadoutPreferenceKeyForProduct(product))); } catch {}
   mpUiState.preferredLoadout = Number.isInteger(savedLoadout) && savedLoadout >= 0 && savedLoadout < maxLoadout
     ? savedLoadout : 0;
 }
-const importedDataUpdateChoices = new Map();
 let activeInstalledPackageGeneration = null;
 const touchControls = { fireEnabled: true, focusEnabled: false, bombSerial: 0, escapeSerial: 0, joystickX: 0, joystickY: 0 };
 const touchFocusModes = new Set(["two-finger", "hold-button", "toggle-button"]);
@@ -1196,23 +1084,24 @@ const musicModes = new Set(["ogg-stream", "ogg-full", "midi", "none"]);
 const isOggMusicMode = mode => mode === "ogg-stream" || mode === "ogg-full";
 const musicTransportMode = mode => isOggMusicMode(mode) ? "ogg" : mode === "midi" ? "midi" : mode === "none" ? "none" : null;
 const oggDecodeMode = mode => mode === "ogg-full" ? "full" : "stream";
-const musicModeLabel = mode => mode === "ogg-stream" ? "ogg(流式解码，避免切歌时卡顿)"
-  : mode === "ogg-full" ? "ogg(全量解码，避免音频卡顿)"
+const musicModeLabel = mode => mode === "ogg-stream" ? t("settings.music.oggStream")
+  : mode === "ogg-full" ? t("settings.music.oggFull")
   : mode === "midi" ? "midi"
-  : "无";
+  : t("settings.music.none");
 const touchSensitivityPresets = new Set([50, 100, 200]);
 const touchLayoutStorageKey = "eagler-touhou-touch-layout-v1";
 const touchLayoutVersion = 4;
 const touchLayoutControlMeta = Object.freeze({
-  focus: Object.freeze({ id: "touchFocus", title: "低速", priority: 0 }),
-  fire: Object.freeze({ id: "touchFire", title: "开火", priority: 1 }),
+  focus: Object.freeze({ id: "touchFocus", title: "低速", titleKey: "touch.focus", priority: 0 }),
+  fire: Object.freeze({ id: "touchFire", title: "开火", titleKey: "touch.fire", priority: 1 }),
   bomb: Object.freeze({ id: "touchBomb", title: "Bomb", priority: 2 }),
-  joystick: Object.freeze({ id: "touchJoystick", title: "轮盘", priority: 3 }),
+  joystick: Object.freeze({ id: "touchJoystick", title: "轮盘", titleKey: "touch.movement.joystick", priority: 3 }),
   escape: Object.freeze({ id: "touchEscape", title: "ESC", priority: 4 }),
-  thpracInput: Object.freeze({ id: "touchThpracInput", title: "模拟鼠标", priority: 5 }),
+  thpracInput: Object.freeze({ id: "touchThpracInput", title: "模拟鼠标", titleKey: "touch.mouse", priority: 5 }),
   thpracTab: Object.freeze({ id: "touchThpracTab", title: "Tab", priority: 6 }),
-  thpracMenu: Object.freeze({ id: "touchThpracMenu", title: "作弊菜单", priority: 7 })
+  thpracMenu: Object.freeze({ id: "touchThpracMenu", title: "作弊菜单", titleKey: "touch.cheatMenu", priority: 7 })
 });
+const touchLayoutControlTitle = name => touchLayoutControlMeta[name].titleKey ? t(touchLayoutControlMeta[name].titleKey) : touchLayoutControlMeta[name].title;
 const touchLayoutScaleMin = .6;
 const touchLayoutScaleMax = 1.8;
 const touchLayoutOrientations = Object.freeze(["landscape", "portrait"]);
@@ -1315,6 +1204,16 @@ const hostDirectTouch = iosWebKitTouch || androidDirectTouchTrial;
 const changelogVersion = "20260822-1";
 const changelogSeenKey = `eagler-touhou-changelog-seen-${changelogVersion}`;
 const lessMotionStorageKey = "eagler-touhou-less-motion-v1";
+const cardFilterStorageKey = "eagler-touhou-card-filter-v1";
+const cardFilters = new Set(["all", "original", "multiplayer"]);
+let cardFilter = "all";
+try {
+  const saved = localStorage.getItem(cardFilterStorageKey);
+  if (cardFilters.has(saved)) cardFilter = saved;
+} catch {}
+function matchesCardFilter(product) {
+  return cardFilter === "all" || isMultiplayerProduct(product) === (cardFilter === "multiplayer");
+}
 const preferenceKey = gameId => `eagler-touhou-game-options-v1-${gameId}`;
 const languagePreferenceKey = gameId => `eagler-touhou-language-v1-${gameId}`;
 const currentPreferenceId = () => isMultiplayerProduct() && !mpShareSingleplayerSettings ? state.product : state.game;
@@ -1378,7 +1277,8 @@ window.addEventListener("online", mpReconnectLobbyNow);
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") mpReconnectLobbyNow();
 });
-const gameFeatures = gameId => manifest.games[gameId].features || {};
+const gameFeatures = gameId => ({ ...PRODUCT_GAMES[gameId]?.features, ...manifest.games[gameId].features });
+const gameStorage = () => PRODUCT_GAMES[state.game].storage;
 const languageDisplayNames = Object.freeze({
   ja: "日本語(原版)",
   "lang_zh-hans": "中文（简体）",
@@ -1386,13 +1286,20 @@ const languageDisplayNames = Object.freeze({
   lang_en: "English",
   lang_ru: "Русский"
 });
+const languageDisplayNameKeys = Object.freeze({
+  ja: "gameLanguage.ja",
+  "lang_zh-hans": "gameLanguage.zhHans",
+  "lang_zh-hant": "gameLanguage.zhHant",
+  lang_en: "gameLanguage.en",
+  lang_ru: "gameLanguage.ru"
+});
 const languagePriority = id => id === "ja" ? 0
   : id === "lang_zh-hans" ? 10
   : id === "lang_zh-hant" ? 11
   : id === "lang_en" ? 20
   : 100;
 const normalizeLanguageCatalog = entries => entries
-  .map(entry => ({ ...entry, title: languageDisplayNames[entry.id] || entry.title || entry.id }))
+  .map(entry => ({ ...entry, title: languageDisplayNameKeys[entry.id] ? t(languageDisplayNameKeys[entry.id]) : languageDisplayNames[entry.id] || entry.title || entry.id }))
   .sort((a, b) => languagePriority(a.id) - languagePriority(b.id) || String(a.id).localeCompare(String(b.id), "en"));
 const languageCatalog = gameId => {
   const base = Array.isArray(manifest.games[gameId].languageOptions)
@@ -1401,13 +1308,6 @@ const languageCatalog = gameId => {
       ? [{ id: "ja", title: "日本語(原版)", pack: null }, ...manifest.games[gameId].languages]
       : [{ id: "ja", title: "日本語(原版)", pack: null }]);
   const byId = new Map(base.map(entry => [String(entry.id), { ...entry }]));
-  const importedLanguages = readImportedGameDataMeta(gameId)?.legacyAssets?.languages || [];
-  for (const offlinePack of importedLanguages) {
-    const existing = byId.get(offlinePack.id);
-    byId.set(offlinePack.id, existing
-      ? { ...existing, offlinePack }
-      : { id: offlinePack.id, title: offlinePack.title, pack: null, offlinePack });
-  }
   const generation = installedPackageSnapshots.get(gameId);
   const packageLanguages = generation?.descriptor?.components?.language?.entries || [];
   for (const packageEntry of packageLanguages) {
@@ -1462,6 +1362,7 @@ function restoreGamePreferences(gameId, preferenceId = gameId) {
   state.options = options;
   const legacyMusic = saved?.music === "ogg" || saved?.music === "wav" ? "ogg-stream" : saved?.music;
   state.musicPreferenceExplicit = saved?.musicPreferenceExplicit === true;
+  state.musicPreference = musicModes.has(legacyMusic) ? legacyMusic : "ogg-stream";
   state.music = webAudioAvailable
     ? (musicModes.has(legacyMusic) ? legacyMusic : "ogg-stream")
     : "none";
@@ -1477,25 +1378,24 @@ function saveGamePreferences() {
   const preferenceId = currentPreferenceId();
   try {
     localStorage.setItem(preferenceKey(preferenceId), JSON.stringify({
-      music: state.music,
+      music: state.musicPreferenceExplicit ? state.musicPreference : state.music,
       musicPreferenceExplicit: state.musicPreferenceExplicit,
       options: Object.fromEntries(Object.keys(defaultOptions).map(name => [name, state.options[name]]))
     }));
   } catch {}
   try { localStorage.setItem(languagePreferenceKey(preferenceId), state.language); } catch {}
 }
-const loaded = {
-  th06: localStorage.getItem("et-loaded-th06") === "1",
-  th07: localStorage.getItem("et-loaded-th07") === "1"
-};
+const loaded = Object.fromEntries(Object.keys(PRODUCT_GAMES).map(game => [game,
+  localStorage.getItem(`et-loaded-${game}`) === "1"
+]));
 const $ = selector => document.querySelector(selector);
 const guideOrientationTitle = $("#guideOrientationTitle");
 const guideOrientationSummary = $("#guideOrientationSummary");
 const guideOrientationAndroid = $("#guideOrientationAndroid");
 const guideOrientationIos = $("#guideOrientationIos");
 if (showIosFullscreenHelp) {
-  guideOrientationTitle.textContent = "iPhone 全屏游玩";
-  guideOrientationSummary.textContent = "隐藏 Safari 导航栏";
+  guideOrientationTitle.textContent = t("help.iphoneFullscreen");
+  guideOrientationSummary.textContent = t("help.iphoneFullscreenSummary");
   guideOrientationAndroid.hidden = true;
   guideOrientationIos.hidden = false;
 }
@@ -1515,7 +1415,17 @@ const runtimeNetplayRollbackDiag = $("#runtimeNetplayRollbackDiag");
 const runtimeNetplayQualityDiag = $("#runtimeNetplayQualityDiag");
 const runtimeNetplayIceDiag = $("#runtimeNetplayIceDiag");
 const runtimeDiagnosticState = {
+  fps: null,
+  frameHealthAt: null,
   maxGapMs: null,
+  hostRafHz: null,
+  hostRafAt: null,
+  childRafHz: null,
+  childRafAt: null,
+  childVisibility: "",
+  childHasFocus: null,
+  childActiveTag: "",
+  directTouches: 0,
   queuedMs: null,
   minQueuedMs: null,
   backend: "",
@@ -1523,6 +1433,69 @@ const runtimeDiagnosticState = {
   robust: false,
   renderer: ""
 };
+let runtimeSchedulingProbeSerial = 0;
+let runtimeSchedulingProbeTimer = null;
+
+function stopRuntimeSchedulingProbe() {
+  runtimeSchedulingProbeSerial++;
+  if (runtimeSchedulingProbeTimer) clearInterval(runtimeSchedulingProbeTimer);
+  runtimeSchedulingProbeTimer = null;
+}
+
+function startRuntimeSchedulingProbe() {
+  stopRuntimeSchedulingProbe();
+  const serial = runtimeSchedulingProbeSerial;
+  const runtimeWindow = currentRuntimeWindow();
+  if (!runtimeWindow?.requestAnimationFrame) return;
+  let hostWindowStart = performance.now();
+  let hostFrames = 0;
+  let childWindowStart = performance.now();
+  let childFrames = 0;
+
+  const hostFrame = () => {
+    if (serial !== runtimeSchedulingProbeSerial || !state.launched) return;
+    const now = performance.now();
+    runtimeDiagnosticState.hostRafAt = now;
+    hostFrames++;
+    const elapsed = now - hostWindowStart;
+    if (elapsed >= 500) {
+      runtimeDiagnosticState.hostRafHz = hostFrames * 1000 / elapsed;
+      hostFrames = 0;
+      hostWindowStart = now;
+    }
+    requestAnimationFrame(hostFrame);
+  };
+
+  const childFrame = () => {
+    if (serial !== runtimeSchedulingProbeSerial || !state.launched || frame.contentWindow !== runtimeWindow) return;
+    const now = performance.now();
+    runtimeDiagnosticState.childRafAt = now;
+    childFrames++;
+    const elapsed = now - childWindowStart;
+    if (elapsed >= 500) {
+      runtimeDiagnosticState.childRafHz = childFrames * 1000 / elapsed;
+      childFrames = 0;
+      childWindowStart = now;
+    }
+    runtimeWindow.requestAnimationFrame(childFrame);
+  };
+
+  requestAnimationFrame(hostFrame);
+  runtimeWindow.requestAnimationFrame(childFrame);
+  runtimeSchedulingProbeTimer = setInterval(() => {
+    if (serial !== runtimeSchedulingProbeSerial || !state.launched || frame.contentWindow !== runtimeWindow) return;
+    try {
+      runtimeDiagnosticState.childVisibility = String(runtimeWindow.document?.visibilityState || "");
+      runtimeDiagnosticState.childHasFocus = !!runtimeWindow.document?.hasFocus?.();
+      runtimeDiagnosticState.childActiveTag = String(runtimeWindow.document?.activeElement?.tagName || "");
+    } catch {
+      runtimeDiagnosticState.childVisibility = "unavailable";
+      runtimeDiagnosticState.childHasFocus = null;
+      runtimeDiagnosticState.childActiveTag = "";
+    }
+    updateRuntimeDiagnostics();
+  }, 500);
+}
 const runtimeNetplayQualityState = {
   peerTransport: null,
   sampling: false,
@@ -1590,15 +1563,20 @@ function compactRendererLabel(raw) {
   return String(gpu || parts[1] || parts[0] || value).slice(0, 72);
 }
 function resetRuntimeDiagnostics() {
+  stopRuntimeSchedulingProbe();
   Object.assign(runtimeDiagnosticState, {
-    maxGapMs: null, queuedMs: null, minQueuedMs: null,
+    fps: null, frameHealthAt: null, maxGapMs: null,
+    hostRafHz: null, hostRafAt: null, childRafHz: null, childRafAt: null,
+    childVisibility: "", childHasFocus: null, childActiveTag: "",
+    directTouches: 0,
+    queuedMs: null, minQueuedMs: null,
     backend: "", underruns: 0, robust: false, renderer: ""
   });
-  runtimeBrowserDiag.textContent = `浏览器 ${browserEnvironment.browser}`;
-  runtimeUaDiag.textContent = `环境 ${browserEnvironment.ua}`;
-  runtimeGapDiag.textContent = "最大间隔 --";
-  runtimeAudioDiag.textContent = "音频 --";
-  runtimeRendererDiag.textContent = "显卡 --";
+  runtimeBrowserDiag.textContent = t("diagnostics.browser", { value: browserEnvironment.browser });
+  runtimeUaDiag.textContent = t("diagnostics.environment", { value: browserEnvironment.ua });
+  runtimeGapDiag.textContent = t("diagnostics.maxGap", { value: "--" });
+  runtimeAudioDiag.textContent = t("diagnostics.audio", { value: "--" });
+  runtimeRendererDiag.textContent = t("diagnostics.graphics", { value: "--" });
   for (const line of [runtimeNetplaySessionDiag, runtimeNetplayRouteDiag, runtimeNetplayFrameDiag, runtimeNetplayRollbackDiag, runtimeNetplayQualityDiag, runtimeNetplayIceDiag]) {
     line.hidden = true;
   }
@@ -1624,7 +1602,8 @@ function runtimeNetplaySnapshot() {
   // keep probing a dedicated multiplayer product even if runtimeVariant was
   // accidentally downgraded - that mismatch is itself diagnostic evidence.
   const multiplayerSurface = state.runtimeVariant === "multiplayer" || isMultiplayerProduct();
-  if (!new Set(["th06", "th07"]).has(state.game) || !multiplayerSurface) return null;
+  const multiplayer = PRODUCT_GAMES[state.game]?.multiplayer;
+  if (!multiplayer || !multiplayerSurface) return null;
   let runtime = null;
   try { runtime = currentRuntimeWindow(); } catch {}
   const value = name => {
@@ -1642,7 +1621,7 @@ function runtimeNetplaySnapshot() {
   const lanPeers = Array.isArray(rawLanPeers)
     ? rawLanPeers.filter(entry => entry && typeof entry === "object").slice(0, 3)
     : [];
-  const peerState = value(state.game === "th06" ? "__th06PeerTransport" : "__th07PeerTransport");
+  const peerState = value(multiplayer.peerTransportGlobal);
   let mode = "";
   try { mode = String(runtime?.Module?.eaglerOptions?.netplayMode || ""); } catch {}
   if (mode !== "lan") return null;
@@ -1864,18 +1843,34 @@ function updateNetplayDiagnostics() {
 }
 function updateRuntimeDiagnostics() {
   const diag = runtimeDiagnosticState;
-  runtimeBrowserDiag.textContent = `浏览器 ${browserEnvironment.browser}`;
-  runtimeUaDiag.textContent = `环境 ${browserEnvironment.ua}`;
-  runtimeGapDiag.textContent = `最大间隔 ${Number.isFinite(diag.maxGapMs) ? `${Math.round(diag.maxGapMs)}ms` : "--"}`;
+  runtimeBrowserDiag.textContent = t("diagnostics.browser", { value: browserEnvironment.browser });
+  runtimeUaDiag.textContent = t("diagnostics.environment", { value: browserEnvironment.ua });
+  const now = performance.now();
+  const hz = value => Number.isFinite(value) ? Math.round(value) : "--";
+  const age = value => Number.isFinite(value) ? Math.max(0, Math.round(now - value)) : null;
+  const hostAge = age(diag.hostRafAt);
+  const childAge = age(diag.childRafAt);
+  const presentAge = age(diag.frameHealthAt);
+  const focus = diag.childHasFocus == null ? "?" : diag.childHasFocus ? "Y" : "N";
+  runtimeGapDiag.textContent = [
+    `帧 H${hz(diag.hostRafHz)}${hostAge == null ? "" : `/${hostAge}ms`}`,
+    `C${hz(diag.childRafHz)}${childAge == null ? "" : `/${childAge}ms`}`,
+    `P${hz(diag.fps)}${presentAge == null ? "" : `/${presentAge}ms`}`,
+    `gap ${Number.isFinite(diag.maxGapMs) ? `${Math.round(diag.maxGapMs)}ms` : "--"}`,
+    `lock ${state.options.frameLimit60Enabled ? "60" : "off"}`,
+    `vis ${diag.childVisibility || "?"}`,
+    `focus ${focus}/${diag.childActiveTag || "-"}`,
+    `touch ${Math.max(0, Number(diag.directTouches) || 0)}`
+  ].join(" - ");
   const backend = diag.backend === "worklet" ? "AW" : diag.backend === "script" ? "SP" : "";
   const audioParts = [
-    `音频 ${Number.isFinite(diag.minQueuedMs) ? `${Math.max(0, Math.round(diag.minQueuedMs))}ms` : "--"}`,
+    Number.isFinite(diag.minQueuedMs) ? `${Math.max(0, Math.round(diag.minQueuedMs))}ms` : "--",
     backend,
     diag.robust ? "增强" : "",
     diag.underruns > 0 ? `欠载${diag.underruns}` : ""
   ].filter(Boolean);
-  runtimeAudioDiag.textContent = audioParts.join(" ");
-  runtimeRendererDiag.textContent = `显卡 ${compactRendererLabel(diag.renderer)}`;
+  runtimeAudioDiag.textContent = t("diagnostics.audio", { value: audioParts.join(" ") });
+  runtimeRendererDiag.textContent = t("diagnostics.graphics", { value: compactRendererLabel(diag.renderer) });
   updateNetplayDiagnostics();
 
   const softwareRenderer = /SwiftShader|llvmpipe|software raster/i.test(diag.renderer);
@@ -1975,7 +1970,7 @@ function captureDefaultTouchLayoutProfile() {
     const controls = {};
     for (const name of Object.keys(touchLayoutControlMeta)) {
       const rect = touchLayoutElement(name).getBoundingClientRect();
-      if (rect.width <= 0 || rect.height <= 0) throw new Error(`${touchLayoutControlMeta[name].title} 按键不可见`);
+      if (rect.width <= 0 || rect.height <= 0) throw new Error(t("touch.controlHidden", { control: touchLayoutControlTitle(name) }));
       controls[name] = {
         x: Math.max(0, Math.min(1, (rect.left + rect.width / 2 - safe.left) / safe.width)),
         y: Math.max(0, Math.min(1, (rect.top + rect.height / 2 - safe.top) / safe.height)),
@@ -2033,6 +2028,8 @@ function siteNoticeBrandAsset(url) {
   const resolved = new URL(url, location.href);
   const host = resolved.hostname.toLowerCase();
   if (host === "cloud.touhou.best") return "assets/notice-touhou-cloud.png";
+  if (host === "qm.qq.com") return "assets/notice-qq.svg";
+  if (host === "github.com") return "assets/notice-github.svg";
   if (host === "bilibili.com" || host.endsWith(".bilibili.com")) return "assets/notice-bilibili.svg";
   if (resolved.origin === location.origin && /(?:^|\/)faq\.html$/i.test(resolved.pathname)) return "assets/th06.ico";
   return "";
@@ -2085,20 +2082,40 @@ function renderSiteNoticeText(target, text) {
   }
 }
 
-const siteNoticeDurationMs = 12000;
+const siteNoticeDurationMs = 15000;
+const siteNoticeStorageKey = "eagler-touhou-site-notice-enabled-v1";
+const siteNoticeDismissedKey = "eagler-touhou-site-notice-dismissed-v1";
+let siteNoticeDismissed = false;
+try { siteNoticeDismissed = localStorage.getItem(siteNoticeDismissedKey) === "1"; } catch {}
+let siteNoticeEnabled = true;
+try { siteNoticeEnabled = localStorage.getItem(siteNoticeStorageKey) !== "0"; } catch {}
 let siteNoticeTimer = null;
+let siteNoticeCloseTimer = null;
+let siteNoticeRequest = 0;
 const siteNoticeScrollPositions = new WeakMap();
 
+function setSiteNoticeEnabled(enabled) {
+  siteNoticeEnabled = enabled;
+  try { localStorage.setItem(siteNoticeStorageKey, enabled ? "1" : "0"); } catch {}
+  $("#siteNoticeToggle").setAttribute("aria-checked", String(enabled));
+  if (enabled) void loadSiteNotice();
+  else closeSiteNotice();
+}
+
 async function loadSiteNotice() {
+  if (!siteNoticeEnabled) return;
+  const request = ++siteNoticeRequest;
   const bar = $("#siteNotice");
   const target = $("#siteNoticeContent");
   try {
     const response = await fetch("NOTICE.txt", { cache: "no-store" });
     if (!response.ok) return;
     const text = (await response.text()).replace(/^\uFEFF/, "").trim();
-    if (!text) return;
+    if (!text || !siteNoticeEnabled || request !== siteNoticeRequest) return;
     renderSiteNoticeText(target, text);
+    $("#siteNoticeOptOut").hidden = !siteNoticeDismissed;
     clearTimeout(siteNoticeTimer);
+    clearTimeout(siteNoticeCloseTimer);
     bar.classList.remove("site-notice-scroll-hidden", "site-notice-closing");
     const scrollingElement = document.scrollingElement || document.documentElement;
     siteNoticeScrollPositions.set(scrollingElement, Math.max(0, window.scrollY || scrollingElement.scrollTop || 0));
@@ -2109,6 +2126,7 @@ async function loadSiteNotice() {
 }
 
 function closeSiteNotice() {
+  ++siteNoticeRequest;
   clearTimeout(siteNoticeTimer);
   siteNoticeTimer = null;
   const bar = $("#siteNotice");
@@ -2119,7 +2137,7 @@ function closeSiteNotice() {
     return;
   }
   bar.classList.add("site-notice-closing");
-  setTimeout(() => {
+  siteNoticeCloseTimer = setTimeout(() => {
     bar.hidden = true;
     bar.classList.remove("site-notice-scroll-hidden", "site-notice-closing");
   }, 220);
@@ -2146,7 +2164,7 @@ let fullscreenChordActive = false;
 const playerHistoryKey = "eaglerTouhouPlayer";
 const routedGameFromLocation = () => {
   const value = new URLSearchParams(location.search).get("game");
-  return value === "th06" || value === "th07" || value === "th06mp" || value === "th07mp" ? value : null;
+  return productIds.has(value) ? value : null;
 };
 function launcherHomeUrl(source = location.href) {
   const url = new URL(source);
@@ -2167,12 +2185,15 @@ function replaceLauncherHomeHistory() {
   history.replaceState(launcherHomeHistoryState(), "", launcherHomeUrl());
 }
 function showLauncherHome() {
+  if ($("#main").classList.contains("card-filter-motion")) cancelCardFilterMotion();
+  if ($("#main").classList.contains("card-layout-motion")) cancelCardLayoutMotion();
   state.hasSelection = false;
   if (isMultiplayerProduct()) {
     state.product = state.game;
     state.runtimeVariant = "normal";
   }
   render();
+  animateMobileHomeCards();
 }
 const routedGame = routedGameFromLocation();
 const navigationType = performance.getEntriesByType?.("navigation")?.[0]?.type || "";
@@ -2208,7 +2229,12 @@ if (routedGame) {
     history.pushState({ [playerHistoryKey]: true, game: routedGame }, "", gameUrl);
   }
 }
-const setStatus = text => { $("#status").textContent = text; };
+let currentStatusMessage = null;
+const setStatus = text => { currentStatusMessage = null; $("#status").textContent = text; };
+const setTranslatedStatus = (key, params = {}) => {
+  currentStatusMessage = { key, params };
+  $("#status").textContent = t(key, params);
+};
 const setPlayerStatus = text => { $("#playerStatus").textContent = text; };
 let toastTimer = null;
 const toastDurationMs = 2000;
@@ -2513,7 +2539,7 @@ function beginManualGamePackageImport(reason = "已取消从服务器下载游�
   openGameDataImportWindow();
 }
 function gameDataFallbackText(reason) {
-  if (importOnlyServer) {
+  if (importServer) {
     return `${reason}\n当前服务器只提供启动器，不提供游戏文件。已安装的游戏仍可直接启动；没有安装时，请导入本地游戏包。`;
   }
   return `${reason}\n你可以继续等待；如果当前下载太慢，也可以点击「打开链接」取得游戏包后导入。手动导入的本地版本不会被服务器自动替换，只有你主动选择更新时才会更新。`;
@@ -2681,12 +2707,10 @@ function createLocalMusicInstall(resources) {
   };
   const installOne = async resource => {
     checkRuntime();
-    if ((typeof resource.localKey !== "string" && typeof resource.packageFileId !== "string") || typeof resource.path !== "string" ||
+    if (typeof resource.packageFileId !== "string" || typeof resource.path !== "string" ||
         !allowedPaths.has(resource.path)) throw new Error("本地 OGG 资源描述无效");
-    const packaged = typeof resource.packageFileId === "string"
-      ? await readManagedRuntimeResource(activeInstalledPackageGeneration, resource.packageFileId)
-      : null;
-    const blob = packaged ? new Blob([packaged.buffer], { type: "audio/ogg" }) : await readLocalImportedAsset(resource.localKey);
+    const packaged = await readManagedRuntimeResource(activeInstalledPackageGeneration, resource.packageFileId);
+    const blob = packaged ? new Blob([packaged.buffer], { type: "audio/ogg" }) : null;
     checkRuntime();
     if (!blob || (resource.size && blob.size !== resource.size)) throw new Error(`${resource.path} 已丢失或损坏`);
     const buffer = await blob.arrayBuffer();
@@ -2787,20 +2811,20 @@ function syncTouchGuideFocusMode() {
   const mode = state.options.touchFocusMode;
   panel.dataset.focusMode = mode;
   if (mode === "two-finger") {
-    summary.textContent = "移动时，用第二指按住进入低速";
-    label.textContent = "＋ 第二指按住";
+    summary.textContent = t("help.focusTwoFingerSummary");
+    label.textContent = t("help.focusTwoFingerLabel");
     controlHint.textContent = "";
     return;
   }
   if (mode === "toggle-button") {
-    summary.textContent = "移动时，点按「低速」按钮切换状态";
-    label.textContent = "点按「低速」切换";
-    controlHint.textContent = "切换";
+    summary.textContent = t("help.focusToggleSummary");
+    label.textContent = t("help.focusToggleLabel");
+    controlHint.textContent = t("help.toggle");
     return;
   }
-  summary.textContent = "移动时，按住「低速」按钮";
-  label.textContent = "按住「低速」";
-  controlHint.textContent = "按住";
+  summary.textContent = t("help.focusHoldSummary");
+  label.textContent = t("help.holdFocus");
+  controlHint.textContent = t("help.hold");
 }
 
 function collapseTouchGuides() {
@@ -2857,294 +2881,59 @@ function musicPackage() {
   return transport === "none" ? { files: [] } : game().music[transport];
 }
 function gameDataDescriptor(gameId = state.game) { return manifest.games[gameId].gameData; }
-function validLegacyImportedAsset(value) {
-  return !!value && typeof value.key === "string" && value.key.startsWith("/.eagler-local/offline/") &&
-    Number.isInteger(value.bytes) && value.bytes > 0 && /^[a-f0-9]{64}$/i.test(value.sha256 || "");
-}
-function normalizeLegacyImportedAssets(value) {
-  const legacy = value?.legacyAssets || value?.offline;
-  if (!legacy) return null;
-  const runtimeVersion = String(legacy.runtimeVersion || "");
-  if (!/^[a-f0-9]{16}$/i.test(runtimeVersion)) return null;
-  if (!Array.isArray(legacy.shared) || !legacy.shared.every(item =>
-      typeof item?.target === "string" && validLegacyImportedAsset(item))) return null;
-  if (!Array.isArray(legacy.languages) || !legacy.languages.every(item =>
-      /^lang_[a-z0-9]+(?:-[a-z0-9]+)*$/i.test(item?.id || "") && typeof item.title === "string" &&
-      validLegacyImportedAsset(item))) return null;
-  return { runtimeVersion, shared: legacy.shared, languages: legacy.languages };
-}
-function legacyImportedAssetKeys(meta) {
-  const legacy = normalizeLegacyImportedAssets(meta);
-  return legacy ? [...legacy.shared.map(item => item.key), ...legacy.languages.map(item => item.key)] : [];
-}
-function readImportedGameDataMeta(gameId = state.game) {
-  try {
-    const value = JSON.parse(localStorage.getItem(importedGameDataMetadataKey(gameId)) || "null");
-    if (!value || value.source !== "local-import" || value.game !== gameId || typeof value.version !== "string" ||
-        !/^sha256-[a-f0-9]{64}$/i.test(value.version) || !/^[a-f0-9]{64}$/i.test(value.sha256 || "") ||
-        !Number.isInteger(value.bytes) || value.bytes <= 0) return null;
-    const legacyAssets = normalizeLegacyImportedAssets(value);
-    if ((value.legacyAssets || value.offline) && !legacyAssets) return null;
-    if (legacyAssets) value.legacyAssets = legacyAssets;
-    delete value.offline;
-    if (!/^sha256-[a-f0-9]{64}$/i.test(value.layout || "")) {
-      const current = gameDataDescriptor(gameId);
-      if (value.version !== current.version || value.sha256.toLowerCase() !== current.sha256.toLowerCase() || value.bytes !== current.bytes) return null;
-      value.layout = current.layout;
-      try { localStorage.setItem(importedGameDataMetadataKey(gameId), JSON.stringify(value)); } catch {}
-    }
-    return value;
-  } catch {
-    return null;
-  }
-}
-async function discardImportedGameData(meta) {
-  if (!meta || meta.source !== "local-import" || !["th06", "th07"].includes(meta.game)) return;
-  try { await deleteLocalImportedAsset(localGameDataCacheUrl(location.origin, meta.game, meta.version)); } catch {}
-  for (const key of legacyImportedAssetKeys(meta)) {
-    try { await deleteLocalImportedAsset(key); } catch {}
-  }
-  try {
-    const cache = await globalThis.caches?.open(GAME_DATA_CACHE_NAME);
-    if (cache) await cache.delete(localGameDataCacheUrl(location.origin, meta.game, meta.version));
-  } catch {}
-  try {
-    const key = importedGameDataMetadataKey(meta.game);
-    const current = JSON.parse(localStorage.getItem(key) || "null");
-    if (current?.source === "local-import" && current.version === meta.version) localStorage.removeItem(key);
-  } catch {}
-}
-async function discardImportedOgg(meta) {
-  if (!meta || meta.source !== "local-import" || !["th06", "th07"].includes(meta.game) || !Array.isArray(meta.files)) return;
-  for (const filename of meta.files) {
-    try { await deleteLocalImportedAsset(localOggCacheUrl(location.origin, meta.game, meta.version, filename)); } catch {}
-  }
-  try {
-    const cache = await globalThis.caches?.open(GAME_DATA_CACHE_NAME);
-    if (cache) {
-      for (const filename of meta.files) {
-        try { await cache.delete(localOggCacheUrl(location.origin, meta.game, meta.version, filename)); } catch {}
-      }
-    }
-  } catch {}
-  try {
-    const key = importedOggMetadataKey(meta.game);
-    const current = JSON.parse(localStorage.getItem(key) || "null");
-    if (current?.source === "local-import" && current.version === meta.version) localStorage.removeItem(key);
-  } catch {}
-}
-
-const emPreloadCacheName = "EM_PRELOAD_CACHE";
-const emPreloadMetadataStore = "METADATA";
-const emPreloadPackageStore = "PACKAGES";
-const localAssetDbName = "eagler-touhou-local-assets-v1";
-const localAssetStore = "ASSETS";
-let importedContentObjectUrls = [];
-let activeLegacyImportedAssetsMeta = null;
-function localOfflineAssetKey(gameId, runtimeVersion, kind, name) {
-  if (!/^(?:th06|th07)$/.test(gameId) || !/^[a-f0-9]{16}$/i.test(runtimeVersion) ||
-      !/^(?:shared|languages)$/.test(kind) || typeof name !== "string" || !/^[A-Za-z0-9_.-]+$/.test(name)) {
-    throw new Error("invalid local offline asset key");
-  }
-  return `/.eagler-local/offline/${gameId}/${runtimeVersion}/${kind}/${name}`;
-}
-function localAssetIdbKey(key) {
-  try {
-    const url = new URL(String(key), location.href);
-    if (url.pathname.startsWith("/.eagler-local/")) return url.pathname;
-  } catch {}
-  return String(key);
-}
-function runtimePreloadPackageName(sourceUrl, gameId = state.game) {
-  const url = sourceUrl instanceof URL ? sourceUrl : new URL(sourceUrl, location.href);
-  const slash = url.pathname.lastIndexOf("/");
-  const directory = slash >= 0 ? url.pathname.slice(0, slash + 1) : "/";
-  return `${encodeURIComponent(directory)}${gameId}.data`;
-}
-function idbRequest(request) {
-  return new Promise((resolve, reject) => {
-    request.onsuccess = event => resolve(event.target.result);
-    request.onerror = () => reject(request.error || new Error("IndexedDB request failed"));
-  });
-}
-async function openLocalAssetDb() {
-  if (!globalThis.indexedDB?.open) throw new Error("当前浏览器没有 IndexedDB，无法持久化导入游戏数据");
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(localAssetDbName, 1);
-    request.onupgradeneeded = event => {
-      const db = event.target.result;
-      if (!db.objectStoreNames.contains(localAssetStore)) db.createObjectStore(localAssetStore);
-    };
-    request.onsuccess = event => resolve(event.target.result);
-    request.onerror = () => reject(request.error || new Error("无法打开本地游戏数据存储"));
-  });
-}
-async function writeLocalImportedAssets(entries) {
-  if (!Array.isArray(entries) || !entries.length) return;
-  const db = await openLocalAssetDb();
-  try {
-    await new Promise((resolve, reject) => {
-      const transaction = db.transaction([localAssetStore], "readwrite");
-      const store = transaction.objectStore(localAssetStore);
-      for (const entry of entries) {
-        const blob = entry.blob instanceof Blob ? entry.blob : new Blob([entry.blob], { type: entry.type || "application/octet-stream" });
-        store.put({ blob, type: entry.type || blob.type || "application/octet-stream", bytes: blob.size }, localAssetIdbKey(entry.key));
-      }
-      transaction.oncomplete = () => resolve();
-      transaction.onerror = () => reject(transaction.error || new Error("无法写入本地游戏数据存储"));
-      transaction.onabort = () => reject(transaction.error || new Error("本地游戏数据存储写入被中止"));
-    });
-  } finally {
-    db.close();
-  }
-}
-async function readLocalImportedAsset(key) {
-  if (globalThis.indexedDB?.open) {
-    try {
-      const db = await openLocalAssetDb();
-      try {
-        const transaction = db.transaction([localAssetStore], "readonly");
-        const value = await idbRequest(transaction.objectStore(localAssetStore).get(localAssetIdbKey(key)));
-        if (value?.blob instanceof Blob) return value.blob;
-        if (value instanceof Blob) return value;
-        if (value instanceof ArrayBuffer || ArrayBuffer.isView(value)) return new Blob([value]);
-      } finally {
-        db.close();
-      }
-    } catch {}
-  }
-  try {
-    const response = await globalThis.caches?.match?.(key);
-    if (!response) return null;
-    const blob = await response.blob();
-    try { await writeLocalImportedAssets([{ key, blob, type: blob.type || response.headers.get("Content-Type") || "application/octet-stream" }]); } catch {}
-    return blob;
-  } catch {
-    return null;
-  }
-}
-async function deleteLocalImportedAsset(key) {
-  if (!globalThis.indexedDB?.open) return;
-  const db = await openLocalAssetDb();
-  try {
-    await new Promise((resolve, reject) => {
-      const transaction = db.transaction([localAssetStore], "readwrite");
-      transaction.objectStore(localAssetStore).delete(localAssetIdbKey(key));
-      transaction.oncomplete = () => resolve();
-      transaction.onerror = () => reject(transaction.error || new Error("无法删除本地导入资源"));
-      transaction.onabort = () => reject(transaction.error || new Error("删除本地导入资源被中止"));
-    });
-  } finally {
-    db.close();
-  }
-}
-async function mirrorImportedAssetsToCache(entries) {
-  if (!globalThis.caches?.open) return;
-  try {
-    const cache = await caches.open(GAME_DATA_CACHE_NAME);
-    for (const entry of entries) {
-      await cache.put(entry.key, new Response(entry.blob, {
-        status: 200,
-        headers: {
-          "Content-Type": entry.type || entry.blob.type || "application/octet-stream",
-          "Content-Length": String(entry.blob.size),
-          "X-Eagler-Asset-Source": "local-import",
-          "X-Eagler-Asset-Version": entry.version || ""
-        }
-      }));
-    }
-  } catch {}
-}
-function revokeImportedContentObjectUrls() {
-  for (const url of importedContentObjectUrls) {
-    try { URL.revokeObjectURL(url); } catch {}
-  }
-  importedContentObjectUrls = [];
-  activeLegacyImportedAssetsMeta = null;
-}
-function importedContentObjectUrl(blob) {
-  const url = URL.createObjectURL(blob);
-  importedContentObjectUrls.push(url);
-  return url;
-}
-async function openEmscriptenPreloadCache() {
-  if (!globalThis.indexedDB?.open) throw new Error("当前浏览器没有 IndexedDB");
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(emPreloadCacheName, 1);
-    request.onupgradeneeded = event => {
-      const db = event.target.result;
-      if (!db.objectStoreNames.contains(emPreloadPackageStore)) db.createObjectStore(emPreloadPackageStore);
-      if (!db.objectStoreNames.contains(emPreloadMetadataStore)) db.createObjectStore(emPreloadMetadataStore);
-    };
-    request.onsuccess = event => resolve(event.target.result);
-    request.onerror = () => reject(request.error || new Error("无法打开 Emscripten preload cache"));
-  });
-}
-async function readEmscriptenPreloadMetadata(db, packageName) {
-  const transaction = db.transaction([emPreloadMetadataStore], "readonly");
-  return idbRequest(transaction.objectStore(emPreloadMetadataStore).get(`metadata/${packageName}`));
-}
-async function primeImportedGameDataForRuntime(sourceUrl, meta, runtimeDataVersion = null, runtimeLayout = null) {
-  const expected = gameDataDescriptor(meta.game);
-  const expectedLayout = runtimeLayout || expected.layout;
-  const expectedVersion = runtimeDataVersion || expected.version;
-  if (meta.layout !== expectedLayout) throw new Error("本地游戏数据的文件布局与当前运行时不兼容");
-  const packageName = runtimePreloadPackageName(sourceUrl, meta.game);
-  const db = await openEmscriptenPreloadCache();
-  try {
-    const existing = await readEmscriptenPreloadMetadata(db, packageName);
-    if (existing?.uuid === expectedVersion && existing?.eaglerLocalImport === meta.version &&
-        existing?.eaglerLayout === meta.layout && existing?.chunkCount === 1) return;
-    const local = await readLocalImportedAsset(localGameDataCacheUrl(location.origin, meta.game, meta.version));
-    if (!local) throw new Error("浏览器已清理本地导入的游戏数据");
-    const bytes = await local.arrayBuffer();
-    if (bytes.byteLength !== meta.bytes) throw new Error("本地导入的游戏数据大小已损坏");
-    const oldChunkCount = Math.max(0, Number(existing?.chunkCount) || 0);
-    await new Promise((resolve, reject) => {
-      const transaction = db.transaction([emPreloadPackageStore, emPreloadMetadataStore], "readwrite");
-      const packages = transaction.objectStore(emPreloadPackageStore);
-      const metadata = transaction.objectStore(emPreloadMetadataStore);
-      packages.put(bytes, `package/${packageName}/0`);
-      for (let index = 1; index < oldChunkCount; index++) packages.delete(`package/${packageName}/${index}`);
-      metadata.put({
-        uuid: expectedVersion,
-        chunkCount: 1,
-        eaglerLocalImport: meta.version,
-        eaglerLayout: meta.layout
-      }, `metadata/${packageName}`);
-      transaction.oncomplete = () => resolve();
-      transaction.onerror = () => reject(transaction.error || new Error("无法写入本地游戏数据 preload cache"));
-      transaction.onabort = () => reject(transaction.error || new Error("本地游戏数据 preload cache 写入被中止"));
-    });
-  } finally {
-    db.close();
-  }
-}
-async function releaseImportedGameDataRuntimeOwner(sourceUrl, gameId = state.game) {
-  if (!globalThis.indexedDB?.open) return;
-  const packageName = runtimePreloadPackageName(sourceUrl, gameId);
-  const db = await openEmscriptenPreloadCache();
-  try {
-    const existing = await readEmscriptenPreloadMetadata(db, packageName);
-    if (!existing?.eaglerLocalImport) return;
-    const chunkCount = Math.max(0, Number(existing.chunkCount) || 0);
-    await new Promise((resolve, reject) => {
-      const transaction = db.transaction([emPreloadPackageStore, emPreloadMetadataStore], "readwrite");
-      const packages = transaction.objectStore(emPreloadPackageStore);
-      const metadata = transaction.objectStore(emPreloadMetadataStore);
-      for (let index = 0; index < chunkCount; index++) packages.delete(`package/${packageName}/${index}`);
-      metadata.delete(`metadata/${packageName}`);
-      transaction.oncomplete = () => resolve();
-      transaction.onerror = () => reject(transaction.error || new Error("无法释放本地 preload cache owner"));
-      transaction.onabort = () => reject(transaction.error || new Error("释放本地 preload cache owner 被中止"));
-    });
-  } finally {
-    db.close();
-  }
-}
 async function installImportedGameData(file) {
   if (!(file instanceof Blob) || file.size <= 0 || file.size > maxImportBytes) throw new Error("游戏数据包大小无效");
   if (!globalThis.indexedDB?.open) throw new Error("当前浏览器不支持持久化游戏数据导入：IndexedDB 不可用");
+  if (state.game === "th08" && typeof file.name === "string" && /^th08\.dat$/i.test(file.name)) {
+    const expected = gameDataDescriptor();
+    if (file.size !== expected.bytes) throw new Error(`TH08 原版数据大小不匹配：${file.size}/${expected.bytes}`);
+    setPlayerStatus("正在校验 TH08 原版数据…");
+    const bytes = await file.arrayBuffer();
+    const actualHash = await sha256Hex(new Uint8Array(bytes));
+    if (actualHash.toLowerCase() !== expected.sha256.toLowerCase()) throw new Error("TH08 原版数据 SHA-256 校验失败");
+
+    // The retail filename is only an acquisition concern. Once accepted by
+    // eagler-touhou, TH08 occupies the same Package/DB namespace as TH06/TH07:
+    // game-data -> /th08.data. The stored bytes remain the untouched retail
+    // th08.dat payload so future App-managed WASM Runtimes can reuse them.
+    const descriptor = {
+      schema: PACKAGE_DESCRIPTOR_SCHEMA,
+      game: "th08",
+      revision: `raw-${actualHash.slice(0, 16)}`,
+      runtimeRequirement: {
+        protocol: HOST_PROTOCOL,
+        target: "th08",
+        dataFile: "game-data",
+        dataLayout: expected.layout,
+      },
+      files: {
+        "game-data": {
+          revision: expected.version,
+          source: "th08.data",
+          target: "/th08.data",
+          bytes: expected.bytes,
+        },
+      },
+      base: { files: ["game-data"] },
+      components: {},
+    };
+    setPlayerStatus("正在安装 TH08 游戏数据…");
+    const installed = await installPackageFromAcquisition({
+      descriptor,
+      desiredFileIds: ["game-data"],
+      source: "local",
+      reuseCurrent: false,
+      acquire: async fileId => fileId === "game-data" ? bytes : null,
+      onProgress(progress) {
+        setPlayerStatus(`正在安装 TH08 游戏数据… ${progress.completed}/${progress.total}`);
+      },
+    });
+    if (installed?.generation) installedPackageSnapshots.set(state.game, installed.generation);
+    try { void navigator.storage?.persist?.().catch?.(() => {}); } catch {}
+    return {
+      files: Object.keys(installed.generation?.files || {}).length,
+    };
+  }
   try {
     const packageZip = await parsePackageZip(file);
     if (packageZip.descriptor.game !== state.game) {
@@ -3162,13 +2951,7 @@ async function installImportedGameData(file) {
     // browser decision, so it must never hold import or launch completion.
     try { void navigator.storage?.persist?.().catch?.(() => {}); } catch {}
     return {
-      source: "package-store",
-      game: state.game,
-      packageInstall: true,
-      packageRevision: packageZip.descriptor.revision,
-      generationId: installed.installation.currentGeneration,
       files: Object.keys(installed.generation?.files || {}).length,
-      offlineComplete: true,
     };
   } catch (error) {
     if (!/Package ZIP is missing package\.json/.test(String(error?.message || error))) throw error;
@@ -3177,7 +2960,7 @@ async function installImportedGameData(file) {
   const pack = await parseStoredGameDataPack(file);
   if (pack.manifest.game !== state.game) throw new Error(`该数据包属于 ${pack.manifest.game.toUpperCase()}，不是 ${state.game.toUpperCase()}`);
   if (pack.manifest.data.path !== expected.path) throw new Error("游戏数据包与当前作品不匹配");
-  if (importOnlyServer) {
+  if (importServer) {
     if (!pack.offline) throw new Error("当前服务器不提供游戏内容，请导入完整游戏包。");
     for (const target of ["/msgothic.ttc", "/unifont.otf"]) {
       if (!pack.offline.shared.some(item => item.target === target)) throw new Error(`导入的旧游戏包缺少 ${target.slice(1)}`);
@@ -3187,9 +2970,7 @@ async function installImportedGameData(file) {
   const actualHash = await sha256Hex(new Uint8Array(await pack.data.blob.arrayBuffer()));
   if (actualHash.toLowerCase() !== pack.manifest.data.sha256.toLowerCase()) throw new Error("游戏数据包 SHA-256 校验失败");
 
-  let importedOggManifest = null;
   if (pack.manifest.music) {
-    importedOggManifest = pack.manifest.music;
     for (let i = 0; i < pack.music.length; i++) {
       setPlayerStatus(`正在校验本地 OGG… ${i + 1}/${pack.music.length}`);
       const item = pack.music[i];
@@ -3198,72 +2979,36 @@ async function installImportedGameData(file) {
     }
   }
 
-  let legacyAssets = null;
-  const legacyStoredAssets = [];
   if (pack.offline) {
-    // Legacy complete packs are content sources only. Their bundled
-    // HTML/JS/WASM Runtime is deliberately ignored; current App-managed
-    // Runtime remains the only executable path.
-    const runtimeVersion = pack.offline.runtime.version;
-    const shared = [];
     for (const item of pack.offline.shared) {
       setPlayerStatus(`正在校验旧包资源：${item.target.slice(1)}…`);
       const hash = await sha256Hex(new Uint8Array(await item.blob.arrayBuffer()));
       if (hash.toLowerCase() !== item.sha256) throw new Error(`${item.path}: SHA-256 校验失败`);
-      const name = item.target.slice(1);
-      const key = localOfflineAssetKey(state.game, runtimeVersion, "shared", name);
-      legacyStoredAssets.push({ key, blob: item.blob, type: item.blob.type || "application/octet-stream", version: runtimeVersion });
-      shared.push({ target: item.target, key, bytes: item.bytes, sha256: item.sha256 });
     }
-    const languages = [];
     for (const item of pack.offline.languages) {
       setPlayerStatus(`正在校验旧包语言：${item.title}…`);
       const hash = await sha256Hex(new Uint8Array(await item.blob.arrayBuffer()));
       if (hash.toLowerCase() !== item.sha256) throw new Error(`${item.path}: SHA-256 校验失败`);
-      const key = localOfflineAssetKey(state.game, runtimeVersion, "languages", `${item.id}.${item.sha256.slice(0, 16)}.zip`);
-      legacyStoredAssets.push({ key, blob: item.blob, type: "application/zip", version: runtimeVersion });
-      languages.push({ id: item.id, title: item.title, key, bytes: item.bytes, sha256: item.sha256,
-        files: Number.isInteger(item.files) ? item.files : undefined });
-    }
-    legacyAssets = { runtimeVersion, shared, languages };
-  }
-
-  const target = localGameDataCacheUrl(location.origin, state.game, pack.manifest.version);
-  const cacheMirrorAssets = [{ key: target, blob: new Blob([pack.data.blob], { type: "application/octet-stream" }), type: "application/octet-stream", version: pack.manifest.version }];
-  if (importedOggManifest) {
-    for (const item of pack.music) {
-      cacheMirrorAssets.push({
-        key: localOggCacheUrl(location.origin, state.game, importedOggManifest.version, item.name),
-        blob: new Blob([item.blob], { type: "audio/ogg" }),
-        type: "audio/ogg",
-        version: importedOggManifest.version
-      });
     }
   }
-  await writeLocalImportedAssets([...cacheMirrorAssets, ...legacyStoredAssets]);
-  await mirrorImportedAssetsToCache(cacheMirrorAssets);
-  const previous = readImportedGameDataMeta(state.game);
-  const previousOgg = readImportedOggMeta(state.game);
-  const meta = {
-    source: "local-import",
-    game: state.game,
-    version: pack.manifest.version,
-    layout: pack.manifest.data.layout,
-    sha256: pack.manifest.data.sha256.toLowerCase(),
-    bytes: pack.manifest.data.bytes,
-    ...(legacyAssets ? { legacyAssets } : {}),
-    importedAt: Date.now()
-  };
-  try { localStorage.setItem(importedGameDataMetadataKey(state.game), JSON.stringify(meta)); } catch {}
-  if (previous && previous.version !== meta.version) await discardImportedGameData(previous);
-  if (importedOggManifest) {
-    const oggMeta = { source: "local-import", game: state.game, version: importedOggManifest.version,
-      files: importedOggManifest.files.map(item => item.path), importedAt: Date.now() };
-    try { localStorage.setItem(importedOggMetadataKey(state.game), JSON.stringify(oggMeta)); } catch {}
-    if (previousOgg && previousOgg.version !== oggMeta.version) await discardImportedOgg(previousOgg);
-  }
+  // Historical ZIP is only an acquisition format. New imports cross the same
+  // Package Store boundary as current Package ZIPs, so no fresh legacy
+  // localStorage/Cache/custom-IDB state is created. Historical Runtime files
+  // are deliberately ignored by the adapter.
+  const adapted = adaptLegacyGamePackToPackage(pack, {
+    protocol: HOST_PROTOCOL,
+  });
+  setPlayerStatus("正在迁移旧游戏包到本地 Package Store…");
+  const installed = await installParsedPackageZip(adapted, {
+    onProgress(progress) {
+      setPlayerStatus(`正在迁移旧游戏包… ${progress.completed}/${progress.total}`);
+    }
+  });
+  if (installed?.generation) installedPackageSnapshots.set(state.game, installed.generation);
   try { void navigator.storage?.persist?.().catch?.(() => {}); } catch {}
-  return { ...meta, oggFiles: pack.music.length, offlineComplete: !!legacyAssets };
+  return {
+    files: Object.keys(installed.generation?.files || {}).length,
+  };
 }
 function selectedLanguagePack() {
   const entry = languageEntry();
@@ -3276,14 +3021,7 @@ function selectedLanguagePack() {
       packageLocal: true,
     };
   }
-  const local = activeLegacyImportedAssetsMeta?.languages?.find(item => item.id === entry.id) || null;
-  if (local) {
-    return { ...local, language: entry.id, localKey: local.key, url: null };
-  }
-  if (!entry.pack) {
-    if (entry.offlinePack) throw new Error("当前语言只存在于导入的旧游戏包，但当前没有使用该本地游戏内容");
-    return null;
-  }
+  if (!entry.pack) return null;
   const pack = entry.pack;
   if (typeof pack.url !== "string" || typeof pack.sha256 !== "string" || !Number.isInteger(pack.bytes)) throw new Error("语言包清单无效");
   return {
@@ -3301,7 +3039,7 @@ async function launchConfiguredRuntime() {
   const runtimePack = await prepareLanguagePack();
   const musicResources = await selectedMusicResources();
   const localMusicResources = isOggMusicMode(state.music) && musicResources.length > 0 &&
-    musicResources.every(resource => typeof resource.localKey === "string" || typeof resource.packageFileId === "string") ? musicResources : null;
+    musicResources.every(resource => typeof resource.packageFileId === "string") ? musicResources : null;
   const shared = await selectedSharedResources();
   const packageResources = await installedPackageRuntimeResources();
   setPlayerStatus(runtimePack ? `准备 ${entryTitle(languageEntry())} 语言包…` : `准备 ${musicModeLabel(state.music)} 音乐资源…`);
@@ -3323,7 +3061,7 @@ async function launchConfiguredRuntime() {
       oggDecodeMode: oggDecodeMode(state.music),
       unlimitedTouch: state.options.touchMovementMode === "touch-unlimited",
       touchBombZoneEnabled: false,
-      th06FocusHitbox: state.game === "th06" && state.options.th06FocusHitbox,
+      th06FocusHitbox: !!gameFeatures(state.game).focusHitbox && state.options.th06FocusHitbox,
       replayViewer: !!state.replayViewer,
       ...netplayOptions }
   }, 30 * 60 * 1000);
@@ -3375,42 +3113,30 @@ async function launchConfiguredRuntime() {
 }
 function entryTitle(entry) { return typeof entry?.title === "string" && entry.title ? entry.title : entry?.id || "语言"; }
 function chooseDefaultMusic() {
+  const packages = game().music || {};
   const installedGeneration = activeInstalledPackageGeneration || installedPackageSnapshots.get(state.game) || null;
-  if (installedGeneration) {
+  let localOggReady = false;
+  let remoteOggReady = false;
+  const publishedOggAllowed = !!(packages.ogg || packages.wav);
+  if (installedGeneration && publishedOggAllowed) {
     const ids = componentFileIds(installedGeneration.descriptor, "ogg");
-    const localOggCount = ids.filter(fileId => !!installedGeneration.files?.[fileId]?.objectId).length;
-    const localOggReady = ids.length > 0 && localOggCount === ids.length;
-    const remoteOggReady = !importOnlyServer && localOggCount === 0 && !!releaseCatalog?.games?.[state.game];
-    if (state.music === "none") return;
-    if (state.music === "midi") {
-      if (localOggReady && !state.musicPreferenceExplicit) {
-        state.music = "ogg-stream";
-        saveGamePreferences();
-      }
-      return;
-    }
-    if (isOggMusicMode(state.music) && (localOggReady || remoteOggReady)) return;
-    // Missing resources may require a temporary MIDI fallback, but that is not
-    // a user preference. Do not persist it and poison a later complete import.
-    state.music = "midi";
-    return;
+    localOggReady = ids.length > 0 && ids.every(fileId => !!installedGeneration.files?.[fileId]?.objectId);
+    const remotePublication = !importServer ? releaseCatalog?.games?.[state.game] : null;
+    remoteOggReady = ids.length >= 2 && remotePublication?.revision === installedGeneration.descriptor.revision;
+  } else if (!installedGeneration && !importServer) {
+    remoteOggReady = !!packages.ogg;
   }
-  const packages = game().music;
-  if (state.music === "none") return;
-  if (importOnlyServer) {
-    const imported = readImportedOggMeta(state.game);
-    const ogg = packages.ogg;
-    const localOggReady = !!ogg && !!imported && Array.isArray(ogg.files) &&
-      ogg.files.every(name => imported.files.includes(name));
-    const wanted = state.musicPreferenceExplicit ? state.music : "ogg-stream";
-    const next = isOggMusicMode(wanted) && localOggReady ? wanted : "midi";
-    if (state.music !== next) state.music = next;
-    return;
-  }
-  if (isOggMusicMode(state.music) && packages.ogg) return;
-  if (state.music === "midi" && packages.midi) return;
-  state.music = packages.ogg ? "ogg-stream" : "midi";
-  saveGamePreferences();
+  // Effective fallback is transient. Keep explicit preference separate so a
+  // later completed install (or saving an unrelated option) cannot erase it.
+  state.music = resolveMusicMode({
+    requested: state.musicPreferenceExplicit ? state.musicPreference : state.music,
+    explicit: state.musicPreferenceExplicit,
+    audio: webAudioAvailable,
+    midi: !!packages.midi,
+    localOgg: localOggReady,
+    remoteOgg: remoteOggReady,
+    preferOgg: localOggReady || (!installedGeneration && !importServer),
+  });
 }
 
 const customSelects = new Map();
@@ -3456,7 +3182,10 @@ function syncCustomSelect(select) {
   const ui = customSelects.get(select);
   if (!ui) return;
   const selected = select.selectedOptions[0] || select.options[0];
-  ui.value.textContent = selected?.textContent || "";
+  ui.value.textContent = select.dataset.triggerI18n ? t(select.dataset.triggerI18n) : (selected?.textContent || "");
+  const ariaLabel = select.getAttribute("aria-label") || "选择选项";
+  ui.trigger.setAttribute("aria-label", ariaLabel);
+  ui.menu.setAttribute("aria-label", ariaLabel);
   ui.trigger.disabled = select.disabled;
   ui.trigger.setAttribute("aria-disabled", String(select.disabled));
   const signature = Array.from(select.options, option => `${option.value}\u0000${option.textContent}\u0000${option.disabled}`).join("\u0001");
@@ -3515,6 +3244,8 @@ function installCustomSelect(select) {
   arrow.setAttribute("aria-hidden", "true");
   arrow.innerHTML = '<svg viewBox="0 0 24 24" focusable="false"><path d="m7 10 5 5 5-5"/></svg>';
   trigger.append(value, arrow);
+  const prefixTemplate = select.parentElement?.querySelector(":scope > template[data-select-trigger-prefix]");
+  if (prefixTemplate) trigger.prepend(prefixTemplate.content.cloneNode(true));
   select.before(root);
   root.append(trigger, select);
   select.classList.add("custom-select-native");
@@ -3602,7 +3333,7 @@ function renderTouchFocusState(updateCopy = true) {
   const pressed = String(touchControls.focusEnabled);
   if (focusButton.getAttribute("aria-pressed") !== pressed) focusButton.setAttribute("aria-pressed", pressed);
   if (!updateCopy) return;
-  const copy = state.options.touchFocusMode === "hold-button" ? "按住低速" : "点按切换";
+  const copy = t(state.options.touchFocusMode === "hold-button" ? "touch.holdFocus" : "touch.tapToggle");
   const small = focusButton.querySelector("small");
   if (small.textContent !== copy) small.textContent = copy;
 }
@@ -3612,7 +3343,7 @@ function renderTouchFireState(updateCopy = true) {
   const pressed = String(touchControls.fireEnabled);
   if (fireButton.getAttribute("aria-pressed") !== pressed) fireButton.setAttribute("aria-pressed", pressed);
   if (!updateCopy) return;
-  const copy = "点按切换";
+  const copy = t("touch.tapToggle");
   const small = fireButton.querySelector("small");
   if (small.textContent !== copy) small.textContent = copy;
 }
@@ -3626,7 +3357,7 @@ function render() {
   document.body.classList.toggle("less-motion", state.lessMotion);
   const lessMotionToggle = $("#lessMotionToggle");
   lessMotionToggle.setAttribute("aria-pressed", String(state.lessMotion));
-  lessMotionToggle.title = state.lessMotion ? "恢复完整页面动画" : "减少页面装饰动画";
+  lessMotionToggle.title = t(state.lessMotion ? "nav.motionFullTitle" : "nav.motionLessTitle");
   $("#main").classList.toggle("has-selection", state.hasSelection);
   const tools = $(".tools");
   tools.classList.toggle("mobile-open", state.mobileOpen);
@@ -3635,6 +3366,11 @@ function render() {
   tools.inert = !state.hasSelection;
   document.querySelectorAll(".game").forEach(card => {
     const product = card.dataset.product || card.dataset.game;
+    if (isMultiplayerProduct(product) && !state.netplay.url) {
+      showToast("联机服务未配置，请联系站点管理员。", 4000);
+      return;
+    }
+    card.hidden = !matchesCardFilter(product);
     const selected = state.hasSelection && product === state.product;
     card.classList.toggle("selected", selected);
     card.setAttribute("aria-pressed", String(selected));
@@ -3643,6 +3379,7 @@ function render() {
   $("#gameId").dataset.game = state.game;
   $("#gameTitle").textContent = game().title;
   $("#mpTitleBadge").hidden = !multiplayerProduct;
+  $("#th08MaintenanceCallout").hidden = state.game !== "th08" || multiplayerProduct;
   $("#mpShell").hidden = !multiplayerProduct;
   if (multiplayerProduct && state.hasSelection) {
     for (const [name, open] of Object.entries(mpUiState.folds)) {
@@ -3650,6 +3387,11 @@ function render() {
     }
   }
   const multiplayerRoomOpen = multiplayerProduct && !!mpUiState.room;
+  if (multiplayerRoomOpen && $("#main").classList.contains("card-layout-motion")) cancelCardLayoutMotion();
+  $("#cardFilterBar").hidden = multiplayerRoomOpen;
+  document.querySelectorAll("[data-card-filter]").forEach(button => {
+    button.setAttribute("aria-pressed", String(button.dataset.cardFilter === cardFilter));
+  });
   $("#main").classList.toggle("mp-room-open", multiplayerRoomOpen);
   document.body.classList.toggle("mp-room-active", multiplayerRoomOpen);
   $("#mpRoomView").hidden = !multiplayerRoomOpen;
@@ -3660,8 +3402,8 @@ function render() {
     typeof game().multiplayerRuntime === "string"
   );
   if (multiplayerProduct && multiplayerAvailable) state.runtimeVariant = "multiplayer";
-  $("#launchText").textContent = !hasInstalledPackage && importOnlyServer && !readImportedGameDataMeta(state.game)?.legacyAssets
-    ? "导入游戏资源" : state.runtimeVariant === "multiplayer" ? "启动 LAN 联机" : "启动游戏";
+  $("#launchText").textContent = !hasInstalledPackage && importServer
+    ? t("action.importGameData") : state.runtimeVariant === "multiplayer" ? t("action.startMultiplayer") : t("action.start");
   // Keep one explicit import entry in every publication mode. A hosted
   // release may still be paired with a user-provided content generation and
   // then offer the matching remote update through the normal launch flow.
@@ -3671,13 +3413,16 @@ function render() {
   for (const option of musicSelect.options) {
     option.disabled = !webAudioAvailable && option.value !== "none";
   }
-  musicSelect.title = webAudioAvailable ? "" : "当前浏览器不支持 Web Audio，仅可使用无音乐模式";
+  musicSelect.title = webAudioAvailable ? "" : t("settings.webAudioUnavailable");
   const languageEntries = languageCatalog(state.game);
   const languageSelect = $("#languageSelect");
   languageSelect.replaceChildren(...languageEntries.map(entry => {
     const option = document.createElement("option"); option.value = entry.id; option.textContent = entryTitle(entry); return option;
   }));
   languageSelect.value = state.language;
+  $("#musicOption").hidden = !game().music?.ogg && !game().music?.wav;
+  $("#languageOption").hidden = languageEntries.length <= 1;
+  $("#replayFileTool").hidden = !gameFeatures(state.game).replayManagement;
   const mpLanguageSelect = $("#mpLanguageSelect");
   mpLanguageSelect.replaceChildren(...languageEntries.map(entry => {
     const option = document.createElement("option"); option.value = entry.id; option.textContent = entryTitle(entry); return option;
@@ -3701,10 +3446,11 @@ function render() {
   $("#mpMobileOptionsToggle").setAttribute("aria-expanded", String(mpUiState.mobileOpen));
   const selectedLanguage = languageEntry();
   const selectedPack = selectedLanguage.offlinePack || selectedLanguage.pack;
-  $("#languagePackSize").textContent = selectedPack ? formatBytes(Number(selectedPack.bytes) || 0) : "内置";
+  $("#languagePackSize").textContent = selectedPack ? formatBytes(Number(selectedPack.bytes) || 0) : t("settings.builtin");
   const thpracAvailable = !!gameFeatures(state.game).thprac;
   if (!thpracAvailable || multiplayerProduct) state.options.thpracEnabled = false;
-  $("#th06HitboxOption").hidden = state.game !== "th06";
+  $("#thpracOption").hidden = !thpracAvailable || multiplayerProduct;
+  $("#th06HitboxOption").hidden = !gameFeatures(state.game).focusHitbox;
   $("#mobileOptions").classList.toggle("open", state.mobileOpen);
   $("#mobileOptionsToggle").setAttribute("aria-expanded", String(state.mobileOpen));
   const switches = { thpracToggle: state.options.thpracEnabled, thpracTouchControlsToggle: state.options.thpracTouchControlsEnabled, magnifierToggle: state.options.magnifierEnabled, frameLimitToggle: state.options.frameLimit60Enabled, th06HitboxToggle: state.options.th06FocusHitbox, touchToggle: state.options.touchEnabled, doubleTapBombToggle: state.options.doubleTapBombEnabled, alwaysHitboxToggle: state.options.alwaysHitbox };
@@ -3714,12 +3460,12 @@ function render() {
   }
   const thpracToggle = $("#thpracToggle");
   thpracToggle.disabled = !thpracAvailable || multiplayerProduct || state.runtimeVariant === "multiplayer";
-  thpracToggle.title = multiplayerProduct || state.runtimeVariant === "multiplayer" ? "联机版使用不含 thprac 的独立 Runtime" : "";
+  thpracToggle.title = multiplayerProduct || state.runtimeVariant === "multiplayer" ? t("settings.thpracUnavailableMultiplayer") : "";
   const frameLimitToggle = $("#frameLimitToggle");
   frameLimitToggle.disabled = false;
   frameLimitToggle.title = "";
   const frameLimitHint = $("#frameLimitHint");
-  $("#frameLimitHintText").textContent = "如果帧数在游玩时经常严重波动，那么必须启用该选项，否则会造成严重的输入延迟。";
+  $("#frameLimitHintText").textContent = t("settings.frameLimitHint");
   frameLimitHint.classList.add("option-warning");
   const touchMovementMode = $("#touchMovementMode");
   touchMovementMode.value = state.options.touchMovementMode;
@@ -3771,12 +3517,12 @@ function render() {
   touchThpracMenu.hidden = !thpracControlsVisible;
   touchThpracInput.classList.toggle("is-on", thpracMouseMode);
   touchThpracInput.setAttribute("aria-pressed", String(thpracMouseMode));
-  touchThpracInput.querySelector("strong").textContent = "模拟鼠标";
+  touchThpracInput.querySelector("strong").textContent = t("touch.mouse");
   touchThpracFunctionKeys.hidden = !thpracMenuOpen;
   document.querySelectorAll("[data-action]").forEach(button => {
     const gameLoaded = loaded[state.game];
     button.disabled = !gameLoaded;
-    button.title = gameLoaded ? "" : "先在浏览器中打开一次游戏，才能使用此功能";
+    button.title = gameLoaded ? "" : t("settings.actionsNeedLaunch");
   });
   applyTouchLayout();
   if (touchLayoutEditing) updateTouchLayoutEditorUi();
@@ -3785,8 +3531,16 @@ function render() {
   syncAllCustomSelects();
 }
 
+window.addEventListener("eagler-ui-locale-change", () => {
+  document.documentElement.lang = getUiLocale();
+  render();
+  renderServerStatusNote();
+  if (currentStatusMessage) setTranslatedStatus(currentStatusMessage.key, currentStatusMessage.params);
+});
+
 function validatedNetplayOptions() {
-  if (!new Set(["th06", "th07"]).has(state.game)) throw new Error("当前游戏不支持 LAN 联机 Runtime");
+  const multiplayer = PRODUCT_GAMES[state.game]?.multiplayer;
+  if (!multiplayer) throw new Error("当前游戏不支持 LAN 联机 Runtime");
   let url;
   try { url = new URL(state.netplay.url); } catch { throw new Error("Relay WebSocket URL 无效"); }
   if (url.protocol !== "ws:" && url.protocol !== "wss:") throw new Error("Relay URL 必须使用 ws:// 或 wss://");
@@ -3797,13 +3551,13 @@ function validatedNetplayOptions() {
   if (spectator && !/^[A-Za-z0-9_-]{8,64}$/.test(String(state.netplay.spectatorId || "")))
     throw new Error("旁观者资格无效");
   if (!Number.isInteger(seed) || seed < 0 || seed > 65535) throw new Error("LAN 同步种子必须在 0–65535 之间");
-  const difficultyMax = state.game === "th06" ? 4 : 5;
+  const difficultyMax = multiplayer.difficultyMax;
   const difficulty = Number(state.netplay.difficulty);
   if (!Number.isInteger(difficulty) || difficulty < 0 || difficulty > difficultyMax) {
     throw new Error(`LAN 难度必须在 0–${difficultyMax} 之间`);
   }
   const loadouts = state.netplay.loadouts.slice(0, playerCount).map(({ character, shot }, index) => {
-    const maxCharacter = state.game === "th06" ? 1 : 2;
+    const maxCharacter = multiplayer.characterMax;
     if (!Number.isInteger(character) || character < 0 || character > maxCharacter ||
         !Number.isInteger(shot) || shot < 0 || shot > 1) {
       throw new Error(`P${index + 1} 机体配置无效`);
@@ -3886,7 +3640,6 @@ function resetRuntime() {
   clearFirstFrameWatchdog();
   clearGameDataAttempt();
   hideTransfer();
-  revokeImportedContentObjectUrls();
   for (const pending of state.pending.values()) pending.reject(new Error("游戏运行时已切换"));
   state.pending.clear(); state.ready = false; state.launched = false; state.source = ""; state.sourceIdentity = "";
   deferredBackgroundPackageUpdate = null;
@@ -4028,8 +3781,8 @@ function handleFullscreenChange() {
   cancelTouchLayoutGestures();
   const fullscreenButton = $("#fullscreenToggle");
   const isFullscreen = isPlayerFullscreen();
-  fullscreenButton.setAttribute("aria-label", isFullscreen ? "退出全屏" : "进入全屏");
-  fullscreenButton.title = isFullscreen ? "退出全屏（Alt+Enter）" : "进入全屏（Alt+Enter）";
+  fullscreenButton.setAttribute("aria-label", t(isFullscreen ? "player.exitFullscreen" : "player.enterFullscreen"));
+  fullscreenButton.title = t(isFullscreen ? "player.exitFullscreenTitle" : "player.enterFullscreenTitle");
   if (isFullscreen) {
     if (state.launched) {
       lockEscapeForGame();
@@ -4191,12 +3944,12 @@ async function closePlayerView(fromHistory = false, { skipSync = false, returnTo
     renderMpRoom();
     render();
     if (!mpLobby.connected) mpReconnectLobbyNow();
-    maybeReloadForAppShellUpdate();
+    appShellClient.maybeReload();
     return;
   }
   if (!fromHistory) replaceLauncherHomeHistory();
   showLauncherHome();
-  maybeReloadForAppShellUpdate();
+  appShellClient.maybeReload();
 }
 
 function syncSelectionFromPlayerRoute() {
@@ -4277,6 +4030,7 @@ window.addEventListener("message", event => {
     // The Runtime main loop is now definitely live. Push the current touch
     // snapshot here instead of racing another message against launch/unwind.
     if (state.launched) pushTouchControlsLive();
+    startRuntimeSchedulingProbe();
     updateRuntimeDiagnostics();
     return;
   }
@@ -4286,6 +4040,8 @@ window.addEventListener("message", event => {
     return;
   }
   if (message.event === "frame-health") {
+    runtimeDiagnosticState.fps = Number.isFinite(Number(message.fps)) ? Number(message.fps) : null;
+    runtimeDiagnosticState.frameHealthAt = performance.now();
     runtimeDiagnosticState.maxGapMs = Number.isFinite(Number(message.maxGapMs)) ? Number(message.maxGapMs) : null;
     updateRuntimeDiagnostics();
     return;
@@ -4473,7 +4229,7 @@ async function ensureManagedOggStartupBarrier() {
   const missing = initialIds.filter(fileId => !generation.files?.[fileId]?.objectId);
   if (!missing.length) return;
   const publication = releaseCatalog?.games?.[state.game];
-  if (importOnlyServer || !publication || publication.revision !== generation.descriptor.revision) {
+  if (importServer || !publication || publication.revision !== generation.descriptor.revision) {
     state.music = "midi";
     showToast("前两首 OGG 尚未完整准备，本次使用 MIDI。游戏内容不会被覆盖。");
     return;
@@ -4582,81 +4338,31 @@ async function ensureRuntime(show = true) {
       if (await ensureInstalledPackageRuntime(show)) return;
     } catch (error) {
       if (isCancelledDownload(error)) throw error;
-      if (!legacyRemoteAvailable) throw error;
-      showToast(`游戏资源安装失败，本次尝试兼容启动方式：${error.message || error}`);
+      if (!hostManifestAvailable) throw error;
+      showToast(`游戏资源安装失败，本次尝试现有资源启动：${error.message || error}`);
     } finally {
       finishBlockingNetworkOperation(operation);
     }
   }
-  if (!legacyRemoteAvailable) {
+  if (!hostManifestAvailable) {
     throw new Error(remoteCatalogError
       ? `服务器当前不可用，且本机没有已安装的 ${state.game.toUpperCase()} 游戏资源。请恢复网络后重试，或导入本地游戏包。\n${remoteCatalogError.message || remoteCatalogError}`
       : `服务器发行信息尚未就绪，且本机没有已安装的 ${state.game.toUpperCase()} 游戏资源。请稍后重试，或导入本地游戏包。`);
   }
+  if (importServer) throw new Error("当前服务器不提供游戏文件，请先导入本地游戏包");
   const expectedData = gameDataDescriptor();
-  const importedData = readImportedGameDataMeta(state.game);
-  const importedDataCompatible = !!importedData && importedData.layout === expectedData.layout;
-  if (importOnlyServer && !importedDataCompatible) {
-    throw new Error("当前服务器不提供游戏文件，请先导入本地游戏包");
-  }
-  let useImportedData = importOnlyServer ? true : importedDataCompatible;
-  if (!importOnlyServer && importedDataCompatible && importedData.version !== expectedData.version) {
-    const choiceKey = `${state.game}:${importedData.version}->${expectedData.version}`;
-    let choice = importedDataUpdateChoices.get(choiceKey);
-    if (!choice) {
-      const tryWebsite = await askConfirmation({
-        message: "你导入的本地版本仍然可以继续使用，不会被强制更新或删除。\n\n确认后将先尝试服务器当前版本。",
-        confirmText: "尝试服务器版本",
-        cancelText: "继续本地版本"
-      });
-      choice = tryWebsite ? "website" : "local";
-      importedDataUpdateChoices.set(choiceKey, choice);
-    }
-    useImportedData = choice !== "website";
-  }
-  const importedOgg = readImportedOggMeta(state.game);
   const sourceUrl = new URL(runtimeUrl(), location.href);
   sourceUrl.searchParams.set("runtimeVariant", state.runtimeVariant || "normal");
   if (state.replayViewer) sourceUrl.searchParams.set("launchIntent", "replay");
-  sourceUrl.searchParams.set("asset", useImportedData ? importedData.version : expectedData.version);
+  sourceUrl.searchParams.set("asset", expectedData.version);
   const ogg = game().music?.ogg;
-  if (ogg && typeof ogg.version === "string") sourceUrl.searchParams.set("oggAsset", importedOgg?.version || ogg.version);
+  if (ogg && typeof ogg.version === "string") sourceUrl.searchParams.set("oggAsset", ogg.version);
   const requestedIdentity = sourceUrl.href;
   if (show) openPlayerView();
   if (state.ready && state.sourceIdentity === requestedIdentity) return;
   resetRuntime(); state.sourceIdentity = requestedIdentity; setPlayerStatus("载入游戏数据…");
-  if (importedData && !importedDataCompatible) {
-    showToast("已保留你导入的游戏数据，但它的文件布局与当前运行时不兼容；本次改用服务器资源。");
-  }
-  if (useImportedData) {
-    state.source = sourceUrl.href;
-    activeLegacyImportedAssetsMeta = importedData.legacyAssets || null;
-    try {
-      await primeImportedGameDataForRuntime(sourceUrl, importedData);
-      clearGameDataAttempt();
-      setPlayerStatus("载入本地导入的游戏数据…");
-      if (importedData.version !== expectedData.version) {
-        showToast("服务器已有新版游戏资源；本次继续使用你导入的本地版本，不会强制更新。");
-      }
-    } catch (error) {
-      activeLegacyImportedAssetsMeta = null;
-      if (importOnlyServer) throw new Error(`本地游戏包不可用：${error.message || error}`);
-      sourceUrl.searchParams.set("asset", expectedData.version);
-      state.source = sourceUrl.href;
-      state.sourceIdentity = sourceUrl.href;
-      await releaseImportedGameDataRuntimeOwner(sourceUrl, state.game).catch(() => {});
-      showToast(`本地导入数据暂时不可用，已改用服务器资源：${error.message}`);
-      beginGameDataAttempt();
-    }
-  } else {
-    if (importOnlyServer) throw new Error("当前服务器不提供游戏文件，请先导入本地游戏包");
-    state.source = sourceUrl.href;
-    await releaseImportedGameDataRuntimeOwner(sourceUrl, state.game).catch(() => {});
-    beginGameDataAttempt();
-  }
-  if (!importOnlyServer && importedOgg && ogg && importedOgg.version !== ogg.version) {
-    showToast("服务器已有新版 OGG；本次仍优先使用你导入的本地 OGG，不会强制更新。");
-  }
+  state.source = sourceUrl.href;
+  beginGameDataAttempt();
   showTransfer({
     kind: "game",
     mode: "runtime",
@@ -4678,7 +4384,7 @@ async function ensureRuntime(show = true) {
 }
 
 async function selectedMusicResources() {
-  if (state.music === "none") return [];
+  if (!isOggMusicMode(state.music)) return [];
   if (activeInstalledPackageGeneration) {
     const generation = activeInstalledPackageGeneration;
     const ids = componentFileIds(generation.descriptor, "ogg");
@@ -4691,7 +4397,7 @@ async function selectedMusicResources() {
       }
       return resources;
     }
-    if (importOnlyServer || !releaseCatalog?.games?.[state.game]) return [];
+    if (importServer || !releaseCatalog?.games?.[state.game]) return [];
     const descriptorUrl = releaseCatalogEntryUrl(releaseCatalogUrl, releaseCatalog, state.game);
     return ids.map(fileId => {
       const declaration = generation.descriptor.files[fileId];
@@ -4708,14 +4414,6 @@ async function selectedMusicResources() {
   const pack = musicPackage();
   if (!pack || !Array.isArray(pack.files)) throw new Error("音乐资源清单无效");
   const mount = typeof pack.mount === "string" ? pack.mount.replace(/\/$/, "") : "";
-  const imported = isOggMusicMode(state.music) ? readImportedOggMeta(state.game) : null;
-  if (imported && pack.files.every(name => imported.files.includes(name))) {
-    return pack.files.map((name, index) => ({
-      localKey: localOggCacheUrl(location.origin, state.game, imported.version, name),
-      path: `${mount}/${name}`,
-      size: Number(pack.sizes?.[index]) || 0
-    }));
-  }
   return pack.files.map((name, index) => {
     if (typeof name !== "string" || !name || name.includes("/") || name.includes("\\")) throw new Error("音乐资源文件名无效");
     const url = new URL(name, new URL(pack.base || "./", location.href));
@@ -4734,17 +4432,6 @@ async function selectedSharedResources() {
   const wanted = [];
   if (state.language === "ja") wanted.push({ target: "/msgothic.ttc", network: vanillaFont });
   if (state.language !== "ja" || state.options.thpracEnabled) wanted.push({ target: "/unifont.otf", network: unicodeFont });
-  if (activeLegacyImportedAssetsMeta) {
-    const resources = [];
-    for (const item of wanted) {
-      const declaration = activeLegacyImportedAssetsMeta.shared.find(file => file.target === item.target);
-      if (!declaration) throw new Error(`导入的游戏包缺少 ${item.target.slice(1)}`);
-      const blob = await readLocalImportedAsset(declaration.key);
-      if (!blob || blob.size !== declaration.bytes) throw new Error(`离线资源 ${item.target.slice(1)} 已丢失或损坏`);
-      resources.push({ url: importedContentObjectUrl(blob), path: item.target });
-    }
-    return resources;
-  }
   return wanted.map(item => ({ url: new URL(item.network, location.href).href, path: item.target }));
 }
 
@@ -4906,10 +4593,6 @@ async function prepareLanguagePack() {
     const object = await readPackageObject(pack.packageObjectId);
     if (!object?.blob) throw new Error("本地语言包已丢失");
     archive = new Uint8Array(await object.blob.arrayBuffer());
-  } else if (pack.localKey) {
-    const blob = await readLocalImportedAsset(pack.localKey);
-    if (!blob || blob.size !== pack.bytes) throw new Error("离线语言包已丢失或损坏");
-    archive = new Uint8Array(await blob.arrayBuffer());
   } else {
     try { cache = await globalThis.caches?.open(languageCacheName); } catch {}
     cacheKey = languageCacheKey(pack);
@@ -4928,7 +4611,7 @@ async function prepareLanguagePack() {
     }
   }
   let archiveHash = pack.packageObjectId ? null : await sha256Hex(archive);
-  if (!pack.packageObjectId && (archive.length !== pack.bytes || archiveHash.toLowerCase() !== pack.sha256.toLowerCase()) && fromCache && !pack.localKey) {
+  if (!pack.packageObjectId && (archive.length !== pack.bytes || archiveHash.toLowerCase() !== pack.sha256.toLowerCase()) && fromCache) {
     if (cache) try { await cache.delete(cacheKey); } catch {}
     try {
       archive = await downloadLanguagePack(pack, "no-store");
@@ -4940,7 +4623,7 @@ async function prepareLanguagePack() {
   }
   if (!pack.packageObjectId && archive.length !== pack.bytes) throw new Error("语言包大小错误");
   if (!pack.packageObjectId && archiveHash.toLowerCase() !== pack.sha256.toLowerCase()) throw new Error("语言包 SHA-256 校验失败");
-  if (cache && !pack.localKey) try { await cache.put(cacheKey, new Response(archive)); } catch {}
+  if (cache) try { await cache.put(cacheKey, new Response(archive)); } catch {}
   const entries = globalThis.fflate.unzipSync(archive);
   const manifestBytes = entries["manifest.json"];
   if (!(manifestBytes instanceof Uint8Array)) throw new Error("语言包缺少清单");
@@ -4969,7 +4652,7 @@ async function prepareLanguagePack() {
     ? pack.url
     : pack.packageObjectId
       ? new URL(`/__eagler/package-language/${state.game}/${encodeURIComponent(pack.language)}`, location.origin).href
-      : new URL(pack.localKey, location.origin).href;
+      : "";
   return { ...pack, runtimeVersion: packManifest.runtimeVersion, bytes: archive.length, url: runtimePackUrl, manifest: packManifest, files };
 }
 
@@ -4981,7 +4664,11 @@ function download(name, value, type = "application/json") {
   link.href = url; link.download = name; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-const replayPrefix = () => state.game === "th06" ? "th6" : "th7";
+const replayPrefix = () => {
+  const prefix = PRODUCT_GAMES[state.game]?.replay?.prefix;
+  if (!prefix) throw new Error("当前游戏没有 Replay 文件管理适配器");
+  return prefix;
+};
 const validReplayName = name => new RegExp(`^${replayPrefix()}_(?:\\d{2}|ud[0-9a-f]{4})\\.rpyx?$`, "i").test(name);
 const formatBytes = bytes => bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KiB` : `${(bytes / 1024 / 1024).toFixed(2)} MiB`;
 async function replayListing() {
@@ -5006,8 +4693,8 @@ async function exportFiles(kind) {
   try {
     await ensureRuntime(false); setPlayerStatus(`正在导出${label}…`); await send("sync");
     if (kind === "save") {
-      const result = await send("read", { path: "score.dat" });
-      download("score.dat", new Uint8Array(result.bytes), "application/octet-stream");
+      const result = await send("read", { path: gameStorage().scoreFile });
+      download(gameStorage().scoreFile, new Uint8Array(result.bytes), "application/octet-stream");
     } else {
       if (!globalThis.fflate?.zipSync) throw new Error("ZIP 组件没有加载");
       const listing = await replayListing();
@@ -5042,11 +4729,18 @@ async function exportFiles(kind) {
 async function importFile(kind, file) {
   if (!file.size) throw new Error("不能导入空文件");
   if (file.size > maxImportBytes) throw new Error("导入文件超过 128 MiB 限制");
-  if (kind === "save" && state.launched) resetRuntime();
+  if (kind === "save" && state.launched) {
+    // Match the established TH06/TH07 Runtime lifecycle: never tear down a
+    // running IDBFS owner while it may still have autoPersist work in flight.
+    // A late write from that dead iframe can otherwise race the newly imported
+    // score.dat and restore the older tree after the import already verified.
+    if (state.ready) await send("sync", {}, 10000);
+    resetRuntime();
+  }
   await ensureRuntime(false); setPlayerStatus("正在导入…"); let files;
   const lowerName = file.name.toLowerCase();
   if (kind === "save" && lowerName.endsWith(".dat")) {
-    files = [{ path: "score.dat", bytes: new Uint8Array(await file.arrayBuffer()) }];
+    files = [{ path: gameStorage().scoreFile, bytes: new Uint8Array(await file.arrayBuffer()) }];
   } else if (kind === "replay" && /\.rpyx?$/.test(lowerName)) {
     const sanitized = file.name.replace(/[^\w.()-]/g, "_");
     const listing = await send("list");
@@ -5085,7 +4779,7 @@ async function importFile(kind, file) {
     const expected = files[0].bytes;
     resetRuntime();
     await ensureRuntime(false);
-    const persisted = new Uint8Array((await send("read", { path: "score.dat" })).bytes);
+    const persisted = new Uint8Array((await send("read", { path: gameStorage().scoreFile })).bytes);
     if (persisted.length !== expected.length || persisted.some((byte, index) => byte !== expected[index])) {
       throw new Error("存档写入后未能从浏览器持久存储完整读回");
     }
@@ -5105,9 +4799,9 @@ async function refreshReplayManager({ animateRows = false } = {}) {
   const files = await replayListing();
   const list = $("#replayList");
   list.replaceChildren();
-  $("#replaySummary").textContent = `${files.length} 个文件`;
+  $("#replaySummary").textContent = t("replay.fileCount", { count: files.length });
   if (!files.length) {
-    const empty = document.createElement("div"); empty.className = "replay-empty"; empty.textContent = "暂无录像文件"; list.append(empty); return;
+    const empty = document.createElement("div"); empty.className = "replay-empty"; empty.textContent = t("status.noReplay"); list.append(empty); return;
   }
   for (const [index, file] of files.entries()) {
     const row = document.createElement("div"); row.className = "replay-row";
@@ -5157,7 +4851,7 @@ async function manageReplays() {
   loading.className = "replay-loading";
   loading.innerHTML = '<i aria-hidden="true"></i><span>正在读取录像…</span>';
   list.append(loading);
-  $("#replaySummary").textContent = "读取中…";
+  $("#replaySummary").textContent = t("status.readingReplay");
   dialog.classList.remove("closing");
   if (!dialog.open) dialog.showModal();
   await new Promise(resolve => requestAnimationFrame(resolve));
@@ -5167,9 +4861,9 @@ async function manageReplays() {
     list.replaceChildren();
     const failed = document.createElement("div");
     failed.className = "replay-empty replay-load-error";
-    failed.textContent = "录像读取失败";
+    failed.textContent = t("status.replayReadFailed");
     list.append(failed);
-    $("#replaySummary").textContent = "读取失败";
+    $("#replaySummary").textContent = t("status.replayReadFailed");
     throw error;
   }
 }
@@ -5223,7 +4917,7 @@ $("#mpLanguageSelect").addEventListener("change", event => {
 });
 $("#mpMusicSelect").addEventListener("change", event => {
   if (!musicModes.has(event.target.value)) return;
-  state.music = event.target.value; state.musicPreferenceExplicit = true; saveGamePreferences(); render();
+  state.music = event.target.value; state.musicPreference = state.music; state.musicPreferenceExplicit = true; saveGamePreferences(); render();
 });
 $("#mpFrameLimitToggle").addEventListener("click", () => {
   state.options.frameLimit60Enabled = !state.options.frameLimit60Enabled; saveGamePreferences(); render();
@@ -5235,7 +4929,7 @@ $("#mpShareSettingsToggle").addEventListener("click", () => {
   restoreGamePreferences(state.game, currentPreferenceId());
   resetRuntime();
   render();
-  setStatus(mpShareSingleplayerSettings ? "联机模式已共用单机设置" : "联机模式已改用独立设置");
+  setTranslatedStatus(mpShareSingleplayerSettings ? "status.shareSettings" : "status.separateSettings");
 });
 $("#mpMobileOptionsToggle").addEventListener("click", () => {
   mpUiState.mobileOpen = !mpUiState.mobileOpen;
@@ -5254,7 +4948,7 @@ $("#mpJoinCode").addEventListener("input", event => { event.target.value = mpNor
 $("#mpCreateRoom").addEventListener("click", () => mpEnterRoom(mpGenerateRoomCode(), true));
 $("#mpJoinRoom").addEventListener("click", () => {
   const code = mpNormalizeRoomCode($("#mpJoinCode").value);
-  if (!code) { showToast("请输入房间号"); return; }
+  if (!code) { showToast(t("status.enterRoomCode")); return; }
   mpEnterRoom(code, false);
 });
 $("#mpReplayViewer").addEventListener("click", async () => {
@@ -5287,8 +4981,8 @@ $("#mpReplayViewer").addEventListener("click", async () => {
 });
 async function mpCopyRoomCode() {
   if (!mpUiState.room) return;
-  try { await navigator.clipboard.writeText(mpUiState.room.code); showToast("房间号已复制，可以发给好友"); }
-  catch { showToast(`房间号：${mpUiState.room.code}`); }
+  try { await navigator.clipboard.writeText(mpUiState.room.code); showToast(t("status.roomCodeCopied")); }
+  catch { showToast(t("status.roomCode", { code: mpUiState.room.code })); }
 }
 $("#mpCopyRoomCode").addEventListener("click", mpCopyRoomCode);
 // Do not pass the click Event into mpLeaveRoom(fromHistory). An Event is
@@ -5491,8 +5185,8 @@ function updateTouchLayoutEditorUi() {
   const scale = Math.round((item?.scale ?? 1) * 100);
   $("#touchLayoutScale").value = String(scale);
   $("#touchLayoutScaleValue").value = `${scale}%`;
-  $("#touchLayoutOrientation").textContent = orientation === "landscape" ? "横屏" : "竖屏";
-  $("#touchLayoutSelection").textContent = `选中了 ${touchLayoutControlMeta[touchLayoutSelected].title}`;
+  $("#touchLayoutOrientation").textContent = t(orientation === "landscape" ? "touch.landscape" : "touch.portrait");
+  $("#touchLayoutSelection").textContent = t("touch.selected", { control: touchLayoutControlTitle(touchLayoutSelected) });
   updateTouchLayoutOrientationActionUi();
   updateTouchLayoutWarnings();
 }
@@ -5731,8 +5425,7 @@ function endTouchLayoutSettingsDrag(event) {
 function updateTouchLayoutOrientationActionUi() {
   const switchButton = $("#touchLayoutOrientationHelpOpen");
   if (!switchButton) return;
-  const target = touchLayoutOrientation() === "landscape" ? "竖屏" : "横屏";
-  switchButton.textContent = `切换到${target}`;
+  switchButton.textContent = t(touchLayoutOrientation() === "landscape" ? "player.switchPortrait" : "player.switchLandscape");
 }
 
 async function switchTouchLayoutOrientation() {
@@ -5826,7 +5519,7 @@ async function openTouchLayoutEditor() {
   touchLayoutEditorEnteredFullscreen = false;
   touchLayoutWindowOrientation = null;
   resetTouchLayoutEditorPosition();
-  player.style.setProperty("--touch-preview-image", `url("assets/${state.game}-title00.jpg")`);
+  player.style.setProperty("--touch-preview-image", `url("assets/${state.game}-card.webp")`);
   document.body.classList.add("player-active");
   player.classList.add("open", "touch-preview", "touch-layout-edit");
   player.setAttribute("aria-hidden", "false");
@@ -5922,7 +5615,7 @@ function updateTouchLayoutWarnings() {
       if (rectOverlapRatio(a.getBoundingClientRect(), b.getBoundingClientRect()) >= .28) {
         a.classList.add("touch-layout-collision");
         b.classList.add("touch-layout-collision");
-        issues.push(`${touchLayoutControlMeta[names[i]].title} 与 ${touchLayoutControlMeta[names[j]].title} 重叠较多`);
+        issues.push(t("touch.controlOverlap", { first: touchLayoutControlTitle(names[i]), second: touchLayoutControlTitle(names[j]) }));
       }
     }
   }
@@ -5931,7 +5624,7 @@ function updateTouchLayoutWarnings() {
     const element = touchLayoutElement(name);
     if (rectOverlapRatio(element.getBoundingClientRect(), reserved) >= .18) {
       element.classList.add("touch-layout-collision");
-      issues.push(`${touchLayoutControlMeta[name].title} 靠近帮助 / 全屏按钮区域`);
+      issues.push(t("touch.controlReserved", { control: touchLayoutControlTitle(name) }));
     }
   }
   const unique = [...new Set(issues)];
@@ -6115,7 +5808,7 @@ const mpLoadouts = Object.freeze([
   { label: "咲夜 A", glyph: "咲", character: 2, shot: 0 }, { label: "咲夜 B", glyph: "咲", character: 2, shot: 1 },
 ]);
 const mpBootstrapLoadoutIndexes = Object.freeze([0, 2, 4]);
-const mpLoadoutCount = () => state.game === "th06" ? 4 : mpLoadouts.length;
+const mpLoadoutCount = () => PRODUCT_GAMES[state.game]?.multiplayer?.loadoutCount || 0;
 const mpNormalizeLoadoutIndex = index => {
   const count = mpLoadoutCount();
   const numeric = Number.isInteger(Number(index)) ? Number(index) : 0;
@@ -6261,7 +5954,7 @@ function mpEnterRoom(code, created) {
   render();
   mpConnectLobby();
   requestAnimationFrame(() => window.scrollTo({ top: 0, left: 0, behavior: "auto" }));
-  setStatus(created ? `已创建房间 ${code}` : `已加入房间 ${code}`);
+  setTranslatedStatus(created ? "status.roomCreated" : "status.roomJoined", { code });
 }
 
 function mpResetRoomState() {
@@ -6279,7 +5972,7 @@ function mpLeaveRoom(fromHistory = false) {
   mpResetRoomState();
   if (!fromHistory) replaceLauncherHomeHistory();
   showLauncherHome();
-  setStatus("已离开联机房间");
+  setTranslatedStatus("status.roomLeft");
 }
 
 function mpAnimateLocalPlayerMove(before) {
@@ -6402,7 +6095,7 @@ function renderMpRoom() {
   const loadout = mpLoadouts[mpUiState.preferredLoadout];
   const difficultyLabels = ["Easy", "Normal", "Hard", "Lunatic", "Extra", "Phantasm"];
   $("#mpRoomTitle").textContent = game().title;
-  $("#mpRoomView").setAttribute("aria-label", `${state.game.toUpperCase()} 联机房间`);
+  $("#mpRoomView").setAttribute("aria-label", `${state.game.toUpperCase()} ${t("multiplayer.roomAria")}`);
   $("#mpRoomCode").textContent = room.code;
   $("#mpRoomPlayerCount").value = String(room.playerCount);
   $("#mpRoomDifficulty").value = String(room.difficulty);
@@ -6415,14 +6108,12 @@ function renderMpRoom() {
   $("#mpSeatStage").dataset.playerCount = String(room.playerCount);
   $("#mpRoomPlayerCount").disabled = !roomReady || !ownerLocal;
   $("#mpRoomDifficulty").disabled = !roomReady || !ownerLocal;
-  $("#mpRoomSettingsHint").textContent = ownerLocal
-    ? "你当前坐在 P1，可以修改房间设置。修改设置不会取消其他玩家的准备状态。"
-    : "只有当前 P1 可以修改房间设置。P1 空缺时任何玩家都可以坐上去成为房主。";
+  $("#mpRoomSettingsHint").textContent = t(ownerLocal ? "multiplayer.ownerLocalHint" : "multiplayer.ownerRemoteHint");
   $("#mpOwnerStatus").textContent = !room.synced
-    ? "正在同步房间成员"
+    ? t("multiplayer.syncingMembers")
     : !mpLobby.connected
-      ? "连接中断 - 正在自动重连"
-      : ownerLocal ? "你是当前房主 - P1" : "P1 空缺时可直接入座成为房主";
+      ? t("multiplayer.reconnecting")
+      : t(ownerLocal ? "multiplayer.youAreHost" : "multiplayer.takeHostSeat");
 
   document.querySelectorAll("[data-mp-player-count]").forEach(button => {
     const selected = Number(button.dataset.mpPlayerCount) === room.playerCount;
@@ -6454,7 +6145,7 @@ function renderMpRoom() {
     seat.classList.toggle("occupied", occupied);
     seat.classList.toggle("owner", index === 0 && ownerLocal);
     seat.classList.toggle("reconnecting", !!networkSeat?.offline);
-    seat.title = networkSeat?.offline ? "该玩家连接中断，正在等待重连" : "";
+    seat.title = networkSeat?.offline ? t("multiplayer.playerReconnecting") : "";
     const drop = seat.querySelector("[data-mp-seat-drop]");
     const button = drop?.querySelector("button");
     const glyph = seat.querySelector("[data-mp-seat-glyph]");
@@ -6478,7 +6169,7 @@ function renderMpRoom() {
     if (me) me.hidden = mpUiState.seat !== index;
     if (button) {
       button.disabled = !roomReady || !active || occupied;
-      button.textContent = "加入";
+      button.textContent = t("multiplayer.join");
     }
   });
 
@@ -6506,20 +6197,20 @@ function renderMpRoom() {
     avatar.textContent = mpDisplayInitial(entry.name);
     const marker = document.createElement("span");
     marker.className = "mp-spectator-marker";
-    marker.textContent = entry.clientId === mpLobby.clientId ? "我" : "";
-    row.title = entry.name || "未命名旁观者";
+    marker.textContent = entry.clientId === mpLobby.clientId ? t("multiplayer.you") : "";
+    row.title = entry.name || t("multiplayer.unnamedSpectator");
     row.append(avatar, marker);
     spectatorList.append(row);
   }
   if (!spectatorEntries.length) {
     const empty = document.createElement("div");
     empty.className = "mp-spectator-empty";
-    empty.textContent = "暂无旁观";
+    empty.textContent = t("status.noSpectators");
     spectatorList.append(empty);
   }
   const spectatorJoin = $("#mpSpectatorJoin");
   spectatorJoin.disabled = !roomReady || mpUiState.seat != null;
-  spectatorJoin.textContent = mpUiState.spectatorRequested ? "离开旁观" : "加入旁观";
+  spectatorJoin.textContent = t(mpUiState.spectatorRequested ? "multiplayer.leaveSpectator" : "multiplayer.joinSpectator");
 
   const nameInput = $("#mpDisplayName");
   if (nameInput) {
@@ -6528,41 +6219,270 @@ function renderMpRoom() {
     const editor = $("#mpNameEditor");
     if (editor) editor.hidden = locked;
     nameInput.disabled = false;
-    nameInput.title = locked ? "" : "昵称只能设置一次，保存后不可修改";
+    nameInput.title = locked ? "" : t("multiplayer.nameOneTimeHint");
   }
 
   const spectator = $("#mpUnseatedNote");
   spectator.hidden = room.synced && mpUiState.seat != null;
   spectator.querySelector(".mp-spectator-title").textContent = !room.synced
-    ? "连接房间中" : mpUiState.spectatorRequested ? "旁观席" : "未入座";
+    ? t("multiplayer.connectingRoom") : t(mpUiState.spectatorRequested ? "multiplayer.spectatorSeat" : "multiplayer.notSeated");
   spectator.querySelector(".mp-spectator-hint").textContent = !room.synced
-    ? "正在同步成员状态"
+    ? t("multiplayer.syncingState")
     : mpUiState.spectatorRequested
-      ? "等待本局开始；开局后短时间内仍可加入当前旁观流"
-      : "选择 P 位加入游戏，或主动进入旁观席";
+      ? t("multiplayer.waitSpectatorStream")
+      : t("multiplayer.chooseSeatOrSpectate");
   spectator.querySelector(".mp-spectator-loadout").hidden = !room.synced || mpUiState.spectatorRequested;
   document.querySelector("#mpRoomView .mp-room-footer").hidden = !room.synced || mpUiState.seat == null;
   const ready = $("#mpReady");
   ready.hidden = mpUiState.seat == null;
   ready.disabled = !roomReady || mpUiState.seat == null;
   ready.classList.toggle("ready", mpUiState.ready && mpUiState.seat != null);
-  ready.textContent = mpUiState.ready && mpUiState.seat != null ? "已准备" : "准备";
+  ready.textContent = t(mpUiState.ready && mpUiState.seat != null ? "multiplayer.readyDone" : "multiplayer.ready");
   const start = $("#mpStartGame");
   const synchronizedReady = roomReady && Array.isArray(room.seats) &&
     room.seats.slice(0, room.playerCount).every(seat => seat && !seat.offline && seat.ready);
   start.hidden = !ownerLocal;
   start.disabled = !roomReady || (ownerLocal && !synchronizedReady);
-  start.textContent = !synchronizedReady ? "等待准备" : "开始游戏";
+  start.textContent = t(!synchronizedReady ? "multiplayer.waitReady" : "multiplayer.startGame");
   mpPersistRoomState();
 }
+
+// FLIP: read the visible geometry once, commit the final flex layout, then
+// animate compositor transforms. Text and artwork counter-scale independently:
+// the image keeps its cover crop instead of stretching with the card. Geometry
+// is read only at the endpoints, including the visible frame on interruption.
+const cardLayoutAnimations = new Set();
+const cardArtworkSizes = new Set();
+const cardLayoutMedia = matchMedia("(min-width: 781px) and (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference)");
+function cancelCardLayoutMotion() {
+  for (const animation of cardLayoutAnimations) animation.cancel();
+  cardLayoutAnimations.clear();
+  for (const image of cardArtworkSizes) {
+    image.style.removeProperty("width");
+    image.style.removeProperty("height");
+  }
+  cardArtworkSizes.clear();
+  $("#main").classList.remove("card-layout-motion");
+}
+function captureCardLayout() {
+  if (!cardLayoutMedia.matches || state.lessMotion) {
+    cancelCardLayoutMotion();
+    return null;
+  }
+  // Capture before cancellation so rapid clicks start from the visible frame.
+  const rects = new Map([...document.querySelectorAll(".game:not([hidden])")]
+    .map(card => [card, {
+      rect: card.getBoundingClientRect(),
+      artwork: [...card.querySelectorAll(".card-art-image")].map(image => {
+        const rect = image.getBoundingClientRect();
+        const zoom = new DOMMatrixReadOnly(getComputedStyle(image.parentElement).transform).a;
+        return { image, cover: Math.max(rect.width / image.naturalWidth, rect.height / image.naturalHeight) / zoom };
+      })
+    }]));
+  cancelCardLayoutMotion();
+  for (const card of rects.keys()) {
+    card.style.setProperty("--rx", "0deg");
+    card.style.setProperty("--ry", "0deg");
+  }
+  return { cards: rects };
+}
+function animateCardLayout(before) {
+  if (!before || !cardLayoutMedia.matches || state.lessMotion) return;
+  const main = $("#main");
+  main.classList.add("card-layout-motion");
+  const style = getComputedStyle(main);
+  const duration = Number(style.getPropertyValue("--card-layout-duration"));
+  const [x1, y1, x2, y2] = style.getPropertyValue("--ease").match(/[\d.]+/g).map(Number);
+  // Sample the project's cubic curve parametrically: x is time, y is progress.
+  // Shared samples keep every counter-scale in sync without easing it twice.
+  const curve = (t, a, b) => 3 * (1 - t) ** 2 * t * a + 3 * (1 - t) * t ** 2 * b + t ** 3;
+  const samples = Array.from({ length: 101 }, (_, step) => {
+    const t = step / 100;
+    return { offset: curve(t, x1, x2), remaining: 1 - curve(t, y1, y2) };
+  });
+  const after = [...before.cards.keys()].filter(card => !card.hidden)
+    .map(card => [card, card.getBoundingClientRect(), before.cards.get(card).artwork
+      .filter(({ image, cover }) => image.naturalWidth && cover > 0 && Number.isFinite(cover))
+      .map(art => ({ ...art, endCover: Math.max(art.image.parentElement.clientWidth / art.image.naturalWidth,
+        art.image.parentElement.clientHeight / art.image.naturalHeight) }))]);
+  const track = (element, frames, timing = {}) => {
+    const animation = element.animate(frames, { duration, easing: "linear", ...timing });
+    cardLayoutAnimations.add(animation);
+    animation.finished.catch(() => {}).finally(() => {
+      animation.cancel();
+      cardLayoutAnimations.delete(animation);
+      if (!cardLayoutAnimations.size) cancelCardLayoutMotion();
+    });
+  };
+  for (const [card, end, artwork] of after) {
+    const start = before.cards.get(card).rect;
+    if (!start.width || !end.width || !end.height) continue;
+    const dx = start.left - end.left, dy = start.top - end.top;
+    const sx = start.width / end.width, sy = start.height / end.height;
+    if (Math.abs(dx) + Math.abs(dy) + Math.abs(start.width - end.width) + Math.abs(start.height - end.height) < .5) continue;
+    const frames = [], counterScale = [];
+    for (const { offset, remaining } of samples) {
+      const x = 1 + (sx - 1) * remaining, y = 1 + (sy - 1) * remaining;
+      frames.push({ offset, transform: `translate(${dx * remaining}px,${dy * remaining}px) scale(${x},${y})` });
+      counterScale.push({ offset, scale: `${1 / x} ${1 / y}` });
+    }
+    track(card, frames);
+    for (const content of card.querySelectorAll(".no, .game-copy, .rail-title, .mp-card-mark")) track(content, counterScale);
+    for (const { image, cover, endCover } of artwork) {
+      // Give the image its full (uncropped) final cover size. Only transforms
+      // vary during motion; the card remains the clipping viewport.
+      image.style.width = `${image.naturalWidth * endCover}px`;
+      image.style.height = `${image.naturalHeight * endCover}px`;
+      cardArtworkSizes.add(image);
+      track(image, samples.map(({ offset, remaining }) => {
+        const size = 1 + (cover / endCover - 1) * remaining;
+        const x = 1 + (sx - 1) * remaining, y = 1 + (sy - 1) * remaining;
+        return { offset, transform: `translate(calc(-1 * var(--art-position,50%)),-50%) scale(${size / x},${size / y})` };
+      }));
+    }
+  }
+  // Fade only the content groups, leaving the panel surface and its layout
+  // unchanged. Direct children avoid applying opacity twice to nested controls.
+  for (const content of $(".tools").children) {
+    if (content.hidden) continue;
+    track(content, [{ opacity: 0 }, { opacity: 1 }], {
+      duration: 420, delay: 80, easing: style.getPropertyValue("--ease"), fill: "both"
+    });
+  }
+  if (!cardLayoutAnimations.size) main.classList.remove("card-layout-motion");
+}
+window.addEventListener("resize", cancelCardLayoutMotion);
+cardLayoutMedia.addEventListener("change", cancelCardLayoutMotion);
+
+function cancelMobileHomeCards() {
+  for (const art of document.querySelectorAll(".game .card-art")) {
+    for (const animation of art.getAnimations()) {
+      if (animation.id === "mobile-home-clear") animation.cancel();
+    }
+  }
+}
+function animateMobileHomeCards() {
+  cancelMobileHomeCards();
+  if (state.hasSelection || matchMedia("(prefers-reduced-motion: reduce)").matches ||
+      !matchMedia("(max-width: 780px), (hover: none), (pointer: coarse)").matches) return;
+  // Reveal only the artwork; keep the original dark tone, text and layout fixed.
+  for (const art of document.querySelectorAll(".game:not([hidden]) .card-art")) {
+    const animation = art.animate([
+      { filter: "brightness(.72) saturate(.72) blur(3px)" },
+      { filter: "brightness(.72) saturate(.72) blur(0px)" }
+    ], { duration: 750, easing: "ease", fill: "both" });
+    animation.id = "mobile-home-clear";
+    animation.finished.catch(() => {}).finally(() => animation.cancel());
+  }
+}
+matchMedia("(prefers-reduced-motion: reduce)").addEventListener("change", cancelMobileHomeCards);
+
+let cardFilterTransition = null;
+const cardFilterReducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+let cardFilterIndicatorAnimation = null;
+function moveCardFilterIndicator(button, animate = true) {
+  const indicator = $(".card-filter-indicator");
+  if (!indicator || !button || $("#cardFilterBar").hidden) return;
+  const start = indicator.getBoundingClientRect();
+  cardFilterIndicatorAnimation?.cancel();
+  indicator.style.left = `${button.offsetLeft}px`;
+  indicator.style.width = `${button.offsetWidth}px`;
+  const end = indicator.getBoundingClientRect();
+  if (!animate || state.lessMotion || cardFilterReducedMotion.matches || !start.width) return;
+  const dx = start.left - end.left;
+  const scale = start.width / end.width;
+  const animation = indicator.animate([
+    { transform: `translateX(${dx}px) scaleX(${scale})` },
+    { transform: "translateX(0) scaleX(1)" }
+  ], { duration: 380, easing: "cubic-bezier(.22,.8,.22,1)" });
+  cardFilterIndicatorAnimation = animation;
+  animation.finished.catch(() => {}).finally(() => {
+    if (cardFilterIndicatorAnimation !== animation) return;
+    animation.cancel();
+    cardFilterIndicatorAnimation = null;
+  });
+}
+function cancelCardFilterMotion() {
+  const pending = cardFilterTransition;
+  cardFilterTransition = null;
+  pending?.animation?.cancel();
+  const main = $("#main");
+  main.classList.remove("card-filter-motion");
+  main.inert = false;
+}
+function finishCardFilterMotion() {
+  cardFilterTransition?.animation?.finish();
+}
+cardFilterReducedMotion.addEventListener("change", finishCardFilterMotion);
+
+async function switchCardFilter(next) {
+  if (!cardFilters.has(next) || mpUiState.room || state.launched) return;
+  if (next === cardFilter && !state.hasSelection && !cardFilterTransition) return;
+  moveCardFilterIndicator(document.querySelector(`[data-card-filter="${next}"]`));
+  const main = $("#main");
+  const appearance = getComputedStyle(main);
+  const opacity = appearance.opacity, transform = appearance.transform;
+  cancelCardFilterMotion();
+  // Preserve the current card frame until it has faded away. Cancelling FLIP
+  // here would expose the final geometry for a frame during a quick tab click.
+  const transition = {};
+  cardFilterTransition = transition;
+  main.classList.add("card-filter-motion");
+  main.inert = true;
+  const reduced = () => state.lessMotion || cardFilterReducedMotion.matches;
+  try {
+    if (!reduced()) {
+      transition.animation = main.animate([{ opacity, transform }, { opacity: 0, transform }],
+        { duration: 140, easing: "ease-out", fill: "forwards" });
+      await transition.animation.finished;
+    }
+    if (cardFilterTransition !== transition) return;
+    // All categories return through the same home route, even when the
+    // previously selected game also belongs to the destination category.
+    cancelCardFilterMotion();
+    cancelCardLayoutMotion();
+    closeOtherCustomSelects();
+    if (state.hasSelection) resetRuntime();
+    cardFilter = next;
+    try { localStorage.setItem(cardFilterStorageKey, cardFilter); } catch {}
+    replaceLauncherHomeHistory();
+    showLauncherHome();
+    window.scrollTo({ top: 0, behavior: "instant" });
+    if (!reduced()) {
+      cardFilterTransition = transition;
+      main.classList.add("card-filter-motion");
+      main.inert = true;
+      transition.animation = main.animate([
+        { opacity: 0, transform: "translateY(8px)" },
+        { opacity: 1, transform: "translateY(0)" }
+      ], { duration: 360, easing: getComputedStyle(main).getPropertyValue("--ease"), fill: "both" });
+      await transition.animation.finished;
+    }
+  } catch (error) {
+    if (error.name !== "AbortError") throw error;
+  } finally {
+    if (cardFilterTransition === transition) cancelCardFilterMotion();
+  }
+}
+document.querySelectorAll("[data-card-filter]").forEach(button => {
+  button.addEventListener("click", () => switchCardFilter(button.dataset.cardFilter));
+});
+moveCardFilterIndicator(document.querySelector(`[data-card-filter="${cardFilter}"]`), false);
+new ResizeObserver(() => {
+  if (!cardFilterIndicatorAnimation) {
+    moveCardFilterIndicator(document.querySelector(`[data-card-filter="${cardFilter}"]`), false);
+  }
+}).observe($("#cardFilterBar"));
 
 document.querySelectorAll(".game").forEach(card => {
   card.addEventListener("click", () => {
     if (mpUiState.room) return;
+    cancelMobileHomeCards();
     const mobileLite = matchMedia("(max-width: 780px), (hover: none), (pointer: coarse)").matches || state.lessMotion;
     const main = $("#main");
     const product = card.dataset.product || card.dataset.game;
     const changed = state.product !== product;
+    const previousLayout = changed || !state.hasSelection ? captureCardLayout() : null;
     if (changed) {
       state.game = card.dataset.game;
       state.product = product;
@@ -6573,7 +6493,8 @@ document.querySelectorAll(".game").forEach(card => {
     }
     state.hasSelection = true;
     render();
-    setStatus(changed ? `已切换至 ${productTitle(product)}` : `已选择 ${productTitle(product)}`);
+    animateCardLayout(previousLayout);
+    setTranslatedStatus(changed ? "status.switchedProduct" : "status.selectedProduct", { product: productTitle(product) });
     if (mobileLite && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
       main.classList.remove("mobile-selection-enter");
       requestAnimationFrame(() => {
@@ -6584,7 +6505,7 @@ document.querySelectorAll(".game").forEach(card => {
   });
   if (matchMedia("(pointer: fine)").matches) {
     card.addEventListener("pointermove", event => {
-      if (state.lessMotion) return;
+      if (state.lessMotion || cardLayoutAnimations.size) return;
       if (state.hasSelection && !card.classList.contains("selected")) return;
       const rect = card.getBoundingClientRect();
       const x = Math.max(0, Math.min(rect.width, event.clientX - rect.left));
@@ -6619,8 +6540,9 @@ $("#musicSelect").addEventListener("change", event => {
     setStatus("音乐：无");
     return;
   }
-  if (!musicModes.has(value) || state.music === value) return;
+  if (!musicModes.has(value) || (state.music === value && state.musicPreferenceExplicit && state.musicPreference === value)) return;
   state.music = value;
+  state.musicPreference = value;
   state.musicPreferenceExplicit = true;
   saveGamePreferences();
   resetRuntime();
@@ -6658,9 +6580,41 @@ $("#touchLayoutExit").addEventListener("click", () => { if (touchLayoutEditing) 
 $("#thpracToggle").addEventListener("click", () => setOption("thpracEnabled", !state.options.thpracEnabled));
 $("#magnifierToggle").addEventListener("click", () => setOption("magnifierEnabled", !state.options.magnifierEnabled));
 $("#frameLimitToggle").addEventListener("click", () => setOption("frameLimit60Enabled", !state.options.frameLimit60Enabled));
-$("#changelogOpen").addEventListener("click", () => { void showChangelog(false); });
+const mastheadMenu = $("#mastheadMenu");
+const mastheadMenuToggle = $("#mastheadMenuToggle");
+const mastheadMenuPanel = $("#mastheadMenuPanel");
+function setMastheadMenuOpen(open, { focusFirst = false, restoreFocus = false } = {}) {
+  mastheadMenuToggle.setAttribute("aria-expanded", String(open));
+  mastheadMenuPanel.setAttribute("aria-hidden", String(!open));
+  mastheadMenuPanel.inert = !open;
+  if (focusFirst && open) mastheadMenuPanel.querySelector(".mizuki-select-trigger, .masthead-menu-item")?.focus();
+  if (restoreFocus && !open) mastheadMenuToggle.focus();
+}
+mastheadMenuToggle.addEventListener("click", () => {
+  setMastheadMenuOpen(mastheadMenuToggle.getAttribute("aria-expanded") !== "true");
+});
+mastheadMenuToggle.addEventListener("keydown", event => {
+  if (event.key !== "ArrowDown") return;
+  event.preventDefault();
+  setMastheadMenuOpen(true, { focusFirst: true });
+});
+mastheadMenu.addEventListener("keydown", event => {
+  if (event.key !== "Escape") return;
+  event.preventDefault();
+  setMastheadMenuOpen(false, { restoreFocus: true });
+});
+document.addEventListener("click", event => {
+  if (event.target instanceof Node && !mastheadMenu.contains(event.target)) setMastheadMenuOpen(false);
+});
+$("#changelogOpen").addEventListener("click", () => {
+  setMastheadMenuOpen(false);
+  void showChangelog(false);
+});
 $("#lessMotionToggle").addEventListener("click", () => {
+  cancelCardLayoutMotion();
   state.lessMotion = !state.lessMotion;
+  if (state.lessMotion) cancelMobileHomeCards();
+  if (state.lessMotion) finishCardFilterMotion();
   try { localStorage.setItem(lessMotionStorageKey, state.lessMotion ? "1" : "0"); } catch {}
   if (state.lessMotion) document.querySelectorAll(".game").forEach(card => {
     card.style.setProperty("--rx", "0deg");
@@ -6698,7 +6652,17 @@ appleRefreshDialog.addEventListener("close", () => appleRefreshDialog.classList.
 appleRefreshDialog.addEventListener("click", event => {
   if (event.target === appleRefreshDialog) closeAppleRefreshDialog();
 });
-$("#siteNoticeClose").addEventListener("click", closeSiteNotice);
+$("#siteNoticeClose").addEventListener("click", () => {
+  siteNoticeDismissed = true;
+  try { localStorage.setItem(siteNoticeDismissedKey, "1"); } catch {}
+  closeSiteNotice();
+});
+$("#siteNoticeOptOut").addEventListener("click", () => {
+  setSiteNoticeEnabled(false);
+  showToast("可以在右上角的收纳栏里重新打开哦~（不过你肯定不会再打开他的吧）");
+});
+$("#siteNoticeToggle").setAttribute("aria-checked", String(siteNoticeEnabled));
+$("#siteNoticeToggle").addEventListener("click", () => setSiteNoticeEnabled(!siteNoticeEnabled));
 document.addEventListener("scroll", handleSiteNoticeScroll, { capture: true, passive: true });
 $("#th06HitboxToggle").addEventListener("click", () => setOption("th06FocusHitbox", !state.options.th06FocusHitbox));
 $("#touchToggle").addEventListener("click", async () => {
@@ -6821,6 +6785,7 @@ function postDirectTouch(type, touch) {
 function cancelDirectTouches(notifyRuntime = true) {
   if (!directTouchPointers.size) return;
   directTouchPointers.clear();
+  runtimeDiagnosticState.directTouches = 0;
   invalidateDirectTouchFrameRect();
   if (notifyRuntime && state.launched && state.ready && frame.contentWindow) {
     frame.contentWindow.postMessage({ protocol, game: state.game, command: "touch-cancel" }, location.origin);
@@ -6834,6 +6799,7 @@ touchDirectSurface.addEventListener("pointerdown", event => {
   event.preventDefault();
   const touch = { id: nextDirectTouchId--, ...point };
   directTouchPointers.set(event.pointerId, touch);
+  runtimeDiagnosticState.directTouches = directTouchPointers.size;
   if (gameZoomState.active) beginGameZoomPointer(event);
   postDirectTouch("down", touch);
 });
@@ -6861,6 +6827,7 @@ const releaseDirectTouch = event => {
   const point = Number.isFinite(event.clientX) ? directTouchFramePoint(event, gameZoomState.active) : null;
   if (point) { touch.x = point.x; touch.y = point.y; }
   directTouchPointers.delete(event.pointerId);
+  runtimeDiagnosticState.directTouches = directTouchPointers.size;
   if (gameZoomState.active) endGameZoomPointer(event);
   postDirectTouch("up", touch);
   if (!directTouchPointers.size) invalidateDirectTouchFrameRect();
@@ -7144,10 +7111,10 @@ $("#launch").addEventListener("click", async () => {
     // belongs to TH06.  Treat an explicit route as authoritative at launch so
     // a stale tab can never silently start the wrong runtime/local pack.
     syncSelectionFromPlayerRoute();
-    if (!state.launched && importOnlyServer && !installedPackageSnapshots.has(state.game) && !readImportedGameDataMeta(state.game)?.legacyAssets) {
+    if (!state.launched && importServer && !installedPackageSnapshots.has(state.game)) {
       clearStartupError();
       setStatus("需要导入本地游戏包");
-      beginImportOnlyAttempt();
+      beginImportAttempt();
       return;
     }
     if (!state.launched && !await confirmInputWarnings()) return;
@@ -7168,11 +7135,11 @@ $("#launch").addEventListener("click", async () => {
       setStatus("下载已取消，可以导入本地游戏包");
       return;
     }
-    if (importOnlyServer && !state.launched) {
+    if (importServer && !state.launched) {
       const message = error?.message || String(error);
       if (player.classList.contains("open")) await closePlayerView();
       else resetRuntime();
-      beginImportOnlyAttempt();
+      beginImportAttempt();
       $("#gameDataImportReason").textContent = gameDataFallbackText(message);
       setStatus(message);
       showToast(message);
@@ -7249,61 +7216,26 @@ $("#gameDataImportInput").addEventListener("change", async event => {
   const attemptId = gameDataAttempt.id;
   try {
     const imported = await installImportedGameData(file);
-    if (imported.packageInstall) {
-      showToast(`游戏包已导入（${imported.files} 个文件）；之后将从本地启动。`);
-      if (gameDataAttempt?.importOnly && !state.launched) {
-        clearGameDataAttempt();
-        setStatus("游戏包已导入，可以启动游戏");
-        render();
-        return;
-      }
-      if (state.ready) {
-        setPlayerStatus("游戏已就绪；新导入的游戏包将在下次启动时使用");
-        return;
-      }
-      if (gameDataAttempt?.id !== attemptId) return;
-      setPlayerStatus("游戏包导入完成，正在从本地启动…");
-      resetRuntime();
-      await launchConfiguredRuntime();
-      return;
-    }
-    if (importOnlyServer && !imported.offlineComplete) {
-      throw new Error("当前服务器不提供游戏文件，请导入包含启动所需文件的游戏包");
-    }
-    const current = gameDataDescriptor();
-    if ((imported.offlineComplete || imported.layout === current.layout) && imported.version !== current.version) {
-      importedDataUpdateChoices.set(`${state.game}:${imported.version}->${current.version}`, "local");
-    }
-    if (imported.offlineComplete && imported.version !== current.version) {
-      showToast("游戏包已导入。服务器已有新版，但本次继续使用包内版本；断网也可启动。");
-    } else if (imported.offlineComplete) {
-      showToast("游戏包已导入；断网也可启动当前版本。");
-    } else if (imported.layout === current.layout && imported.version !== current.version) {
-      showToast("本地游戏数据已导入。服务器有更新版本，但不会强制更新；之后仍优先使用此导入版本。");
-    } else if (imported.layout !== current.layout) {
-      showToast("本地游戏数据已保存，但文件布局与当前运行时不兼容；不会删除该导入资源。");
-    } else {
-      showToast("本地游戏数据已导入");
-    }
-    if (importOnlyServer && gameDataAttempt?.importOnly && imported.offlineComplete && !state.launched) {
+    showToast(`游戏包已导入（${imported.files} 个文件）；之后将从本地启动。`);
+    if (gameDataAttempt?.importFlow && !state.launched) {
       clearGameDataAttempt();
       setStatus("游戏包已导入，可以启动游戏");
       render();
       return;
     }
     if (state.ready) {
-      setPlayerStatus("游戏已就绪；导入数据将在下次启动时优先使用");
+      setPlayerStatus("游戏已就绪；新导入的游戏包将在下次启动时使用");
       return;
     }
     if (gameDataAttempt?.id !== attemptId) return;
-    setPlayerStatus(imported.offlineComplete ? "游戏包导入完成，正在从本地启动…" : "本地数据导入完成，正在重新启动…");
+    setPlayerStatus("游戏包导入完成，正在从本地启动…");
     resetRuntime();
     await launchConfiguredRuntime();
   } catch (error) {
     const message = error.message || String(error);
     setPlayerStatus(message);
     const storageFailure = /IndexedDB|存储|写入|配额|quota|浏览器已清理|持久化/i.test(message);
-    $("#gameDataImportReason").textContent = importOnlyServer
+    $("#gameDataImportReason").textContent = importServer
       ? `${message}\n当前服务器没有可回退的游戏文件，请重新导入有效的游戏包。`
       : storageFailure
         ? `${message}\n本地导入未完成；服务器下载仍会继续。`
@@ -7334,7 +7266,9 @@ if (mpRestoreRoomFromLocation()) {
   renderMpRoom();
   mpConnectLobby();
 }
-render(); setStatus("选择游戏后即可启动");
+if (!mpUiState.room && !state.launched && !matchesCardFilter(state.product)) state.hasSelection = false;
+render(); setTranslatedStatus("status.selectGame");
+animateMobileHomeCards();
 bootWatchdog?.ready();
 const launcherRoomRoute = !!mpNormalizeRoomCode(new URL(location.href).searchParams.get(mpRoomUrlKey));
 if (!launcherRoomRoute) void loadSiteNotice();

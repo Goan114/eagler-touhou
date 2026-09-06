@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { FRONTEND_PACKAGE_FILES } from "../lib/frontend-manifest.mjs";
 
 const html = await readFile(new URL("../migrate.html", import.meta.url), "utf8");
 const indexHtml = await readFile(new URL("../index.html", import.meta.url), "utf8");
 const app = await readFile(new URL("../app.js", import.meta.url), "utf8");
-const gameDataImport = await readFile(new URL("../game-data-import.mjs", import.meta.url), "utf8");
-const packageServer = await readFile(new URL("./package-server.mjs", import.meta.url), "utf8");
-const packageTest = await readFile(new URL("./package-test.mjs", import.meta.url), "utf8");
+const legacyImportStorage = await readFile(new URL("../legacy-import-storage.mjs", import.meta.url), "utf8");
+const legacyGamePack = await readFile(new URL("../legacy-game-pack.mjs", import.meta.url), "utf8");
 const verifyServer = await readFile(new URL("./verify-server-build.mjs", import.meta.url), "utf8");
 const verifyDeployed = await readFile(new URL("./verify-deployed-site.mjs", import.meta.url), "utf8");
 const verifyCutover = await readFile(new URL("./verify-origin-cutover.mjs", import.meta.url), "utf8");
@@ -50,7 +50,9 @@ for (const removedCopy of [
   '如果浏览器会自动跳到新站，可以手动填写旧服务器 IP 或其它旧站地址。',
 ]) assert.ok(!html.includes(removedCopy), `migration page must not contain removed copy: ${removedCopy}`);
 
-assert.ok(html.includes('<h1 id="pageTitle">旧站迁移</h1>'), "migration page heading must match the concise navigation label");
+const pageHeading = html.match(/<h1 id="pageTitle">([^<]+)<\/h1>/)?.[1];
+const defaultHeading = html.match(/function setSide\(side, badge, hint, heading = "([^"]+)"\)/)?.[1];
+assert.ok(pageHeading && pageHeading === defaultHeading, "migration heading and default state title must agree without freezing editorial copy");
 assert.ok(html.includes('如果点击按钮后又回到这里，请尝试复制上面的地址并手动在浏览器导航栏中打开。'), "old-site address guidance must match the fallback navigation instruction");
 
 assert.doesNotMatch(html, /<b>新 HTTPS 地址<\/b>/, "new HTTPS target must stay internal until migration completes");
@@ -75,7 +77,7 @@ assert.match(html, /body\[data-side="http"\] details\[open\]\{display:flex;flex-
 // sessionStorage is intentionally excluded: multiplayer room/client state is
 // tab-scoped ephemeral state and must not be copied into a new Origin.
 for (const forbidden of ["document.cookie", "navigator.storage.getDirectory", "showDirectoryPicker"]) {
-  assert.ok(!app.includes(forbidden) && !gameDataImport.includes(forbidden),
+  assert.ok(!app.includes(forbidden) && !legacyImportStorage.includes(forbidden) && !legacyGamePack.includes(forbidden),
     `persistent browser storage path is not covered by origin migration: ${forbidden}`);
 }
 for (const keyContract of [
@@ -86,18 +88,18 @@ for (const keyContract of [
   'const languagePreferenceKey = gameId => `eagler-touhou-language-v1-${gameId}`;',
   'const touchLayoutWindowPositionsStorageKey = "eagler-touhou-touch-layout-window-positions-v1";',
 ]) assert.ok(app.includes(keyContract), `host localStorage contract moved outside the migratable namespace: ${keyContract}`);
-assert.ok(gameDataImport.includes('return `eagler-touhou-ogg-import-v1-${game}`;'), "OGG import metadata must remain in the migratable localStorage namespace");
-assert.ok(gameDataImport.includes('return `eagler-touhou-game-data-import-v1-${game}`;'), "DATA import metadata must remain in the migratable localStorage namespace");
-assert.ok(app.includes('const emPreloadCacheName = "EM_PRELOAD_CACHE";'), "Emscripten preload database contract changed without migration coverage");
-assert.ok(app.includes('const localAssetDbName = "eagler-touhou-local-assets-v1";'), "local imported-asset database contract changed without migration coverage");
+assert.ok(legacyImportStorage.includes('return `eagler-touhou-ogg-import-v1-${game}`;'), "OGG import metadata must remain in the migratable localStorage namespace");
+assert.ok(legacyImportStorage.includes('return `eagler-touhou-game-data-import-v1-${game}`;'), "DATA import metadata must remain in the migratable localStorage namespace");
+assert.ok(legacyImportStorage.includes('const EM_PRELOAD_DB = "EM_PRELOAD_CACHE";'), "Emscripten preload database contract changed without migration coverage");
+assert.ok(legacyImportStorage.includes('const LOCAL_ASSET_DB = "eagler-touhou-local-assets-v1";'), "local imported-asset database contract changed without migration coverage");
 assert.ok(html.includes('eagler-touhou-package-store-v1'), "current Package Store must be covered by origin migration");
 assert.ok(html.includes('<span>已安装游戏资源</span><strong id="packageCount">等待旧站</strong>'), "migration inventory must describe the current installed-game owner");
-assert.ok(gameDataImport.includes('export const GAME_DATA_CACHE_NAME = "eagler-touhou-game-data-v1";'), "game-data Cache Storage must remain under the migratable cache prefix");
+assert.ok(legacyImportStorage.includes('export const LEGACY_GAME_DATA_CACHE_NAME = "eagler-touhou-game-data-v1";'), "legacy game-data Cache Storage must remain under the migratable cache prefix");
 assert.ok(app.includes('const languageCacheName = "eagler-touhou-language-packs-v1";'), "language Cache Storage must remain under the migratable cache prefix");
-assert.match(app, /function localAssetIdbKey\(key\)[\s\S]*url\.pathname\.startsWith\("\/\.eagler-local\/"\)[\s\S]*return url\.pathname/,
+assert.match(legacyImportStorage, /function localAssetKey\(key, origin = "https:\/\/local\.invalid"\)[\s\S]*url\.pathname\.startsWith\("\/\.eagler-local\/"\)[\s\S]*return url\.pathname/,
   "imported asset IndexedDB keys must remain origin-independent across HTTP -> HTTPS migration");
-assert.match(app, /function runtimePreloadPackageName\(sourceUrl, gameId = state\.game\)[\s\S]*url\.pathname[\s\S]*encodeURIComponent\(directory\)/,
-  "Emscripten preload package keys must remain path-based rather than origin-based");
+assert.match(legacyImportStorage, /cleanupEmscriptenPreloadOwner[\s\S]*eaglerLocalImport === version[\s\S]*package\/\$\{packageName\}\/\$\{index\}/,
+  "legacy Emscripten preload ownership must remain explicitly discoverable and removable");
 assert.match(html, /function rewriteCacheUrl\(url, sourceOrigin\)[\s\S]*parsed\.origin !== sourceOrigin[\s\S]*location\.origin/,
   "Cache Storage migration must rewrite old HTTP request origins to the HTTPS origin");
 
@@ -109,8 +111,7 @@ assert.match(html, /body\[data-side="receiver"\]/, "HTTPS receiver mode needs an
 assert.doesNotMatch(html, /<script\b[^>]+src=/i, "migration page must stay a single self-contained HTML file");
 assert.doesNotMatch(html, /<link\b[^>]+stylesheet/i, "migration page must not depend on an external stylesheet");
 assert.doesNotMatch(html, /\bfetch\s*\(|XMLHttpRequest|sendBeacon\s*\(/, "migration page must not upload/fetch player data through the server");
-assert.match(packageServer, /"migrate\.html"/, "production packager must publish migrate.html");
-assert.match(packageTest, /"migrate\.html"/, "test package must publish migrate.html");
+assert.ok(FRONTEND_PACKAGE_FILES.includes("migrate.html"), "production frontend manifest must publish migrate.html");
 assert.match(verifyServer, /eagler-touhou\/migrate\.html/, "production verifier must require migrate.html");
 assert.match(verifyDeployed, /eagler-touhou\/migrate\.html/, "remote verifier must validate migrate.html");
 assert.match(verifyCutover, /redirect:\s*"manual"/, "cutover verifier must reject HTTP migration redirects rather than following them");
@@ -122,8 +123,9 @@ assert.ok(app.includes('const legacyHttpEntryParam = "from-http";'), "HTTPS Laun
 assert.ok(app.includes('confirmText: "进入迁移"'), "HTTP-entry migration prompt must require an explicit choice before opening migrate.html");
 assert.ok(app.includes('history.replaceState(history.state, "", cleanUrl.href);'), "HTTP-entry migration marker must be one-shot");
 assert.ok(app.includes('location.href = new URL("migrate.html", location.href).href;'), "migration page may open only after the user explicitly confirms from the Launcher");
-assert.match(indexHtml, /更新<\/span><wbr><span>日志/, "masthead changelog may only wrap between 更新 and 日志");
-assert.match(indexHtml, /旧站<\/span><wbr><span>迁移/, "masthead migration may only wrap between 旧站 and 迁移");
-assert.match(indexHtml, /常见<\/span><wbr><span>问题/, "masthead FAQ may only wrap between 常见 and 问题");
+assert.match(indexHtml, /class="masthead-menu-item" id="changelogOpen"[^>]*><svg class="masthead-menu-icon"[^>]*>[\s\S]*?<span data-i18n="nav\.changelog">更新日志<\/span><\/button>/, "masthead changelog must live in the collection panel with its local icon and without forced wrapping");
+assert.match(indexHtml, /data-i18n="nav\.oldSitePart1">[^<]+<\/span><wbr><span data-i18n="nav\.migrationPart2">[^<]+<\/span>/,
+  "masthead recovery label retains two localized parts and its intentional wrap boundary");
+assert.match(indexHtml, /href="faq\.html"><span class="masthead-label"[^>]*>常见问题<\/span>/, "masthead FAQ must remain directly accessible without forced wrapping");
 
 console.log(JSON.stringify({ singlePage: true, indexedDb: ["/savesth06", "/savesth07", "eagler-touhou-package-store-v1", "EM_PRELOAD_CACHE", "eagler-touhou-local-assets-v1"], cachePrefix: "eagler-touhou-", networkUpload: false }));

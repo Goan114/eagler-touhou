@@ -1,0 +1,12 @@
+{
+  "schema": "eagler-touhou/workspace-layout/1",
+  "repositories": {
+    "launcher": "eagler-touhou",
+    "th06": "th06-eagler",
+    "th07": "th07-eagler",
+    "th08": "th08-eaglertemp",
+    "thprac": "thprac-reallyportable",
+    "dependencies": "dependencies",
+    "toolchains": "toolchains"
+  }
+}
