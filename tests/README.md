@@ -24,6 +24,12 @@ be owned either by `test-plan.mjs` or by an explicit `package.json` command.
 `test-test-ownership.mjs` enforces that closure so experiments cannot silently
 accumulate as apparently official tests.
 
+Tests already scheduled by `test-plan.mjs` are intentionally not mirrored
+one-for-one as npm scripts. For a focused run, invoke the owning test file
+directly with Node, Python, or PowerShell. `package.json` test commands are
+reserved for stable aggregate entrypoints and explicit browser, device, or
+deployment lanes that deliberately remain outside the default plan.
+
 Browser lanes must state whether they are hermetic, workspace-dependent,
 device-backed or remote. Public Relay/TURN probes and other live operational
 checks belong in `scripts/ops/`, not here. Fixed screenshots, local CDP

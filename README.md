@@ -1,20 +1,38 @@
 # eagler-touhou
 
-`eagler-touhou` 是一个 Web 上的**东方 Project 原作游戏**启动器。
+[![CI](https://github.com/YomotsuHisami/eagler-touhou/actions/workflows/ci.yml/badge.svg)](https://github.com/YomotsuHisami/eagler-touhou/actions/workflows/ci.yml)
+![Node.js >=22](https://img.shields.io/badge/Node.js-%3E%3D22-43853d)
+![Python 3](https://img.shields.io/badge/Python-3-3776ab)
+
+`eagler-touhou` 是一个在 Web 上运行东方 Project 原作移植版的启动器、浏览器本地游戏包管理器与部署工具集。
 
 在保证原作体验的基础上，提供 触控适配 + 个性化布局、thprac 适配、多语言（基于 thcrap）、存档和 Replay 管理、多人联机大厅。
 在安全上下文条件下，启动器网页**可以被离线运行**。在玩家离线或服务器宕机时，玩家即使刷新了页面也可以使用 Service Worker 提供的缓存文件正常进行游戏。
 
-项目的正式能力边界见 [Product surface](docs/PRODUCT_SURFACE.md)，当前系统的模块、数据流、离线与发布架构见 [Architecture](docs/ARCHITECTURE.md)。README 只保留面向使用者的概览，不作为第二份架构或功能 contract。
+公开仓库不包含原版游戏数据、音乐、提取素材或用户存档。TH06 / TH07 是当前成熟 Runtime 路径，TH08 仍在持续完善。项目是非官方爱好者工程，与上海爱丽丝幻乐团、ZUN 及游戏发行方不存在隶属、授权、认可或赞助关系。
+
+## 从这里开始
+
+| 目标 | 入口 |
+| --- | --- |
+| 了解当前正式支持什么 | [Product surface](docs/PRODUCT_SURFACE.md) |
+| 看模块、数据流、离线与发布架构 | [Architecture](docs/ARCHITECTURE.md) |
+| 本地开发与验证 | [Development](docs/DEVELOPMENT.md) · [Contributing](CONTRIBUTING.md) |
+| 用原版游戏目录快速生成可部署站点 | [Quick Host](docs/HOST_QUICKSTART.md) |
+| 维护 Host Kit / 静态部署 | [Host deployment](docs/HOST_DEPLOYMENT.md) |
+| 正式 Release、服务器/CDN、HTTP→HTTPS 与 HSTS | [Server deployment](docs/SERVER_DEPLOYMENT.md) |
+| 浏览全部工程文档和仓库目录职责 | [Documentation index](docs/README.md) |
+
+README 只保留面向使用者和新贡献者的概览，不作为第二份架构或功能 contract。
 
 ## 详细功能
 
 ### 完整的原作体验，但是在浏览器运行
 
 - 允许用户在浏览器中运行 TH06 和 TH07 (TH08 WIP），并提供导入导出存档、Replay 等文件的界面。
-- 存档、Replay 等完全和原版互通。
-- 力求完美体验。解决了原 portable 分支中出现的 弹幕抖动、弹幕运动不流畅、闪烁、单线程切换音乐卡顿、手机卡顿 等大量问题。
-- 优化非常好，至少能在骁龙 660 上稳定 90Hz 运行。
+- 原版 `.dat` 存档和普通 `.rpy` Replay 走原版兼容路径；需要保存触控等扩展输入时使用独立的 `.rpyx` Replay 格式。
+- 针对 portable 分支中实际观察到的弹幕抖动、运动不流畅、闪烁、音乐切换卡顿和移动设备性能问题做了专项修复与优化。
+- 支持高刷新率显示，并对移动设备的帧调度、音频和渲染路径提供专项验证。
 - 支持高刷新率（>60Hz）。[感谢 reallyportable]
 
 ### 触控适配
@@ -52,7 +70,7 @@
 
 - 网站可以只提供启动器和运行组件，玩家自行导入合法持有的游戏文件；
 - 远程安装和本地 ZIP 导入使用同一套游戏包描述；
-- 游戏包安装后保存在浏览器本地，游戏数据、运行时、OGG、字体和语言包可以分别管理；
+- 游戏包安装后保存在浏览器本地；DATA 和 Package Descriptor 声明的可选组件由 Package Store 管理，Runtime HTML / JavaScript / WebAssembly 仍由站点的 Runtime Release 提供；
 - 在 HTTPS 或可信 loopback 等安全上下文中，已经安装的游戏和启动器可以离线运行；
 - 服务器可以选择完整托管、仅提供网页并强制本地导入，或只提供少量运行时更新；
 - 服务器也可以提供外部游戏数据下载地址，网页只打开链接，不会自动下载第三方 ZIP。
@@ -73,10 +91,10 @@
 
 ### 本地运行启动器
 
-需要 Node.js 22 或更新版本。先安装依赖并启动开发服务器：
+需要 Node.js 22 或更新版本。使用锁文件安装依赖并启动开发服务器：
 
 ```powershell
-npm install --ignore-scripts
+npm ci --ignore-scripts
 npm run vendor
 npm start
 ```
@@ -87,7 +105,7 @@ npm start
 
 ## 服务器部署
 
-绝大多数部署不需要填写 feature 配置或编译 Runtime。推荐使用固定的 Quick Host 布局：Host Kit 根目录直接包含 `runtime-release/`（TH06/07 普通+多人以及 TH08 的 HTML/JS/WASM 成品）、`games/th06`、`games/th07`、`games/th08` 与 `eagler-touhou.config.json`。首次执行一次 `npm install`，之后运行 `npm run host` 即可。它会生成 hosted 站点并默认只在 `127.0.0.1:8130` 提供服务；`npm run host:build` 只生成同一份可直接上传公网服务器的静态 `dist/site`。详见 [Quick Host](docs/HOST_QUICKSTART.md)。
+绝大多数部署不需要填写 feature 配置或编译 Runtime。推荐使用固定的 Quick Host 布局：Host Kit 根目录直接包含 `runtime-release/`（TH06/07 普通+多人以及 TH08 的 HTML/JS/WASM 成品）、`games/th06`、`games/th07`、`games/th08` 与 `eagler-touhou.config.json`。直接运行 `npm run host` 即可；首次缺少锁定依赖时它会自动执行 `npm ci`。它会生成 hosted 站点并默认只在 `127.0.0.1:8130` 提供服务；`npm run host:build` 只生成同一份可直接上传公网服务器的静态 `dist/site`。详见 [Quick Host](docs/HOST_QUICKSTART.md)。
 
 部署者可以选择两种资源模式：
 
@@ -164,5 +182,7 @@ npm run audit:publish
 - [some100/th07](https://github.com/some100/th07)：《东方妖妖梦》的反编译、跨平台移植与 Web 构建基础。本项目基于其 [`reallyportable`](https://github.com/some100/th07/tree/reallyportable) 分支的 [`9775193`](https://github.com/some100/th07/commit/97751939e47f6d83971fa6225c7ff2cb46ebb77c)，并在其上继续开发 `eagler` 运行时分支。
 
 SDL、Emscripten、webaudio-tinysynth、fflate 等基础设施及其许可信息见 [THIRD_PARTY.md](THIRD_PARTY.md)。界面素材及发布注意事项见 [ASSETS.md](ASSETS.md)，项目说明和版权说明见[关于页](public/about.html)。
+
+当前仓库尚未发布项目级 `LICENSE` 文件。`THIRD_PARTY.md`、`ASSETS.md` 和 vendored 文件中的许可只适用于它们明确描述的第三方组件或素材，不应被理解为整个仓库的项目级许可。
 
 本项目是非官方爱好者工程，与上海爱丽丝幻乐团、ZUN 及游戏发行方不存在隶属、授权、认可或赞助关系。项目不授予任何原版游戏内容的使用或再分发许可；不得利用本项目在互联网上上传、托管、共享或以其他任何形式分发无权发布的原版游戏数据、音乐、美术及其他受版权保护的资源。

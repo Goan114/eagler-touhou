@@ -1,0 +1,85 @@
+# Documentation
+
+This directory contains the public engineering and operator documentation for
+Eagler Touhou. The repository root `README.md` is the product overview; the
+documents here describe stable product boundaries, architecture, development,
+deployment, and verification.
+
+## Start here
+
+- [Product surface](PRODUCT_SURFACE.md) - supported games, Launcher features,
+  multiplayer behavior, deployment modes, and deliberate limitations.
+- [Architecture](ARCHITECTURE.md) - module ownership, browser/runtime boundary,
+  persistence, offline behavior, multiplayer, Host, and release architecture.
+- [Development](DEVELOPMENT.md) - maintainer workspace, dependencies, Runtime
+  builds, and the normal validation commands.
+
+## Hosting and deployment
+
+- [Quick Host](HOST_QUICKSTART.md) - shortest supported path for an operator
+  with a Runtime Release and legally-owned TH06/TH07/TH08 installations.
+- [Host deployment](HOST_DEPLOYMENT.md) - Host Kit inputs, generated static
+  site, resource modes, WebSocket relay/TURN configuration, and updates.
+- [Server deployment](SERVER_DEPLOYMENT.md) - maintainer release candidates,
+  server/CDN requirements, atomic rollout, HTTP-to-HTTPS migration, and the
+  final HSTS cutover.
+
+These documents intentionally serve different audiences. Do not duplicate
+their content just to make each document standalone: link to the owning
+document instead.
+
+## Reference
+
+- [Artifacts](ARTIFACTS.md) - generated artifact and validation directory
+  conventions.
+- [Game adapter contract](GAME_ADAPTER_CONTRACT.md) - Runtime/game adapter
+  boundary and remaining adapter differences.
+- [Runtime storage testing](RUNTIME_STORAGE_TESTING.md) - storage contract and
+  browser conformance lanes.
+
+## Repository map
+
+| Path | Owner / purpose |
+| --- | --- |
+| `public/` | Source-controlled Web surface: HTML, CSS, manifest, static fonts/assets, vendored browser files, and tiny browser entry facades. |
+| `src/launcher/` | Authoritative Launcher TypeScript implementation. |
+| `src/contracts/` | Typed browser-visible metadata and protocol contracts. |
+| `src/browser-facades/` | Generated-delivery/browser-facing contract facades built from the typed contract owners. |
+| `src/app-shell-sw.js` | Service Worker source. Generated App Shell output does not live here. |
+| [`package/`](../package/README.md) | Browser Package Store, package generation/install/ZIP subsystem. This is product code, not npm metadata. |
+| `legacy/` | Deliberately bounded read/migration compatibility for previously published data formats. New writes do not target legacy formats. |
+| [`lib/`](../lib/README.md) | Reusable Node-side build, release, verification, and contract adapters. Reusable code belongs here rather than in CLI scripts. |
+| `server/` | Standalone relay/TURN-side server code and server configuration helpers. |
+| `integrations/` | External integration adapters such as thprac. |
+| [`scripts/`](../scripts/README.md) | Maintainer CLI entrypoints. Live/public operational probes are isolated under `scripts/ops/`. |
+| `tests/` | Repository and workspace tests. Browser runners live under `tests/browser/`; shared fixtures/helpers live under `tests/support/`. |
+| `deploy/` | Host Kit, release/deployment adapters, templates, and first-install server material. |
+| `config/` | Canonical workspace and build-policy registries. |
+
+The root `host-manifest.mjs`, `product-catalog.mjs`, `release-catalog.mjs`,
+`resource-mode.mjs`, and `runtime-protocol.mjs` files are intentionally tiny
+stable Node/contract facades. They re-export the owning modules from
+`lib/contracts/`; they are not parallel implementations.
+
+## Generated and local state
+
+Generated or machine-local content must not become a second source tree:
+
+- `.cache/build/browser/` - compiled Launcher/browser modules;
+- `.cache/` - other reproducible build caches;
+- `.npm-cache/`, `node_modules/`, `.deploy-python/` - local dependency state;
+- `dist/` - generated Host/Import output;
+- `artifacts/` - release candidates, validation evidence, and temporary
+  operational outputs.
+
+Do not edit generated output to change product behavior. Change the owning
+source/configuration and regenerate it.
+
+## Governance
+
+Contribution workflow and engineering expectations are documented in
+[`CONTRIBUTING.md`](../CONTRIBUTING.md).
+
+The repository does not currently publish a project-level license or a private
+security-reporting channel. Those are maintainer policy decisions and must not
+be inferred from third-party licenses or from the repository being public.

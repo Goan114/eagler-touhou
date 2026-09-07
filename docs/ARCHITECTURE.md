@@ -572,7 +572,7 @@ Current bounded compatibility includes:
 
 Compatibility modules must not become new production/storage writers.
 
-Historical artifacts, archived deployed sites and history-session documents
+Historical artifacts, archived deployed sites and internal engineering notes
 are evidence, not active architecture or compatibility APIs.
 
 ## 12. Refactoring evidence rule

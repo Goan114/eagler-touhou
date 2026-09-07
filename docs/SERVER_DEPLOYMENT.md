@@ -84,7 +84,7 @@ npm run package:offline-game -- D:\Sites\eagler-touhou th07
 
 ZIP 根目录的 `package.json` 是 `eagler-touhou/package/1` Descriptor。旧离线包仍可作为兼容输入读取，但新包不再把旧 manifest 或包内 Runtime 当作安装依据。
 
-安装或更新时，启动器会显示 Descriptor、Runtime、DATA、OGG、字体和语言包的请求与进度；已经在 Package Store 中的内容直接从 IndexedDB 读取。
+安装或更新时，启动器会显示发行元数据、Runtime Release、Package DATA / 可选组件以及 Host shared resources 的请求与进度。Package Store 已经拥有的 generation / object 直接从 IndexedDB 读取；Runtime HTML / JavaScript / WebAssembly 不写入 Package Store。
 
 ## 外部下载地址
 
@@ -142,7 +142,7 @@ npm run verify:deployed -- https://example.invalid/
 
 - TH06 / TH07 / TH08 的存档、Replay 和设置，以及支持作品的 thprac 文件；
 - Launcher 的设置；
-- Package Store 中已经安装的 Runtime、DATA、字体、OGG 和语言组件；
+- Package Store 的安装状态、generation 与对象数据；
 - 旧版本的本地资源缓存。
 
 迁移期间不要先启用 HSTS，也不要把 HTTP 全站直接 301 / 308 到 HTTPS，否则旧页面无法读取旧 Origin 的浏览器存储。切换前检查两个入口：
