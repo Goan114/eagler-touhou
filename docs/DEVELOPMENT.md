@@ -127,7 +127,7 @@ npm run verify:practice
 
 测试的规范性准入规则由 `ARCHITECTURE.md` 的 **Testing architecture** 统一拥有。新增测试前先回答三个问题：它保护的稳定 invariant 是什么；能证明该 invariant 的最小测试边界是什么；如果实现保持行为不变而重构，这条断言是否仍应成立。答不清楚时不应先写测试再寻找理由。
 
-针对特定功能的检查集中在 `tests/`，浏览器 runner 位于 `tests/browser/`，包括触控、Replay、多人协议、游戏包、导入器、Release Catalog、网络活动和 Origin 迁移。旧的源码正则/布局锁只可视为迁移证据：它们没有 grandfathered 权威性。重构暴露出脆弱断言时，应先恢复真实 contract，再把覆盖迁到 owner behavior / repository integration / browser-device 等正确层级，然后删除或降级旧 change-detector test；不得为了维持旧测试绿色而保留错误模块边界。
+针对特定功能的检查集中在 `tests/`。新的专用 Browser test entrypoint / runner 归入 `tests/browser/`；部分既有显式 Browser lanes 仍位于 `tests/` 根目录，必须继续由 `package.json` 的显式命令拥有，直到一次完整的测试布局迁移统一处理。旧的源码正则/布局锁只可视为迁移证据：它们没有 grandfathered 权威性。重构暴露出脆弱断言时，应先恢复真实 contract，再把覆盖迁到 owner behavior / repository integration / browser-device 等正确层级，然后删除或降级旧 change-detector test；不得为了维持旧测试绿色而保留错误模块边界。
 
 默认测试应当 hermetic、deterministic、可重复运行，不依赖公网、sleep timing、用户本机持久状态或未声明 sibling 内容。真实浏览器、WebKit/WebView、设备触控、公开网络和发布候选验证属于显式重型 lane；它们只用于小测试无法证明的性质，也不能反过来用源码 grep 冒充真实设备回归。
 

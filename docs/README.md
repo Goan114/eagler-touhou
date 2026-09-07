@@ -52,7 +52,7 @@ document instead.
 | `server/` | Standalone relay/TURN-side server code and server configuration helpers. |
 | `integrations/` | External integration adapters such as thprac. |
 | [`scripts/`](../scripts/README.md) | Maintainer CLI entrypoints. Live/public operational probes are isolated under `scripts/ops/`. |
-| `tests/` | Repository and workspace tests. Browser runners live under `tests/browser/`; shared fixtures/helpers live under `tests/support/`. |
+| `tests/` | Repository and workspace tests. New dedicated Browser entrypoints/runners belong under `tests/browser/`; established explicit Browser lanes may remain at the test root until a coherent layout migration. Shared fixtures/helpers live under `tests/support/`. |
 | `deploy/` | Host Kit, release/deployment adapters, templates, and first-install server material. |
 | `config/` | Canonical workspace and build-policy registries. |
 

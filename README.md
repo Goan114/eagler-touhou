@@ -172,7 +172,7 @@ npm run audit:publish
 
 公开源码检查构建不含游戏资源，只能使用 `build-web-eagler-external`；本地可玩构建必须使用 `-EmbedLocalAssets` 生成 `build-web-eagler-default`。不得在同一 CMake 构建目录中切换 `TH_EXTERNAL_ASSETS`。
 
-运行时、多人、Replay、触控、游戏包和部署测试见 `tests/`，浏览器 runner 位于 `tests/browser/`；构建与发布工具仍位于 `scripts/`。宿主与游戏之间的消息协议版本为 `eagler-touhou/1`。
+运行时、多人、Replay、触控、游戏包和部署测试见 `tests/`。新的专用 Browser test entrypoint / runner 归入 `tests/browser/`；部分既有显式 Browser lanes 仍保留在 `tests/` 根目录，等待一次完整的测试布局迁移，而不是逐个制造路径 churn。构建与发布工具仍位于 `scripts/`。宿主与游戏之间的消息协议版本为 `eagler-touhou/1`。
 
 ## 上游项目、素材与许可
 
