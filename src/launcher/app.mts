@@ -37,7 +37,7 @@ import {
   multiplayerProductIdForGame,
   productFeatureAvailable,
 } from "../contracts/product-catalog.mjs";
-import { resolveEffectiveMusicMode } from "./music-availability.mjs";
+import { resolveEffectiveMusicMode, resolveMusicAvailability } from "./music-availability.mjs";
 import {
   RELEASE_CATALOG_FILE,
   releaseCatalogEntryUrl,
@@ -2882,14 +2882,10 @@ async function launchConfiguredRuntime() {
 function entryTitle(entry: LanguageCatalogEntry | null | undefined): string {
   return typeof entry?.title === "string" && entry.title ? entry.title : entry?.id || "语言";
 }
-function chooseDefaultMusic() {
+function musicAvailabilityContext() {
   const packages = game().music || {};
   const installedGeneration = activeInstalledPackageGeneration || installedPackageSnapshots.get(state.game) || null;
-  // Effective fallback is transient. Keep explicit preference separate so a
-  // later completed install (or saving an unrelated option) cannot erase it.
-  state.music = resolveEffectiveMusicMode({
-    requested: state.musicPreferenceExplicit ? state.musicPreference : state.music,
-    explicit: state.musicPreferenceExplicit,
+  return {
     audio: webAudioAvailable,
     midiAvailable: !!packages.midi,
     importServer: !!importServer,
@@ -2901,7 +2897,28 @@ function chooseDefaultMusic() {
       oggFileIds: componentFileIds(installedGeneration.descriptor, "ogg"),
       files: installedGeneration.files || {},
     } : null,
+  };
+}
+function chooseDefaultMusic() {
+  const availabilityContext = musicAvailabilityContext();
+  // Effective fallback is transient. Keep explicit preference separate so a
+  // later completed install (or saving an unrelated option) cannot erase it.
+  state.music = resolveEffectiveMusicMode({
+    requested: state.musicPreferenceExplicit ? state.musicPreference : state.music,
+    explicit: state.musicPreferenceExplicit,
+    ...availabilityContext,
   });
+}
+
+function syncMusicSelectAvailability(select: HTMLSelectElement, availability = resolveMusicAvailability(musicAvailabilityContext())) {
+  select.value = state.music;
+  for (const option of select.options) {
+    option.disabled = option.value === "none" ? false
+      : option.value === "midi" ? !availability.midi
+      : isOggMusicMode(option.value as MusicMode) ? !availability.ogg
+      : true;
+  }
+  select.title = availability.audio ? "" : t("settings.webAudioUnavailable");
 }
 
 interface CustomSelectUi {
@@ -3180,19 +3197,16 @@ function render() {
   // release may still be paired with a user-provided content generation and
   // then offer the matching remote update through the normal launch flow.
   $("#gamePackageImport").hidden = false;
+  const musicAvailability = resolveMusicAvailability(musicAvailabilityContext());
   const musicSelect = $("#musicSelect");
-  musicSelect.value = state.music;
-  for (const option of musicSelect.options) {
-    option.disabled = !webAudioAvailable && option.value !== "none";
-  }
-  musicSelect.title = webAudioAvailable ? "" : t("settings.webAudioUnavailable");
+  syncMusicSelectAvailability(musicSelect, musicAvailability);
   const languageEntries = languageCatalog(state.game);
   const languageSelect = $("#languageSelect");
   languageSelect.replaceChildren(...languageEntries.map(entry => {
     const option = document.createElement("option"); option.value = entry.id; option.textContent = entryTitle(entry); return option;
   }));
   languageSelect.value = state.language;
-  $("#musicOption").hidden = !game().music?.ogg && !game().music?.wav;
+  $("#musicOption").hidden = !musicAvailability.ogg;
   $("#languageOption").hidden = languageEntries.length <= 1;
   $("#replayFileTool").hidden = !gameFeatureAvailable(state.game, "replayManagement");
   const mpLanguageSelect = $("#mpLanguageSelect");
@@ -3202,7 +3216,7 @@ function render() {
   mpLanguageSelect.value = state.language;
   $("#mpShareSettingsToggle").setAttribute("aria-checked", String(mpShareSingleplayerSettings));
   $("#mpShareSettingsToggle").classList.toggle("on", mpShareSingleplayerSettings);
-  $("#mpMusicSelect").value = state.music;
+  syncMusicSelectAvailability($("#mpMusicSelect"), musicAvailability);
   $("#mpFrameLimitToggle").setAttribute("aria-checked", String(state.options.frameLimit60Enabled));
   $("#mpFrameLimitToggle").classList.toggle("on", state.options.frameLimit60Enabled);
   $("#mpTouchToggle").setAttribute("aria-checked", String(state.options.touchEnabled));

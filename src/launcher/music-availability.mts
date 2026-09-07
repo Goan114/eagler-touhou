@@ -34,9 +34,7 @@ export interface InstalledMusicAvailability {
   files: Readonly<Record<string, { objectId?: unknown } | undefined>>;
 }
 
-export interface EffectiveMusicModeInput {
-  requested: string;
-  explicit: boolean;
+export interface MusicAvailabilityInput {
   audio: boolean;
   midiAvailable: boolean;
   importServer: boolean;
@@ -44,6 +42,54 @@ export interface EffectiveMusicModeInput {
   remoteOggAdvertised: boolean;
   remoteRevision?: unknown;
   installed?: InstalledMusicAvailability | null;
+}
+
+export interface MusicAvailability {
+  audio: boolean;
+  midi: boolean;
+  localOgg: boolean;
+  remoteOgg: boolean;
+  ogg: boolean;
+}
+
+export function resolveMusicAvailability({
+  audio,
+  midiAvailable,
+  importServer,
+  publishedOggCapable,
+  remoteOggAdvertised,
+  remoteRevision = null,
+  installed = null,
+}: MusicAvailabilityInput): MusicAvailability {
+  let localOgg = false;
+  let remoteOgg = false;
+
+  if (installed) {
+    const ids = installed.oggFileIds;
+    // A local Package generation is authoritative for its own optional OGG
+    // component. Local availability must not depend on whether the current
+    // Host also publishes an OGG/WAV resource set.
+    localOgg = ids.length > 0 && ids.every(fileId => !!installed.files[fileId]?.objectId);
+    // Completing a partial local generation from the network is different:
+    // the current publication must explicitly support OGG and match the
+    // generation identity before remote files may be considered available.
+    remoteOgg = publishedOggCapable && !importServer && ids.length >= 2 && remoteRevision === installed.revision;
+  } else if (!importServer) {
+    remoteOgg = remoteOggAdvertised;
+  }
+
+  return {
+    audio,
+    midi: audio && midiAvailable,
+    localOgg: audio && localOgg,
+    remoteOgg: audio && remoteOgg,
+    ogg: audio && (localOgg || remoteOgg),
+  };
+}
+
+export interface EffectiveMusicModeInput extends MusicAvailabilityInput {
+  requested: string;
+  explicit: boolean;
 }
 
 export function resolveEffectiveMusicMode({
@@ -57,24 +103,23 @@ export function resolveEffectiveMusicMode({
   remoteRevision = null,
   installed = null,
 }: EffectiveMusicModeInput): LauncherMusicMode {
-  let localOgg = false;
-  let remoteOgg = false;
-
-  if (installed && publishedOggCapable) {
-    const ids = installed.oggFileIds;
-    localOgg = ids.length > 0 && ids.every(fileId => !!installed.files[fileId]?.objectId);
-    remoteOgg = !importServer && ids.length >= 2 && remoteRevision === installed.revision;
-  } else if (!installed && !importServer) {
-    remoteOgg = remoteOggAdvertised;
-  }
+  const availability = resolveMusicAvailability({
+    audio,
+    midiAvailable,
+    importServer,
+    publishedOggCapable,
+    remoteOggAdvertised,
+    remoteRevision,
+    installed,
+  });
 
   return resolveMusicMode({
     requested,
     explicit,
-    audio,
-    midi: midiAvailable,
-    localOgg,
-    remoteOgg,
-    preferOgg: localOgg || (!installed && !importServer),
+    audio: availability.audio,
+    midi: availability.midi,
+    localOgg: availability.localOgg,
+    remoteOgg: availability.remoteOgg,
+    preferOgg: availability.localOgg || (!installed && !importServer),
   });
 }

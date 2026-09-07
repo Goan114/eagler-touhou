@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 
 import {
   resolveEffectiveMusicMode,
+  resolveMusicAvailability,
   resolveMusicMode,
 } from "../.cache/build/browser/assets/launcher/music-availability.mjs";
 
@@ -60,6 +61,22 @@ assert.equal(effective({ remoteRevision: "r1" }), "ogg-full");
 assert.equal(effective({ importServer: true, remoteRevision: "r1" }), "midi");
 files.track2 = { objectId: "b" };
 assert.equal(effective({ importServer: true }), "ogg-full");
+assert.equal(effective({ importServer: true, publishedOggCapable: false, remoteOggAdvertised: false }), "ogg-full",
+  "fully installed local OGG must not depend on Host-published OGG/WAV capability");
+assert.deepEqual(resolveMusicAvailability({
+  audio: true,
+  midiAvailable: true,
+  importServer: true,
+  publishedOggCapable: false,
+  remoteOggAdvertised: false,
+  installed,
+}), {
+  audio: true,
+  midi: true,
+  localOgg: true,
+  remoteOgg: false,
+  ogg: true,
+}, "local Package OGG must be exposed to both single-player and multiplayer UI");
 assert.equal(effective({ requested: "none" }), "none");
 assert.equal(effective({ remoteRevision: "other", installed: { ...installed, files: {} } }), "midi");
 assert.equal(effective({
