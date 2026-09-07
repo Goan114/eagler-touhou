@@ -25,25 +25,30 @@ $archiveParent = Split-Path $archive -Parent
 if (-not (Test-Path -LiteralPath $archiveParent)) {
     New-Item -ItemType Directory -Path $archiveParent -Force | Out-Null
 }
-$staging = Join-Path $archiveParent ('.first-install-bundle-' + [guid]::NewGuid().ToString('N'))
+$temporaryRoot = Join-Path $archiveParent '.tmp'
+$staging = Join-Path $temporaryRoot ('first-install-bundle-' + [guid]::NewGuid().ToString('N'))
 try {
+    if (Test-Path -LiteralPath $archive) { throw "First-install bundle already exists: $archive" }
+    if (-not (Test-Path -LiteralPath $temporaryRoot)) { New-Item -ItemType Directory -Path $temporaryRoot -Force | Out-Null }
     New-Item -ItemType Directory -Path $staging | Out-Null
-    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'linux-first-install') -Destination (Join-Path $staging 'installer') -Recurse
     Copy-Item -LiteralPath $site -Destination (Join-Path $staging 'site') -Recurse
-    $relay = Join-Path $staging 'relay'
-    New-Item -ItemType Directory -Path $relay | Out-Null
-    Copy-Item -LiteralPath (Join-Path $project '..\th07-eagler\tools\netplay\lan-relay.cjs') -Destination $relay
-    Copy-Item -LiteralPath (Join-Path $project '..\th07-eagler\tools\netplay\render-coturn-config.cjs') -Destination $relay
-    $relayModules = Join-Path $relay 'node_modules'
-    New-Item -ItemType Directory -Path $relayModules | Out-Null
-    Copy-Item -LiteralPath (Join-Path $project '..\th07-eagler\tools\netplay\node_modules\ws') -Destination $relayModules -Recurse
+    $bundleManifestJson = & node (Join-Path $project 'scripts\resolve-linux-first-install-bundle.mjs')
+    if ($LASTEXITCODE -ne 0) { throw "Unable to resolve first-install bundle manifest: $LASTEXITCODE" }
+    $bundleManifest = $bundleManifestJson | ConvertFrom-Json
+    if ($bundleManifest.schema -ne 'eagler-touhou/linux-first-install-bundle/1') {
+        throw "Unsupported first-install bundle manifest schema: $($bundleManifest.schema)"
+    }
+    foreach ($rule in $bundleManifest.copyRules) {
+        $source = Join-Path $project ([string] $rule.source)
+        $target = Join-Path $staging ([string] $rule.target)
+        $targetParent = Split-Path $target -Parent
+        if (-not (Test-Path -LiteralPath $targetParent)) { New-Item -ItemType Directory -Path $targetParent -Force | Out-Null }
+        if ($rule.recursive) { Copy-Item -LiteralPath $source -Destination $target -Recurse }
+        else { Copy-Item -LiteralPath $source -Destination $target }
+    }
     $runtime = Join-Path $staging 'runtime'
     New-Item -ItemType Directory -Path $runtime | Out-Null
     Copy-Item -LiteralPath $nodeArchive -Destination (Join-Path $runtime 'node-linux-x64.tar.xz')
-    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'linux-first-install\README.md') -Destination (Join-Path $staging 'HOST-README.md')
-    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'linux-first-install\config.env.example') -Destination (Join-Path $staging 'config.env.example')
-    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'linux-first-install\config.external-ws.example') -Destination (Join-Path $staging 'config.external-ws.example')
-    if (Test-Path -LiteralPath $archive) { Remove-Item -LiteralPath $archive -Force }
     if ($archive.EndsWith('.zip', [StringComparison]::OrdinalIgnoreCase)) {
         Compress-Archive -Path (Join-Path $staging '*') -DestinationPath $archive -CompressionLevel Optimal
     } else {

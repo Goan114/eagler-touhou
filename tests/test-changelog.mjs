@@ -1,0 +1,115 @@
+import assert from "node:assert/strict";
+import {
+  CHANGELOG_SEEN_STORAGE_KEY,
+  changelogContentIdentity,
+  createChangelogController,
+  normalizeChangelogText,
+} from "../.cache/build/browser/assets/launcher/changelog.mjs";
+
+assert.equal(normalizeChangelogText("\uFEFFA\r\nB\r\n"), "A\nB");
+assert.equal(changelogContentIdentity("A\r\nB"), changelogContentIdentity("A\nB"),
+  "line-ending differences must not create a new changelog release");
+assert.notEqual(changelogContentIdentity("A"), changelogContentIdentity("B"),
+  "changed release-note content must create a new identity");
+
+class FakeElement {
+  constructor(id = "") { this.id = id; }
+  className = "";
+  textContent = "";
+  children = [];
+  open = false;
+  showCount = 0;
+  closeCount = 0;
+  append(...values) { this.children.push(...values); }
+  replaceChildren(...values) { this.children = [...values]; }
+  showModal() { this.open = true; this.showCount++; }
+  close() { this.open = false; this.closeCount++; }
+}
+
+class FakeDocument {
+  constructor() {
+    this.elements = new Map([
+      ["changelogDialog", new FakeElement("changelogDialog")],
+      ["changelogText", new FakeElement("changelogText")],
+    ]);
+  }
+  getElementById(id) { return this.elements.get(id) || null; }
+  createElement() { return new FakeElement(); }
+  createTextNode(text) { return { nodeType: 3, textContent: text }; }
+}
+
+function storageFrom(values = new Map()) {
+  return {
+    values,
+    getItem: key => values.has(key) ? values.get(key) : null,
+    setItem: (key, value) => values.set(key, String(value)),
+  };
+}
+
+function response(text, status = 200) {
+  return { ok: status >= 200 && status < 300, status, text: async () => text };
+}
+
+const releaseText = "EAGLER TOUHOU CHANGELOG\n[2026-09-06] Test\n- Item";
+const sharedStorage = storageFrom();
+const firstDocument = new FakeDocument();
+const first = createChangelogController({
+  documentObj: firstDocument,
+  storage: sharedStorage,
+  fetchImpl: async () => response(releaseText),
+});
+assert.equal(await first.maybeShowAutomatically(), true, "new non-empty content must auto-show once");
+assert.equal(firstDocument.getElementById("changelogDialog").showCount, 1);
+const firstIdentity = changelogContentIdentity(releaseText);
+assert.equal(sharedStorage.values.get(CHANGELOG_SEEN_STORAGE_KEY), firstIdentity);
+
+const secondDocument = new FakeDocument();
+const second = createChangelogController({
+  documentObj: secondDocument,
+  storage: sharedStorage,
+  fetchImpl: async () => response(releaseText),
+});
+assert.equal(await second.maybeShowAutomatically(), false, "already-seen content must not auto-show again");
+assert.equal(secondDocument.getElementById("changelogDialog").showCount, 0);
+
+const changedText = `${releaseText}\n- New item`;
+const changedDocument = new FakeDocument();
+const changed = createChangelogController({
+  documentObj: changedDocument,
+  storage: sharedStorage,
+  fetchImpl: async () => response(changedText),
+});
+assert.equal(await changed.maybeShowAutomatically(), true,
+  "changing only CHANGELOG.txt content must create a new auto-show release");
+assert.equal(sharedStorage.values.get(CHANGELOG_SEEN_STORAGE_KEY), changelogContentIdentity(changedText));
+
+const emptyDocument = new FakeDocument();
+const empty = createChangelogController({
+  documentObj: emptyDocument,
+  storage: storageFrom(),
+  fetchImpl: async () => response("\n\r\n"),
+  emptyText: () => "EMPTY",
+});
+assert.equal(await empty.maybeShowAutomatically(), false, "empty packaged changelog is a valid non-interrupting state");
+assert.equal(emptyDocument.getElementById("changelogDialog").showCount, 0);
+const emptyResult = await empty.showManual();
+assert.equal(emptyResult.kind, "empty");
+assert.equal(emptyDocument.getElementById("changelogDialog").showCount, 1,
+  "manual changelog entry remains usable when release content is empty");
+assert.equal(emptyDocument.getElementById("changelogText").children[0]?.textContent, "EMPTY");
+
+const failedDocument = new FakeDocument();
+const failed = createChangelogController({
+  documentObj: failedDocument,
+  storage: storageFrom(),
+  fetchImpl: async () => { throw new Error("offline"); },
+  readFailureText: error => `FAILED:${error.message}`,
+});
+assert.equal(await failed.maybeShowAutomatically(), false, "fetch failure must never interrupt Launcher startup");
+assert.equal(failedDocument.getElementById("changelogDialog").showCount, 0);
+const failedResult = await failed.showManual();
+assert.equal(failedResult.kind, "error");
+assert.equal(failedDocument.getElementById("changelogDialog").showCount, 1);
+assert.equal(failedDocument.getElementById("changelogText").children[0]?.textContent, "FAILED:offline");
+
+console.log(JSON.stringify({ changelog: "PASS", identity: "content-derived", empty: "valid", autoShow: "once-per-content" }));

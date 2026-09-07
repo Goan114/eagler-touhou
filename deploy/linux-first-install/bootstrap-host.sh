@@ -51,8 +51,12 @@ EOF
 fi
 
 map_id=$MIGRATION_MAP_ID
+hsts_header=""
+if [[ "$HSTS_MODE" == final ]]; then
+  hsts_header='add_header Strict-Transport-Security "max-age=31536000" always;'
+fi
 python3 - "$SCRIPT_DIR/nginx-site.conf.template" "/etc/nginx/sites-available/$SITE_CONFIG_NAME" \
-  "$ORIGIN_LISTEN" "$SITE_HOST" "$SITE_ROOT/current" "$relay_location" "$map_id" <<'PY'
+  "$ORIGIN_LISTEN" "$SITE_HOST" "$SITE_ROOT/current" "$relay_location" "$map_id" "$hsts_header" <<'PY'
 import pathlib, sys
 source = pathlib.Path(sys.argv[1]).read_text()
 replacements = {
@@ -61,6 +65,7 @@ replacements = {
     '@@CURRENT_ROOT@@': sys.argv[5],
     '@@RELAY_LOCATION@@': sys.argv[6],
     '@@MAP_ID@@': sys.argv[7],
+    '@@HSTS_HEADER@@': sys.argv[8],
 }
 for key, value in replacements.items(): source = source.replace(key, value)
 pathlib.Path(sys.argv[2]).write_text(source)
@@ -78,7 +83,7 @@ if [[ "$RELAY_MODE" == local ]]; then
   node_archive="$SCRIPT_DIR/../runtime/node-linux-x64.tar.xz"
   [[ -f "$node_archive" ]] || { echo "Bundled Linux Node runtime is missing: $node_archive" >&2; exit 2; }
   id eaglernet >/dev/null 2>&1 || useradd --system --home /nonexistent --shell /usr/sbin/nologin eaglernet
-  install -d -o root -g root -m 0755 /opt/eagler-netplay/app /opt/eagler-netplay/runtime /etc/eagler-netplay
+  install -d -o root -g root -m 0755 /opt/eagler-netplay /opt/eagler-netplay/runtime /etc/eagler-netplay
   install -d -o eaglernet -g eaglernet -m 0750 /var/log/eagler-netplay
   node_stage=/opt/eagler-netplay/runtime/node.staging
   rm -rf -- "$node_stage"
@@ -91,10 +96,15 @@ if [[ "$RELAY_MODE" == local ]]; then
   fi
   mv -- "$node_stage" /opt/eagler-netplay/runtime/node
   node_bin=/opt/eagler-netplay/runtime/node/bin/node
-  install -m 0644 "$SCRIPT_DIR/../relay/lan-relay.cjs" /opt/eagler-netplay/app/lan-relay.cjs
-  install -d -m 0755 /opt/eagler-netplay/app/node_modules
-  rm -rf -- /opt/eagler-netplay/app/node_modules/ws
-  cp -a -- "$SCRIPT_DIR/../relay/node_modules/ws" /opt/eagler-netplay/app/node_modules/ws
+  app_stage=/opt/eagler-netplay/app.staging
+  rm -rf -- "$app_stage"
+  install -d -m 0755 "$app_stage"
+  cp -a -- "$SCRIPT_DIR/../relay/." "$app_stage/"
+  "$node_bin" --check "$app_stage/server/netplay-relay.mjs"
+  (cd "$app_stage" && "$node_bin" --input-type=module -e 'await import("./lib/contracts/product-catalog.mjs"); await import("ws")')
+  rm -rf -- /opt/eagler-netplay/app.previous
+  if [[ -d /opt/eagler-netplay/app ]]; then mv -- /opt/eagler-netplay/app /opt/eagler-netplay/app.previous; fi
+  mv -- "$app_stage" /opt/eagler-netplay/app
   secret=${TURN_SHARED_SECRET:-}
   if [[ "$TURN_MODE" == local && -z "$secret" ]]; then
     if [[ -s /etc/eagler-netplay/turn-secret ]]; then secret=$(cat /etc/eagler-netplay/turn-secret); else secret=$(openssl rand -hex 32); fi
@@ -134,12 +144,11 @@ fi
 
 if [[ "$TURN_MODE" == local ]]; then
   [[ "$RELAY_MODE" == local ]] || { echo "Local TURN requires local relay for REST credential issuance." >&2; exit 2; }
-  install -m 0644 "$SCRIPT_DIR/../relay/render-coturn-config.cjs" /opt/eagler-netplay/app/render-coturn-config.cjs
   set -a
   # shellcheck disable=SC1091
   source /etc/eagler-netplay/netplay.env
   set +a
-  "$node_bin" /opt/eagler-netplay/app/render-coturn-config.cjs --output /etc/turnserver.conf
+  "$node_bin" /opt/eagler-netplay/app/server/render-coturn-config.cjs --output /etc/turnserver.conf
   if grep -qE '^#?TURNSERVER_ENABLED=' /etc/default/coturn 2>/dev/null; then
     sed -i 's/^#\?TURNSERVER_ENABLED=.*/TURNSERVER_ENABLED=1/' /etc/default/coturn
   else

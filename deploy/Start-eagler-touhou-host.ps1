@@ -184,9 +184,8 @@ try {
     throw "Default language preparation failed. Quick Host requires Japanese, Simplified Chinese, and English. $($_.Exception.Message)"
 }
 $effectiveFeatureConfig = Join-Path ([IO.Path]::GetTempPath()) "eagler-touhou-host-features-$([guid]::NewGuid().ToString('N')).json"
-[IO.File]::WriteAllText($effectiveFeatureConfig, (($baseFeatures | ConvertTo-Json -Depth 20) + [Environment]::NewLine), [Text.UTF8Encoding]::new($false))
-
 try {
+    [IO.File]::WriteAllText($effectiveFeatureConfig, (($baseFeatures | ConvertTo-Json -Depth 20) + [Environment]::NewLine), [Text.UTF8Encoding]::new($false))
     Write-HostBuildStage 6 'Assembling and verifying the static site'
     $prepareArgs = @(
         '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $PSScriptRoot 'Prepare-eagler-touhou-server.ps1'),
@@ -227,10 +226,9 @@ if ($Bind -eq '0.0.0.0' -or $Bind -eq '::') {
 }
 $env:EAGLER_TOUHOU_HOST = $Bind
 $urlHost = if ($Bind -eq '0.0.0.0' -or $Bind -eq '::') { '127.0.0.1' } else { $Bind }
-$url = "http://$urlHost`:$Port/eagler-touhou/"
+$url = "http://$urlHost`:$Port/"
 Write-Host "Starting local hosted site: $url"
 if (-not $NoOpen -and $Bind -in @('127.0.0.1', 'localhost', '::1')) {
     try { Start-Process $url } catch { Write-Warning "Unable to open browser automatically: $($_.Exception.Message)" }
 }
 & node (Join-Path $project 'scripts\serve-static.mjs') ([string]$layout.site) $Port
-

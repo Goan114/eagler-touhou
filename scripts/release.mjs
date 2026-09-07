@@ -4,16 +4,17 @@
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream, existsSync } from "node:fs";
-import { cp, lstat, mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
-import { dirname, relative, resolve } from "node:path";
+import { cp, lstat, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { basename, dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { COMPLETION_REPORT_SCHEMA, validateCompletionReport } from "../lib/completion-report.mjs";
 import { formalReleaseSourceOwners, normalizeFormalReleaseInput, RELEASE_PATH_INPUT_KEYS } from "../lib/release-plan.mjs";
 import { verifyRuntimeRelease } from "../lib/runtime-release.mjs";
 import { WORKSPACE_REPOSITORIES, workspacePath, workspaceRoot } from "../lib/workspace-layout.mjs";
 import { sourceIdentity, writeReleaseManifest } from "../lib/release-manifest.mjs";
-import { HOST_MANIFEST_FILE } from "../host-manifest.mjs";
-import { verifyReleaseBundle } from "./verify-release-bundle.mjs";
+import { HOST_MANIFEST_FILE } from "../lib/contracts/host-manifest.mjs";
+import { verifyReleaseBundle } from "../lib/release-bundle-verifier.mjs";
 
 const project = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const workspace = workspaceRoot();
@@ -153,9 +154,12 @@ if (input.gameDataFallback != null && (!/^https:\/\//.test(input.gameDataFallbac
 }
 
 const operationId = `${Date.now()}-${randomUUID()}`;
-const scratch = resolve(project, "artifacts/validation/release-build", operationId);
-const incompleteOutput = `${destination}.incomplete-${operationId}`;
+const scratch = resolve(tmpdir(), "eagler-release-build", operationId);
+const incompleteRoot = resolve(dirname(destination), ".release-incomplete");
+const incompleteOutput = resolve(incompleteRoot, `${basename(destination)}-${operationId}`);
 await mkdir(scratch, { recursive: true });
+await mkdir(incompleteRoot, { recursive: true });
+try {
 const report = [];
 const sourcesBefore = await identifySources();
 const inputsBefore = await identifyInputs(inputPath, prepare);
@@ -188,9 +192,9 @@ const importArgs = [
   "scripts/package-server.mjs",
   `--output=${importSite}`,
   `--feature-config=${importConfig}`,
-  `--host-manifest=${resolve(hosted, "eagler-touhou", HOST_MANIFEST_FILE)}`,
+  `--host-manifest=${resolve(hosted, HOST_MANIFEST_FILE)}`,
   `--runtime-release=${prepare.RuntimeRelease}`,
-  `--artwork-dir=${resolve(hosted, "eagler-touhou/assets")}`,
+  `--artwork-dir=${resolve(hosted, "assets")}`,
   `--games=${releaseGames.join(",")}`,
   "--profile=web-release-import",
 ];
@@ -200,12 +204,12 @@ await runStep(report, "import-verify", process.execPath, ["scripts/verify-server
 const sourcesAfter = await identifySources();
 for (const repository of Object.keys(sourcesBefore)) {
   if (sourcesBefore[repository].sha256 !== sourcesAfter[repository].sha256) {
-    throw new Error(`source changed during release: ${repository}; incomplete work retained in validation storage`);
+    throw new Error(`source changed during release: ${repository}; incomplete work retained under ${incompleteRoot}`);
   }
 }
 const inputsAfter = await identifyInputs(inputPath, prepare);
 if (inputsBefore.sha256 !== inputsAfter.sha256) {
-  throw new Error("release inputs changed during release; incomplete work retained in validation storage");
+  throw new Error(`release inputs changed during release; incomplete work retained under ${incompleteRoot}`);
 }
 
 await mkdir(dirname(incompleteOutput), { recursive: true });
@@ -269,3 +273,6 @@ console.log(JSON.stringify({
   releaseId: manifest.releaseId,
   completion: candidateCompletion,
 }));
+} finally {
+  await rm(scratch, { recursive: true, force: true });
+}

@@ -98,7 +98,9 @@ foreach ($game in $selectedPreloadGames) {
     }
 }
 $output = [IO.Path]::GetFullPath($OutputDirectory)
-$stagingRoot = "$output.admin-staging"
+$outputParent = Split-Path $output -Parent
+$temporaryRoot = Join-Path $outputParent '.tmp'
+$stagingRoot = Join-Path $temporaryRoot ((Split-Path $output -Leaf) + '.admin-' + [guid]::NewGuid().ToString('N'))
 if ($output -eq [IO.Path]::GetPathRoot($output) -or $output -eq $workspace) {
     throw "Unsafe output directory: $output"
 }
@@ -274,6 +276,7 @@ if (-not $runtimeReleasePath -and @($selectedPreloadGames | Where-Object { [bool
     throw "Reallyportable thprac CMake adapter not found: $thpracPortableCMake"
 }
 
+if (-not (Test-Path -LiteralPath $temporaryRoot)) { New-Item -ItemType Directory -Path $temporaryRoot -Force | Out-Null }
 if (Test-Path -LiteralPath $stagingRoot) { Remove-Item -LiteralPath $stagingRoot -Recurse -Force }
 $privateAssets = Join-Path $stagingRoot 'private-assets'
 $th06Assets = Join-Path $privateAssets 'th06'
@@ -471,5 +474,5 @@ Remove-Item -LiteralPath $stagingRoot -Recurse -Force
 Write-Progress -Id $script:SiteProgressId -Activity 'Static site assembly' -Completed
 if (-not $SuppressCompletionSummary) {
     Write-Host "Deployment is ready: $output"
-    Write-Host "Serve this directory as a static site and open /eagler-touhou/."
+    Write-Host "Serve this directory as a static site and open /."
 }

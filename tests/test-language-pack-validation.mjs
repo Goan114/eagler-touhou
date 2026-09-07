@@ -1,0 +1,48 @@
+import assert from "node:assert/strict";
+
+import { validateStaticLanguagePackEntries } from "../.cache/build/browser/assets/launcher/language-pack-validation.mjs";
+
+const encoder = new TextEncoder();
+const filePath = "/thcrap/th06/localization/stages.etl";
+const payload = encoder.encode("ETL1");
+const manifest = {
+  schema: "eagler-touhou/thcrap-static-pack/1",
+  game: "th06",
+  language: "lang_zh-hans",
+  runtimeVersion: "0123456789abcdef",
+  files: [{ path: filePath, bytes: payload.length }],
+};
+const entries = value => ({
+  "manifest.json": encoder.encode(JSON.stringify(value)),
+  "thcrap/th06/localization/stages.etl": payload,
+});
+
+const valid = validateStaticLanguagePackEntries(entries(manifest), { game: "th06", language: "lang_zh-hans" });
+assert.equal(valid.manifest.runtimeVersion, manifest.runtimeVersion);
+assert.deepEqual(valid.files.map(file => file.path), [filePath]);
+assert.deepEqual(valid.files[0].bytes, payload);
+
+assert.throws(() => validateStaticLanguagePackEntries(entries({ ...manifest, game: "th07" }), {
+  game: "th06", language: "lang_zh-hans",
+}), /清单不兼容/);
+assert.throws(() => validateStaticLanguagePackEntries(entries({ ...manifest, language: "lang_en" }), {
+  game: "th06", language: "lang_zh-hans",
+}), /清单不兼容/);
+assert.throws(() => validateStaticLanguagePackEntries(entries({
+  ...manifest,
+  files: [manifest.files[0], { ...manifest.files[0] }],
+}), { game: "th06", language: "lang_zh-hans" }), /重复路径/);
+assert.throws(() => validateStaticLanguagePackEntries({
+  ...entries(manifest),
+  "thcrap/th06/extra.bin": new Uint8Array([1]),
+}, { game: "th06", language: "lang_zh-hans" }), /文件数量不一致/);
+assert.throws(() => validateStaticLanguagePackEntries(entries({
+  ...manifest,
+  files: [{ path: "/thcrap/th07/escape.bin", bytes: 1 }],
+}), { game: "th06", language: "lang_zh-hans" }), /文件清单无效/);
+assert.throws(() => validateStaticLanguagePackEntries(entries({
+  ...manifest,
+  files: [{ path: filePath, bytes: payload.length + 1 }],
+}), { game: "th06", language: "lang_zh-hans" }), /文件大小错误/);
+
+console.log(JSON.stringify({ languagePackValidation: "PASS", duplicatePaths: "rejected", fileSha256: "not-a-contract" }));

@@ -1,6 +1,6 @@
 # Third-party software
 
-`vendor/webaudio-tinysynth.min.js` is generated from `webaudio-tinysynth@1.1.3`.
+`public/vendor/webaudio-tinysynth.min.js` is generated from `webaudio-tinysynth@1.1.3`.
 
 - Project: https://github.com/g200kg/webaudio-tinysynth
 - License: Apache License 2.0
@@ -8,7 +8,7 @@
 
 Run `npm install --ignore-scripts` followed by `npm run vendor` to reproduce the vendored file.
 
-`vendor/fflate.min.js` is generated from `fflate@0.8.2`.
+`public/vendor/fflate.min.js` is generated from `fflate@0.8.3`.
 
 - Project: https://github.com/101arrowz/fflate
 - License: MIT
@@ -19,7 +19,7 @@ The masthead wordmark uses `font-touhou98@1.0.0`.
 - Project: https://github.com/thwiki/font-touhou98
 - License: MIT
 - Purpose: render the `eagler☯touhou` brand wordmark with the Touhou PC-98-derived Web font.
-- Vendored file: `assets/fonts/touhou98.woff2`
+- Vendored file: `public/assets/fonts/touhou98.woff2`
 
 The ordinary site UI uses self-hosted subsets of Yatra One and
 ChillRoundGothic.
@@ -29,20 +29,23 @@ ChillRoundGothic.
 - License: SIL Open Font License 1.1
 - Purpose: Yatra One renders Latin letters and numbers; ChillRoundGothic renders
   the remaining UI, including headings that previously used a serif face.
-- Vendored files: `assets/fonts/yatra-one-latin.woff2`,
-  `assets/fonts/chill-round-gothic-site-medium.woff2`,
-  `assets/fonts/chill-round-gothic-site-bold.woff2`, and
-  `assets/fonts/chill-round-gothic-site-heavy.woff2`
+- Vendored files: `public/assets/fonts/yatra-one-latin.woff2`,
+  `public/assets/fonts/chill-round-gothic-site-medium.woff2`,
+  `public/assets/fonts/chill-round-gothic-site-bold.woff2`, and
+  `public/assets/fonts/chill-round-gothic-site-heavy.woff2`
 - Weight scope: Medium for ordinary CJK text, Bold for headings, and Heavy only
   for the two main game-card titles.
-- License notices: `assets/fonts/OFL-YatraOne.txt` and
-  `assets/fonts/OFL-ChillRoundGothic.txt`
+- License notices: `public/assets/fonts/OFL-YatraOne.txt` and
+  `public/assets/fonts/OFL-ChillRoundGothic.txt`
 
-The repository contains disabled experimental translation-adapter code informed by the public thcrap repository and patch formats.
+The repository contains server-side translation adapters informed by the public
+thcrap repository and patch formats.
 
 - Project: https://github.com/thpatch/thcrap
 - License: Unlicense
-- Purpose: future research into language-pack discovery and patch-resource preparation. It is not enabled in the default game builds or public UI.
+- Purpose: discover, validate and prepare selected language-pack resources for
+  the Host/Launcher pipeline. This is a bounded adapter, not a claim that every
+  upstream patch or language is compatible.
 
 Server-side conversion of original archive/message formats uses `thdat` and `thmsg` from thtk 12. The Quick Host Kit does not redistribute thtk. On Windows, the Host build downloads the pinned official thtk 12 release ZIP from the upstream GitHub release, verifies SHA-256 `f6acc00f377b6537e8d504794aec8445cb1e0d6490d2c89d56b3315677765154`, and stores it under the local `.cache/` build-tool cache. On non-Windows systems, `thdat` and `thmsg` must already be available on `PATH`.
 
@@ -50,11 +53,25 @@ Server-side conversion of original archive/message formats uses `thdat` and `thm
 - License: 2-clause BSD-style license
 - Purpose: extract administrator-provided original resources and compile translated `msg*.dat` files. These tools and original game data are not browser downloads.
 
-The repository contains disabled experimental practice code informed by thprac.
+The repository contains a bounded practice adapter informed by thprac.
 
 - Project: https://github.com/touhouworldcup/thprac
 - License: GNU GPL v3
-- Purpose: source reference for future TH06/TH07 advanced-practice work. The current public build does not claim complete thprac compatibility and does not load or inject the Windows DLL.
+- Purpose: map the documented TH06/TH07 practice subset into Web Runtime
+  options and Replay metadata. The public build does not claim complete thprac
+  compatibility and does not load or inject the Windows DLL.
+
+The site fallback font is a WOFF2 subset of GNU Unifont 15.1.05.
+
+- Project: https://unifoundry.com/unifont/
+- Copyright: 1998-2024 Roman Czyborra, Paul Hardy, Qianqian Fang, Andrew
+  Miller, Johnnie Weaver, David Corbett, Nils Moskopp, Rebecca Bettencourt,
+  Ho-Seok Ee, et al.
+- License: SIL Open Font License 1.1 (GNU Unifont is also offered under GPLv2+
+  with the GNU Font Embedding Exception).
+- Purpose: last-resort glyph coverage for interface text.
+- Vendored files: `public/assets/fonts/unifont-site.woff2`,
+  `public/assets/fonts/OFL-Unifont.txt`.
 
 The game runtimes are built with SDL, SDL_image, SDL_ttf and Emscripten. Their
 source and license notices live in the separate TH06/TH07 runtime repositories
@@ -72,7 +89,11 @@ Brands collection referenced by the Mizuki frontend.
 - Package: `@iconify-json/fa7-brands@1.2.4` (Font Awesome Brands 7.3.1)
 - License: CC BY 4.0
 - Purpose: identify the Bilibili, QQ group, and GitHub links in the site announcement.
-- Vendored files: `assets/notice-bilibili.svg`, `assets/notice-qq.svg`, `assets/notice-github.svg`
+- Vendored files: `public/assets/notice-bilibili.svg`, `public/assets/notice-qq.svg`, `public/assets/notice-github.svg`
+
+`public/assets/notice-touhou-cloud.png` is the provider-published 车万云 mark
+declared by `https://cloud.touhou.best/`. It is included for provider
+identification with permission confirmed by the project owner.
 
 The masthead collection menu uses inline Material Symbols from the same
 Iconify collection and version referenced by Mizuki.
@@ -83,7 +104,3 @@ Iconify collection and version referenced by Mizuki.
 - Glyphs: `language`, `history`, `person`, and `warning`
 - Purpose: identify interface language, changelog, and about actions without a
   runtime icon service or network dependency.
-
-`assets/notice-touhou-cloud.png` is the provider-published icon currently
-declared by `https://cloud.touhou.best/`; it is vendored only as identifying
-artwork for the CDN acknowledgement in the site announcement.

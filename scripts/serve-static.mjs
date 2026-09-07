@@ -29,12 +29,19 @@ createServer(async (request, response) => {
       response.end();
       return;
     }
-    if (url.pathname === "/") {
-      response.writeHead(308, { Location: `/eagler-touhou/${url.search}`, "Cache-Control": "no-store" });
+    if (url.pathname === "/eagler-touhou" || url.pathname === "/eagler-touhou/") {
+      response.writeHead(302, { Location: "/", "Cache-Control": "no-store" });
       response.end();
       return;
     }
-    let file = resolve(root, `.${decodeURIComponent(url.pathname)}`);
+    let pathname = decodeURIComponent(url.pathname);
+    const legacyRetirementWorker = pathname === "/eagler-touhou/app-shell-sw.js";
+    if (legacyRetirementWorker) {
+      pathname = "/legacy-mount-retirement-sw.js";
+    } else if (pathname.startsWith("/eagler-touhou/")) {
+      pathname = pathname.slice("/eagler-touhou".length);
+    }
+    let file = resolve(root, `.${pathname}`);
     if (file !== root && !file.startsWith(root + sep)) throw new Error("path outside site root");
     let info = await stat(file);
     if (info.isDirectory() && !url.pathname.endsWith("/")) {
@@ -48,11 +55,12 @@ createServer(async (request, response) => {
     const tag = etag(info);
     const commonHeaders = {
       "Content-Type": staticContentType(file),
-      "Cache-Control": staticContentCacheControl(file),
+      "Cache-Control": legacyRetirementWorker ? "no-store" : staticContentCacheControl(file),
       ETag: tag,
       "Last-Modified": info.mtime.toUTCString(),
       Vary: "Accept-Encoding",
     };
+    if (legacyRetirementWorker) commonHeaders["Service-Worker-Allowed"] = "/eagler-touhou/";
     if (request.headers["if-none-match"] === tag) {
       response.writeHead(304, commonHeaders);
       response.end();
@@ -80,7 +88,6 @@ createServer(async (request, response) => {
     if (!response.writableEnded) response.end("Not found");
   }
 }).listen(port, host, () => {
-  console.log(`Eagler Touhou host: http://${host}:${port}/eagler-touhou/`);
+  console.log(`Eagler Touhou host: http://${host}:${port}/`);
   console.log(`Serving immutable site directory: ${root}`);
 });
-

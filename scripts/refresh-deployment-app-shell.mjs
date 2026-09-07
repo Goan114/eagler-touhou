@@ -1,20 +1,26 @@
 #!/usr/bin/env node
-import { createHash } from "node:crypto";
-import { readFile, rename, rm, writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { createHash, randomUUID } from "node:crypto";
+import { copyFile, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildAppShell } from "../lib/app-shell-build.mjs";
 import { deploymentAppShellPatterns, runtimeAppShellPaths } from "../lib/app-shell-policy.mjs";
-import { hostArtworkFiles } from "../lib/frontend-manifest.mjs";
-import { HOST_MANIFEST_FILE, validateHostManifest } from "../host-manifest.mjs";
+import { FRONTEND_PACKAGE_FILES, hostArtworkFiles, resolveFrontendPackageSource } from "../lib/frontend-manifest.mjs";
+import { ensureLauncherBuild } from "../lib/launcher-build.mjs";
+import { HOST_MANIFEST_FILE, validateHostManifest } from "../lib/contracts/host-manifest.mjs";
 import { sourceIdentity, writeReleaseManifest } from "../lib/release-manifest.mjs";
 import { WORKSPACE_REPOSITORIES } from "../lib/workspace-layout.mjs";
 
 const project = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const root = resolve(process.argv[2] || "");
-if (!process.argv[2]) throw new Error("usage: node scripts/refresh-deployment-app-shell.mjs <deployment-root>");
+const values = process.argv.slice(2);
+const refreshFrontend = values.includes("--frontend");
+const rootValue = values.find(value => !value.startsWith("--"));
+if (!rootValue || values.some(value => value !== rootValue && value !== "--frontend")) {
+  throw new Error("usage: node scripts/refresh-deployment-app-shell.mjs <deployment-root> [--frontend]");
+}
+const root = resolve(rootValue);
 
-const appRoot = resolve(root, "eagler-touhou");
+const appRoot = root;
 const swPath = resolve(appRoot, "app-shell-sw.js");
 const deploymentPath = resolve(root, "deployment.json");
 const hostManifestPath = resolve(appRoot, HOST_MANIFEST_FILE);
@@ -25,15 +31,34 @@ const [deployment, hostManifest] = await Promise.all([
 if (deployment.format !== "eagler-touhou-deployment/1" || !Array.isArray(deployment.files)) {
   throw new Error("invalid deployment manifest");
 }
-if (!legacy.games || typeof legacy.games !== "object") throw new Error("invalid legacy game catalog");
 
 const runtimePaths = runtimeAppShellPaths(hostManifest);
 const inventoryPaths = new Set(deployment.files.map(item => item.path));
 const availableHostArtwork = hostArtworkFiles(Object.keys(hostManifest.games)).filter(name =>
-  inventoryPaths.has(`eagler-touhou/assets/${name}`));
+  inventoryPaths.has(`assets/${name}`));
 
-const temporary = `${swPath}.next-${process.pid}`;
+const temporaryRoot = resolve(dirname(swPath), ".tmp");
+await mkdir(temporaryRoot, { recursive: true });
+const temporary = resolve(temporaryRoot, `app-shell-sw-${process.pid}-${randomUUID()}.js`);
 try {
+  if (refreshFrontend) {
+    await ensureLauncherBuild();
+    const inventory = new Map(deployment.files.map(item => [item.path, item]));
+    for (const path of FRONTEND_PACKAGE_FILES) {
+      const target = resolve(appRoot, path);
+      await mkdir(dirname(target), { recursive: true });
+      await copyFile(resolveFrontendPackageSource(path), target);
+      const bytes = await readFile(target);
+      const identity = { path, bytes: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") };
+      const current = inventory.get(path);
+      if (current) Object.assign(current, identity);
+      else {
+        deployment.files.push(identity);
+        inventory.set(path, identity);
+      }
+    }
+    deployment.files.sort((left, right) => left.path.localeCompare(right.path, "en"));
+  }
   const result = await buildAppShell({
     quiet: true,
     globDirectory: appRoot,
@@ -52,7 +77,7 @@ try {
     bytes: bytes.length,
     sha256: createHash("sha256").update(bytes).digest("hex"),
   };
-  const inventoryEntry = deployment.files.find(item => item.path === "eagler-touhou/app-shell-sw.js");
+  const inventoryEntry = deployment.files.find(item => item.path === "app-shell-sw.js");
   if (!inventoryEntry) throw new Error("deployment inventory does not own app-shell-sw.js");
   Object.assign(inventoryEntry, identity);
   deployment.generatedAt = new Date().toISOString();
@@ -82,6 +107,7 @@ try {
 
   console.log(JSON.stringify({
     refreshed: true,
+    frontend: refreshFrontend,
     buildId: result.buildId,
     precache: result.count,
     runtimeFiles: runtimePaths.length,

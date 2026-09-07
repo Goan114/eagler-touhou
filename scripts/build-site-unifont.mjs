@@ -4,12 +4,13 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
-import { APP_SHELL_FILES } from "../lib/frontend-manifest.mjs";
+import { APP_SHELL_FILES, resolveFrontendPackageSource } from "../lib/frontend-manifest.mjs";
+import { PUBLIC_SOURCE_ROOT } from "../lib/public-source.mjs";
 
 const project = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const workspace = resolve(project, "..");
 const font = resolve(workspace, "dependencies", "unifont-15.1.05", "unifont-15.1.05.otf");
-const output = resolve(project, "assets", "fonts", "unifont-site.woff2");
+const output = resolve(PUBLIC_SOURCE_ROOT, "assets", "fonts", "unifont-site.woff2");
 const sources = [
   ...APP_SHELL_FILES.filter(path => !path.startsWith("vendor/") && /\.(?:html|css|js|mjs)$/.test(path)),
   "NOTICE.txt",
@@ -22,7 +23,8 @@ const sources = [
 
 const characters = new Set(Array.from({ length: 95 }, (_, index) => String.fromCodePoint(0x20 + index)));
 for (const source of sources) {
-  const text = (await readFile(resolve(project, source), "utf8")).normalize("NFC");
+  const sourcePath = APP_SHELL_FILES.includes(source) ? resolveFrontendPackageSource(source) : resolve(project, source);
+  const text = (await readFile(sourcePath, "utf8")).normalize("NFC");
   for (const character of text) {
     const codepoint = character.codePointAt(0);
     if (codepoint >= 0x20 && !(codepoint >= 0x7f && codepoint <= 0x9f)) characters.add(character);

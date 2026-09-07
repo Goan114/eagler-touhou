@@ -2,13 +2,13 @@ import { createHash } from "node:crypto";
 import { readFile, readdir, stat } from "node:fs/promises";
 import { basename, dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { canonicalPackagePayload, validatePackageDescriptor } from "../package-descriptor.mjs";
-import { PRODUCT_GAMES } from "../product-catalog.mjs";
-import { RELEASE_CATALOG_FILE, releaseCatalogEntryUrl, validateReleaseCatalog } from "../release-catalog.mjs";
-import { HOST_MANIFEST_FILE, validateHostManifest } from "../host-manifest.mjs";
+import { canonicalPackagePayload, validatePackageDescriptor } from "../package/package-descriptor.mjs";
+import { PRODUCT_GAMES } from "../lib/contracts/product-catalog.mjs";
+import { RELEASE_CATALOG_FILE, releaseCatalogEntryUrl, validateReleaseCatalog } from "../lib/contracts/release-catalog.mjs";
+import { HOST_MANIFEST_FILE, validateHostManifest } from "../lib/contracts/host-manifest.mjs";
 import { extractGameDataLayout } from "../lib/runtime-data-layout.mjs";
 import { verifyReleaseManifest } from "../lib/release-manifest.mjs";
-import { normalizeResourceMode } from "../resource-mode.mjs";
+import { normalizeResourceMode } from "../lib/contracts/resource-mode.mjs";
 import { classifyBuildProfile } from "../lib/build-profile.mjs";
 import { hostArtworkFiles } from "../lib/frontend-manifest.mjs";
 import { assertAppShellContract } from "../lib/app-shell-policy.mjs";
@@ -32,31 +32,31 @@ if (!inferredAuthority || (deployment.authority != null && deployment.authority 
 const declaredResourceMode = deployment.resourceMode || "hosted";
 const resourceMode = normalizeResourceMode(declaredResourceMode);
 if (!resourceMode) throw new Error("invalid deployment resourceMode");
-const games = validateHostManifest(JSON.parse(await readFile(resolve(root, "eagler-touhou", HOST_MANIFEST_FILE), "utf8")));
+const games = validateHostManifest(JSON.parse(await readFile(resolve(root, HOST_MANIFEST_FILE), "utf8")));
 const gameIds = Object.keys(games.games);
 if (!gameIds.length || gameIds.some(game => !Object.hasOwn(PRODUCT_GAMES, game))) {
   throw new Error("Host Manifest contains no products or an unregistered product");
 }
 const preloadGames = gameIds.filter(game => PRODUCT_GAMES[game].dataProvider === "emscripten-preload");
-if (!deployment.files.some(item => item.path === "eagler-touhou/touch-guide.css")) throw new Error("touch guide stylesheet missing from deployment");
-if (!deployment.files.some(item => item.path === "eagler-touhou/site.webmanifest")) throw new Error("Home Screen Web App manifest missing from deployment");
-if (!deployment.files.some(item => item.path === "eagler-touhou/app-shell-sw.js")) throw new Error("App Shell Service Worker missing from deployment");
-if (!deployment.files.some(item => item.path === "eagler-touhou/migrate.html")) throw new Error("origin migration page missing from deployment");
-if (!deployment.files.some(item => item.path === "eagler-touhou/about.html")) throw new Error("about page missing from deployment");
-if (!deployment.files.some(item => item.path === "eagler-touhou/faq.html")) throw new Error("FAQ page missing from deployment");
-if (!deployment.files.some(item => item.path === "eagler-touhou/about.css")) throw new Error("about stylesheet missing from deployment");
-if (!deployment.files.some(item => item.path === "eagler-touhou/CHANGELOG.txt")) throw new Error("CHANGELOG.txt missing from deployment");
+if (!deployment.files.some(item => item.path === "touch-guide.css")) throw new Error("touch guide stylesheet missing from deployment");
+if (!deployment.files.some(item => item.path === "site.webmanifest")) throw new Error("Home Screen Web App manifest missing from deployment");
+if (!deployment.files.some(item => item.path === "app-shell-sw.js")) throw new Error("App Shell Service Worker missing from deployment");
+if (!deployment.files.some(item => item.path === "migrate.html")) throw new Error("origin migration page missing from deployment");
+if (!deployment.files.some(item => item.path === "about.html")) throw new Error("about page missing from deployment");
+if (!deployment.files.some(item => item.path === "faq.html")) throw new Error("FAQ page missing from deployment");
+if (!deployment.files.some(item => item.path === "about.css")) throw new Error("about stylesheet missing from deployment");
+if (!deployment.files.some(item => item.path === "CHANGELOG.txt")) throw new Error("CHANGELOG.txt missing from deployment");
 for (const font of ["yatra-one-latin.woff2", "chill-round-gothic-site-medium.woff2", "chill-round-gothic-site-bold.woff2", "chill-round-gothic-site-heavy.woff2"]) {
-  if (!deployment.files.some(item => item.path === `eagler-touhou/assets/fonts/${font}`)) throw new Error(`UI font missing from deployment: ${font}`);
+  if (!deployment.files.some(item => item.path === `assets/fonts/${font}`)) throw new Error(`UI font missing from deployment: ${font}`);
 }
 
 assertAppShellContract(deployment.appShell, games);
-const appShellWorker = await readFile(resolve(root, "eagler-touhou", "app-shell-sw.js"), "utf8");
+const appShellWorker = await readFile(resolve(root, "app-shell-sw.js"), "utf8");
 if (!appShellWorker.includes(deployment.appShell.buildId)) {
   throw new Error("App Shell Service Worker does not match deployment App Shell contract");
 }
 
-const optionalHostUiPaths = new Set(hostArtworkFiles(Object.keys(PRODUCT_GAMES)).map(name => `eagler-touhou/assets/${name}`));
+const optionalHostUiPaths = new Set(hostArtworkFiles(Object.keys(PRODUCT_GAMES)).map(name => `assets/${name}`));
 const inventoryPaths = new Set();
 for (const item of deployment.files) {
   if (item.path.includes("..") || item.path.startsWith("/")) throw new Error(`unsafe inventory path: ${item.path}`);
@@ -78,7 +78,7 @@ for (const item of deployment.files) {
 }
 for (const path of deployment.appShell.entries) {
   if (path === "./") continue;
-  if (!inventoryPaths.has(`eagler-touhou/${path}`)) {
+  if (!inventoryPaths.has(path)) {
     throw new Error(`App Shell contract references file outside deployment inventory: ${path}`);
   }
 }
@@ -97,7 +97,7 @@ const actualPaths = new Set((await walk(root))
 for (const path of actualPaths) if (!inventoryPaths.has(path)) throw new Error(`file missing from inventory: ${path}`);
 for (const path of inventoryPaths) if (!actualPaths.has(path)) throw new Error(`inventory file missing: ${path}`);
 
-const migrationHtml = await readFile(resolve(root, "eagler-touhou", "migrate.html"), "utf8");
+const migrationHtml = await readFile(resolve(root, "migrate.html"), "utf8");
 if (!migrationHtml.includes('const PROTOCOL = "eagler-touhou/origin-migration/1";') ||
     !migrationHtml.includes('source.protocol = "http:";') ||
     !migrationHtml.includes('openHttp.onclick = () => {') ||
@@ -131,17 +131,17 @@ async function verifyHtmlReferences(relativeHtmlPath) {
     }
   }
 }
-const htmlPaths = ["eagler-touhou/index.html", "eagler-touhou/migrate.html", "eagler-touhou/about.html", "eagler-touhou/faq.html"];
+const htmlPaths = ["index.html", "migrate.html", "about.html", "faq.html"];
 for (const game of gameIds) {
   const entry = games.games[game];
   for (const runtime of [entry.runtime, entry.multiplayerRuntime].filter(Boolean)) {
-    const pathname = new URL(runtime, "https://eagler.invalid/eagler-touhou/").pathname.slice(1);
+    const pathname = new URL(runtime, "https://eagler.invalid/").pathname.slice(1);
     htmlPaths.push(pathname);
   }
 }
 for (const htmlPath of htmlPaths) await verifyHtmlReferences(htmlPath);
 
-const releaseCatalog = validateReleaseCatalog(JSON.parse(await readFile(resolve(root, "eagler-touhou", RELEASE_CATALOG_FILE), "utf8")));
+const releaseCatalog = validateReleaseCatalog(JSON.parse(await readFile(resolve(root, RELEASE_CATALOG_FILE), "utf8")));
 if (games.profile !== deployment.profile) throw new Error("Host Manifest profile does not match deployment");
 if (games.protocol !== "eagler-touhou/1") throw new Error("invalid host protocol");
 if (normalizeResourceMode(games.shared?.resourceMode || "hosted") !== resourceMode) throw new Error("host/deployment resourceMode mismatch");
@@ -170,10 +170,10 @@ if (resourceMode !== "hosted" && gameIds.includes("th08")) {
   for (const pack of Object.values(entry.music || {})) {
     if (pack?.base != null) throw new Error(`${resourceMode} manifest must not expose music base URL: th08`);
   }
-  const runtimeUrl = new URL(entry.runtime, "https://eagler.invalid/eagler-touhou/");
+  const runtimeUrl = new URL(entry.runtime, "https://eagler.invalid/");
   const runtimeVersion = runtimeUrl.searchParams.get("v");
   if (!runtimeVersion) throw new Error("unversioned runtime: th08");
-  const runtimeRoot = resolve(root, "eagler-touhou", "runtime", "th08");
+  const runtimeRoot = resolve(root, "runtime", "th08");
   const runtimeHtml = await readFile(resolve(runtimeRoot, "th08-modern.html"), "utf8");
   if (!runtimeHtml.includes("window.parent.__eaglerPrepareManagedRuntimeDataV1")) {
     throw new Error("TH08 Runtime is missing the App-managed DATA provider contract");
@@ -188,7 +188,7 @@ if (resourceMode !== "hosted" && gameIds.includes("th08")) {
 if (resourceMode === "hosted") {
   for (const key of ["vanillaFont", "unicodeFont"]) {
     if (typeof games.shared?.[key] !== "string" || !games.shared[key].includes("?v=")) throw new Error(`versioned shared ${key} missing`);
-    await stat(resolve(root, "eagler-touhou", games.shared[key].split("?")[0]));
+    await stat(resolve(root, games.shared[key].split("?")[0]));
   }
 } else {
   if (games.shared?.vanillaFont != null || games.shared?.unicodeFont != null) throw new Error(`${resourceMode} manifest must not expose runtime font URLs`);
@@ -213,15 +213,19 @@ if (netplayRelay != null) {
 }
 const sharedFontMounts = resourceMode === "hosted"
   ? [games.shared.vanillaFont, games.shared.unicodeFont]
-    .map(value => `/${basename(new URL(value, "https://eagler.invalid/eagler-touhou/").pathname)}`)
+    .map(value => `/${basename(new URL(value, "https://eagler.invalid/").pathname)}`)
   : [];
-const hostApp = await readFile(resolve(root, "eagler-touhou", "app.js"), "utf8");
-const hostIndex = await readFile(resolve(root, "eagler-touhou", "index.html"), "utf8");
+const hostAppFacade = await readFile(resolve(root, "app.js"), "utf8");
+const hostApp = await readFile(resolve(root, "assets", "launcher", "app.mjs"), "utf8");
+const hostIndex = await readFile(resolve(root, "index.html"), "utf8");
 if (!/id="originMigrationOpen"[^>]+href="migrate\.html"[^>]+hidden/.test(hostIndex)) {
-  throw new Error("HTTPS migration entry missing from main UI");
+  throw new Error("inert origin migration entry missing from main UI");
 }
-if (!hostApp.includes('originMigrationOpen.hidden = location.protocol !== "https:";')) {
-  throw new Error("main UI migration entry is not HTTPS-only");
+if (!hostApp.includes("hostOriginMigrationAvailable(manifest, location.protocol)")) {
+  throw new Error("main UI migration entry is not governed by the Host Manifest campaign");
+}
+if (!hostAppFacade.includes('import "./assets/launcher/app.mjs";')) {
+  throw new Error("Launcher app.js facade does not delegate to the generated TypeScript artifact");
 }
 for (const mount of sharedFontMounts) {
   if (!hostApp.includes(`target: "${mount}"`)) throw new Error(`host shared font target mismatch: ${mount}`);
@@ -259,9 +263,9 @@ for (const game of preloadGames) {
     continue;
   }
   if (!entry?.music?.midi || typeof entry.runtime !== "string" || !entry.runtime.includes("&v=")) throw new Error(`invalid game entry: ${game}`);
-  const runtimeVersion = new URL(entry.runtime, "https://eagler.invalid/eagler-touhou/").searchParams.get("v");
-  const runtimeHtml = await readFile(resolve(root, "eagler-touhou", "runtime", game, `${game}.html`), "utf8");
-  const runtimeScript = await readFile(resolve(root, "eagler-touhou", "runtime", game, `${game}.js`), "utf8");
+  const runtimeVersion = new URL(entry.runtime, "https://eagler.invalid/").searchParams.get("v");
+  const runtimeHtml = await readFile(resolve(root, "runtime", game, `${game}.html`), "utf8");
+  const runtimeScript = await readFile(resolve(root, "runtime", game, `${game}.js`), "utf8");
   const runtimeData = await readFile(resolve(root, "games", game, `${game}.data`));
   const dataSha256 = createHash("sha256").update(runtimeData).digest("hex");
   const runtimeLayout = extractGameDataLayout(runtimeScript, game);
@@ -279,7 +283,7 @@ for (const game of preloadGames) {
     throw new Error(`gameData identity mismatch: ${game}`);
   }
   for (const extension of ["html", "js", "wasm"]) {
-    await stat(resolve(root, "eagler-touhou", "runtime", game, `${game}.${extension}`));
+    await stat(resolve(root, "runtime", game, `${game}.${extension}`));
   }
   await stat(resolve(root, "games", game, `${game}.data`));
   for (const [mode, pack] of Object.entries(entry.music)) {
@@ -287,7 +291,7 @@ for (const game of preloadGames) {
     if (mode !== "midi" && (typeof pack.version !== "string" || pack.version.length < 8)) throw new Error(`unversioned ${game}/${mode} pack`);
     const musicIdentities = [];
     for (const file of pack.files) {
-      const path = resolve(root, "eagler-touhou", pack.base, file);
+      const path = resolve(root, pack.base, file);
       const bytes = await readFile(path);
       musicIdentities.push({ bytes: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") });
     }
@@ -313,7 +317,7 @@ for (const game of preloadGames) {
           !Number.isInteger(language.pack.bytes) || language.pack.runtimeVersion !== runtimeVersion) {
         throw new Error(`invalid ${game.toUpperCase()} language pack: ${language?.id}`);
       }
-      const url = new URL(language.pack.url, new URL("eagler-touhou/", "https://eagler.invalid/"));
+      const url = new URL(language.pack.url, "https://eagler.invalid/");
       const path = url.pathname.slice("/".length);
       const entryInfo = deployment.files.find(item => item.path === path);
       if (!entryInfo || entryInfo.bytes !== language.pack.bytes || entryInfo.sha256 !== language.pack.sha256) {
@@ -342,7 +346,7 @@ for (const game of preloadGames) {
   if (!entry.package || entry.package.revision !== published.revision || entry.package.descriptor !== published.descriptor) {
     throw new Error(`${game.toUpperCase()} legacy Package pointer diverges from Release Catalog`);
   }
-  const descriptorHref = releaseCatalogEntryUrl(`https://eagler.invalid/eagler-touhou/${RELEASE_CATALOG_FILE}`, releaseCatalog, game);
+  const descriptorHref = releaseCatalogEntryUrl(`https://eagler.invalid/${RELEASE_CATALOG_FILE}`, releaseCatalog, game);
   const descriptorUrl = new URL(descriptorHref);
   const descriptorPath = descriptorUrl.pathname.slice(1);
   const descriptor = JSON.parse(await readFile(resolve(root, descriptorPath), "utf8"));
@@ -371,8 +375,8 @@ if (resourceMode === "hosted" && gameIds.includes("th08")) {
     throw new Error("invalid game entry: th08");
   }
 
-  const runtimeVersion = new URL(entry.runtime, "https://eagler.invalid/eagler-touhou/").searchParams.get("v");
-  const runtimeRoot = resolve(root, "eagler-touhou", "runtime", game);
+  const runtimeVersion = new URL(entry.runtime, "https://eagler.invalid/").searchParams.get("v");
+  const runtimeRoot = resolve(root, "runtime", game);
   const runtimeHtml = await readFile(resolve(runtimeRoot, "th08-modern.html"), "utf8");
   if (!runtimeHtml.includes("window.parent.__eaglerPrepareManagedRuntimeDataV1")) {
     throw new Error("TH08 Runtime is missing the App-managed DATA provider contract");
@@ -403,7 +407,7 @@ if (resourceMode === "hosted" && gameIds.includes("th08")) {
     const oggSet = [];
     for (let index = 0; index < oggPack.files.length; index++) {
       const file = oggPack.files[index];
-      const bytes = await readFile(resolve(root, "eagler-touhou", oggPack.base, file));
+      const bytes = await readFile(resolve(root, oggPack.base, file));
       const sha256 = createHash("sha256").update(bytes).digest("hex");
       if (oggPack.sizes[index] !== bytes.length || String(oggPack.sha256[index]).toLowerCase() !== sha256) {
         throw new Error(`TH08 hosted OGG identity mismatch: ${file}`);
@@ -424,7 +428,7 @@ if (resourceMode === "hosted" && gameIds.includes("th08")) {
   if (!published || entry.package?.revision !== published.revision || entry.package?.descriptor !== published.descriptor) {
     throw new Error("TH08 Release Catalog / legacy Package pointer mismatch");
   }
-  const descriptorHref = releaseCatalogEntryUrl(`https://eagler.invalid/eagler-touhou/${RELEASE_CATALOG_FILE}`, releaseCatalog, game);
+  const descriptorHref = releaseCatalogEntryUrl(`https://eagler.invalid/${RELEASE_CATALOG_FILE}`, releaseCatalog, game);
   const descriptorPath = new URL(descriptorHref).pathname.slice(1);
   const descriptor = validatePackageDescriptor(JSON.parse(await readFile(resolve(root, descriptorPath), "utf8")));
   const calculatedRevision = createHash("sha256").update(canonicalPackagePayload(descriptor)).digest("hex").slice(0, 16);

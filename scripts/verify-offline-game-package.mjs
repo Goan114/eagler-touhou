@@ -2,7 +2,7 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { parsePackageZip } from "../package-zip.mjs";
+import { parsePackageZip } from "../package/package-zip.mjs";
 
 const input = process.argv[2] ? resolve(process.argv[2]) : null;
 const expectedGame = String(process.argv[3] || "").toLowerCase();

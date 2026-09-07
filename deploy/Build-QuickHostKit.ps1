@@ -10,7 +10,8 @@ $ErrorActionPreference = 'Stop'
 $project = Split-Path $PSScriptRoot -Parent
 $runtimeReleasePath = (Resolve-Path -LiteralPath $RuntimeRelease).Path
 $output = [IO.Path]::GetFullPath($OutputDirectory)
-$staging = "$output.incomplete-$([guid]::NewGuid().ToString('N'))"
+$temporaryRoot = Join-Path (Split-Path $output -Parent) '.tmp'
+$staging = Join-Path $temporaryRoot ((Split-Path $output -Leaf) + '.staging-' + [guid]::NewGuid().ToString('N'))
 
 if (Test-Path -LiteralPath $output) { throw "Quick Host Kit output already exists: $output" }
 if ($output -eq [IO.Path]::GetPathRoot($output) -or $output -eq [IO.Path]::GetFullPath($project)) {
@@ -31,6 +32,7 @@ if (-not (Test-Path -LiteralPath $unicodeLicense -PathType Leaf)) {
     throw "Unicode font license is missing next to the font: $unicodeLicense"
 }
 try {
+    if (-not (Test-Path -LiteralPath $temporaryRoot)) { New-Item -ItemType Directory -Path $temporaryRoot -Force | Out-Null }
     New-Item -ItemType Directory -Path $staging | Out-Null
     $copyRulesJson = & node (Join-Path $project 'scripts\list-host-kit-files.mjs')
     if ($LASTEXITCODE -ne 0) { throw "Unable to read Quick Host Kit file manifest: $LASTEXITCODE" }
@@ -71,4 +73,3 @@ try {
 } finally {
     if (Test-Path -LiteralPath $staging) { Remove-Item -LiteralPath $staging -Recurse -Force }
 }
-

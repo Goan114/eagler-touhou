@@ -7,9 +7,9 @@ host.
 The deployment model is:
 
 - the CDN terminates public HTTPS and forwards HTTP to the origin;
-- ordinary public HTTP navigation is sent to the HTTPS Launcher with a
-  one-shot `from-http=1` marker; the Launcher explains that old HTTP browser
-  data is separate and lets the player choose whether to enter migration;
+- ordinary public HTTP navigation is sent to the HTTPS Launcher without a
+  migration marker; migration is an explicit action from the Launcher so a
+  normal bare-domain visit cannot be mistaken for migration intent;
 - the exact HTTP `migrate.html` URL remains reachable to read old-origin
   browser data;
 - Nginx serves `releases/<release-id>` through an atomic `current` symlink;
@@ -22,7 +22,7 @@ The bundle must contain these top-level directories:
 ```text
 installer/  # this directory
 site/       # output of Prepare-eagler-touhou-server.ps1
-relay/      # lan-relay.cjs and render-coturn-config.cjs
+relay/      # product-catalog.mjs + server/ relay/coturn modules + node_modules/ws
 runtime/    # official Linux x64 Node LTS archive for local relay mode
 ```
 
@@ -87,14 +87,19 @@ Choose the netplay topology explicitly:
 `RELAY_MODE=disabled` is also available for a static-only host.
 
 During the HTTP-to-HTTPS migration window, configure the CDN to pass
-`X-Forwarded-Proto` and do not enable HSTS. Public HTTP requests may redirect
-to the normal HTTPS Launcher with the one-shot migration prompt, but
-`http://HOST/eagler-touhou/migrate.html` must remain directly reachable with
-HTTP 200. Do not send ordinary HTTP traffic straight to `migrate.html`: the
-origin sends it to `https://HOST/eagler-touhou/?from-http=1`, where the normal
-Launcher can offer migration without taking away the home page. The migration
-page reads data in the old HTTP Origin and transfers it to the HTTPS page with
-`postMessage`; a blanket edge redirect or HSTS would make that data unreachable.
+`X-Forwarded-Proto` and do not enable HSTS. Public HTTP requests redirect
+cleanly to the normal HTTPS Launcher, while `http://HOST/migrate.html` remains
+directly reachable with HTTP 200. Users start migration explicitly from the
+HTTPS Launcher's 「存档恢复」 link. The migration page reads data in the old
+HTTP Origin and transfers it to the HTTPS page with `postMessage`; a blanket
+edge redirect or HSTS would make that data unreachable.
+
+Keep `HSTS_MODE=disabled` for that window. After the migration capability has
+been removed from the deployed Host Manifest, set `HSTS_MODE=final` and rerun
+`bootstrap-host.sh` with the same site config. The generated Nginx site then
+publishes `Strict-Transport-Security: max-age=31536000`. If a CDN terminates
+TLS, verify that it forwards this response header to browsers. The default does
+not opt into `includeSubDomains` or HSTS preload.
 
 ## Updates and rollback
 
@@ -128,4 +133,11 @@ Before ending the migration window, run:
 
 ```bash
 node scripts/verify-origin-cutover.mjs http://HOST/ https://HOST/
+```
+
+After switching the deployment to `HSTS_MODE=final` and removing
+`originMigration`, verify the real public edge from the repository checkout:
+
+```bash
+npm run verify:hsts-cutover -- http://HOST/ https://HOST/
 ```

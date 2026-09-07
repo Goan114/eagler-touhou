@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
-import { PRODUCT_GAMES } from "../product-catalog.mjs";
-import { normalizeResourceMode } from "../resource-mode.mjs";
+import { PRODUCT_GAMES } from "../lib/contracts/product-catalog.mjs";
+import { normalizeResourceMode } from "../lib/contracts/resource-mode.mjs";
 import { assertAppShellContract } from "../lib/app-shell-policy.mjs";
-import { RELEASE_CATALOG_FILE } from "../release-catalog.mjs";
-import { HOST_MANIFEST_FILE, validateHostManifest } from "../host-manifest.mjs";
+import { RELEASE_CATALOG_FILE } from "../lib/contracts/release-catalog.mjs";
+import { HOST_MANIFEST_FILE, validateHostManifest } from "../lib/contracts/host-manifest.mjs";
 
-const base = new URL(process.argv[2] || "http://127.0.0.1/");
+if (!process.argv[2]) throw new Error("usage: node scripts/verify-deployed-site.mjs URL");
+const base = new URL(process.argv[2]);
 if (!base.pathname.endsWith("/")) base.pathname += "/";
 
 async function download(url, purpose) {
@@ -92,66 +93,71 @@ await Promise.all(Array.from({ length: concurrency }, async () => {
   }
 }));
 
-const releaseCatalogResult = results.get(`eagler-touhou/${RELEASE_CATALOG_FILE}`);
-const hostManifestResult = results.get(`eagler-touhou/${HOST_MANIFEST_FILE}`);
-const legacyGamePackResult = results.get("eagler-touhou/legacy-game-pack.mjs");
-const migrationResult = results.get("eagler-touhou/migrate.html");
-const indexResult = results.get("eagler-touhou/index.html");
-const appResult = results.get("eagler-touhou/app.js");
-const appShellWorkerResult = results.get("eagler-touhou/app-shell-sw.js");
-if (!indexResult) failures.push("eagler-touhou/index.html: unavailable");
+const releaseCatalogResult = results.get(RELEASE_CATALOG_FILE);
+const hostManifestResult = results.get(HOST_MANIFEST_FILE);
+const legacyGamePackResult = results.get("legacy/legacy-game-pack.mjs");
+const migrationResult = results.get("migrate.html");
+const indexResult = results.get("index.html");
+const appResult = results.get("app.js");
+const appModuleResult = results.get("assets/launcher/app.mjs");
+const appShellWorkerResult = results.get("app-shell-sw.js");
+if (!indexResult) failures.push("index.html: unavailable");
 else if (!/id="originMigrationOpen"[^>]+href="migrate\.html"[^>]+hidden/.test(new TextDecoder().decode(indexResult.bytes))) {
-  failures.push("eagler-touhou/index.html: HTTPS migration entry missing");
+  failures.push("index.html: inert origin migration entry missing");
 }
-if (!appResult) failures.push("eagler-touhou/app.js: unavailable");
-else if (!new TextDecoder().decode(appResult.bytes).includes('originMigrationOpen.hidden = location.protocol !== "https:";')) {
-  failures.push("eagler-touhou/app.js: migration entry is not HTTPS-only");
+if (!appResult) failures.push("app.js: unavailable");
+else if (!new TextDecoder().decode(appResult.bytes).includes('import "./assets/launcher/app.mjs";')) {
+  failures.push("app.js: generated Launcher facade missing");
 }
-if (!migrationResult) failures.push("eagler-touhou/migrate.html: unavailable");
+if (!appModuleResult) failures.push("assets/launcher/app.mjs: unavailable");
+else if (!new TextDecoder().decode(appModuleResult.bytes).includes("hostOriginMigrationAvailable(manifest, location.protocol)")) {
+  failures.push("assets/launcher/app.mjs: migration entry is not governed by the Host Manifest campaign");
+}
+if (!migrationResult) failures.push("migrate.html: unavailable");
 else {
   const migrationHtml = new TextDecoder().decode(migrationResult.bytes);
-  if (!/^text\/html\b/i.test(migrationResult.contentType)) failures.push(`eagler-touhou/migrate.html: invalid MIME ${migrationResult.contentType || "missing"}`);
-  if (!/(?:no-cache|no-store|max-age=0|must-revalidate)/i.test(migrationResult.cacheControl)) failures.push(`eagler-touhou/migrate.html: must be revalidated (${migrationResult.cacheControl || "missing"})`);
+  if (!/^text\/html\b/i.test(migrationResult.contentType)) failures.push(`migrate.html: invalid MIME ${migrationResult.contentType || "missing"}`);
+  if (!/(?:no-cache|no-store|max-age=0|must-revalidate)/i.test(migrationResult.cacheControl)) failures.push(`migrate.html: must be revalidated (${migrationResult.cacheControl || "missing"})`);
   if (!migrationHtml.includes('const PROTOCOL = "eagler-touhou/origin-migration/1";') ||
       !migrationHtml.includes('source.protocol = "http:";') ||
       !migrationHtml.includes('function prepareSourceLink()') ||
       !migrationHtml.includes('source.searchParams.set("handoff", token);') ||
       !migrationHtml.includes('location.href = sourceLink.href;')) {
-    failures.push("eagler-touhou/migrate.html: HTTPS -> HTTP migration entry contract missing");
+    failures.push("migrate.html: HTTPS -> HTTP migration entry contract missing");
   }
   if (/<script\b[^>]+src=/i.test(migrationHtml) || /<link\b[^>]+stylesheet/i.test(migrationHtml)) {
-    failures.push("eagler-touhou/migrate.html: migration page is not self-contained");
+    failures.push("migrate.html: migration page is not self-contained");
   }
 }
-if (!legacyGamePackResult) failures.push("eagler-touhou/legacy-game-pack.mjs: unavailable");
+if (!legacyGamePackResult) failures.push("legacy/legacy-game-pack.mjs: unavailable");
 else if (!/^(?:text|application)\/javascript\b/i.test(legacyGamePackResult.contentType)) {
-  failures.push(`eagler-touhou/legacy-game-pack.mjs: invalid module MIME ${legacyGamePackResult.contentType || "missing"}`);
+  failures.push(`legacy/legacy-game-pack.mjs: invalid module MIME ${legacyGamePackResult.contentType || "missing"}`);
 }
-if (!releaseCatalogResult) failures.push(`eagler-touhou/${RELEASE_CATALOG_FILE}: unavailable`);
-else if (!hostManifestResult) failures.push(`eagler-touhou/${HOST_MANIFEST_FILE}: unavailable`);
+if (!releaseCatalogResult) failures.push(`${RELEASE_CATALOG_FILE}: unavailable`);
+else if (!hostManifestResult) failures.push(`${HOST_MANIFEST_FILE}: unavailable`);
 else {
   const catalog = JSON.parse(new TextDecoder().decode(releaseCatalogResult.bytes));
   let games;
   try { games = validateHostManifest(JSON.parse(new TextDecoder().decode(hostManifestResult.bytes))); }
   catch (error) {
-    failures.push(`eagler-touhou/${HOST_MANIFEST_FILE}: ${error?.message || error}`);
+    failures.push(`${HOST_MANIFEST_FILE}: ${error?.message || error}`);
     games = null;
   }
   if (!games) {
     // Host Manifest validation already recorded the concrete failure.
   } else {
   if (!appShellWorkerResult) {
-    failures.push("eagler-touhou/app-shell-sw.js: unavailable");
+    failures.push("app-shell-sw.js: unavailable");
   } else {
     const worker = new TextDecoder().decode(appShellWorkerResult.bytes);
     try {
       assertAppShellContract(deployment.appShell, games);
       if (!worker.includes(deployment.appShell.buildId)) {
-        failures.push("eagler-touhou/app-shell-sw.js: build id does not match deployment App Shell contract");
+        failures.push("app-shell-sw.js: build id does not match deployment App Shell contract");
       }
       for (const path of deployment.appShell.entries) {
         if (path === "./") continue;
-        if (!inventory.has(`eagler-touhou/${path}`)) failures.push(`App Shell contract references file outside deployment inventory: ${path}`);
+        if (!inventory.has(path)) failures.push(`App Shell contract references file outside deployment inventory: ${path}`);
       }
     } catch (error) {
       failures.push(`App Shell deployment contract invalid: ${error?.message || error}`);
@@ -177,7 +183,7 @@ else {
       failures.push(`shared ${key} reference missing`);
       continue;
     }
-    const url = new URL(games.shared[key], new URL("eagler-touhou/", base));
+    const url = new URL(games.shared[key], base);
     const path = url.pathname.slice(base.pathname.length).replace(/^\//, "");
     const entry = inventory.get(path);
     if (!entry) failures.push(`shared ${key} missing from manifest: ${path}`);
@@ -186,9 +192,9 @@ else {
   const preloadGames = Object.keys(PRODUCT_GAMES).filter(game => PRODUCT_GAMES[game].dataProvider === "emscripten-preload");
   for (const game of preloadGames) {
     const runtime = games.games?.[game]?.runtime;
-    const runtimeUrl = typeof runtime === "string" ? new URL(runtime, new URL("eagler-touhou/", base)) : null;
+    const runtimeUrl = typeof runtime === "string" ? new URL(runtime, base) : null;
     const runtimeVersion = runtimeUrl?.searchParams.get("v");
-    const htmlResult = results.get(`games/${game}/${game}.html`);
+    const htmlResult = results.get(`runtime/${game}/${game}.html`);
     const html = htmlResult && new TextDecoder().decode(htmlResult.bytes);
     if (!runtimeUrl || !runtimeVersion || !html) {
       failures.push(`${game}: invalid runtime entry`);
@@ -196,11 +202,11 @@ else {
     }
     const scriptPattern = new RegExp(`<script\\b[^>]*\\bsrc=["']?${game}\\.js\\?v=${runtimeVersion}(?:["'\\s>])`, "i");
     if (!scriptPattern.test(html)) failures.push(`${game}: runtime script does not share version ${runtimeVersion}`);
-    const runtimePath = `games/${game}/${game}.html`;
+    const runtimePath = `runtime/${game}/${game}.html`;
     const runtimeEntry = inventory.get(runtimePath);
     if (runtimeEntry) await verifyVersionedAsset(runtimePath, runtimeVersion, runtimeEntry, false);
     for (const extension of ["js", "wasm", "data"]) {
-      const path = `games/${game}/${game}.${extension}`;
+      const path = extension === "data" ? `games/${game}/${game}.data` : `runtime/${game}/${game}.${extension}`;
       const entry = inventory.get(path);
       if (!entry) failures.push(`${game}: ${extension} missing from manifest`);
       else await verifyVersionedAsset(path, runtimeVersion, entry);
@@ -208,7 +214,7 @@ else {
     for (const [mode, pack] of Object.entries(games.games?.[game]?.music || {})) {
       if (!Array.isArray(pack.files) || !pack.files.length) continue;
       for (const file of pack.files) {
-        const url = new URL(`${pack.base}${file}`, new URL("eagler-touhou/", base));
+        const url = new URL(`${pack.base}${file}`, base);
         if (pack.version) url.searchParams.set("v", pack.version);
         const path = url.pathname.slice(base.pathname.length).replace(/^\//, "");
         const entry = inventory.get(path);
@@ -222,7 +228,7 @@ else {
         failures.push(`${game}: invalid language pack entry: ${language?.id || "unknown"}`);
         continue;
       }
-      const url = new URL(pack.url, new URL("eagler-touhou/", base));
+      const url = new URL(pack.url, base);
       const path = url.pathname.slice(base.pathname.length).replace(/^\//, "");
       const entry = inventory.get(path);
       if (!entry) failures.push(`${game}: language pack missing from manifest: ${path}`);
@@ -234,7 +240,7 @@ else {
 }
 
 
-for (const htmlPath of ["eagler-touhou/index.html", "eagler-touhou/about.html"]) {
+for (const htmlPath of ["index.html", "about.html"]) {
   const htmlResult = results.get(htmlPath);
   if (!htmlResult) continue;
   const html = new TextDecoder().decode(htmlResult.bytes);

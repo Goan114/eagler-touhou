@@ -28,13 +28,12 @@ for the two main game-card titles. The build recipe is
 there and stored next to the generated fonts. GNU Unifont remains only as the
 last missing-glyph fallback.
 
-`assets/fonts/noto-serif-sc-touhou.woff2` is retained as a historical subset but
-is no longer loaded by the site UI. Full CJK fonts and the game font are not
-stored in the public repository; a deployer supplies a compatible local
-Japanese font when preparing a private deployment.
+Full CJK fonts and the game font are not stored in the public repository; a
+deployer supplies a compatible local Japanese font when preparing a private
+deployment.
 
 The publication audit uses an explicit allowlist for source-public assets.
-Adding a file under `assets/` does not make it publishable; host-generated
+Adding a file under `public/assets/` does not make it publishable; host-generated
 original-game-derived files are rejected from source publication candidates.
 
 ## Site brand assets
@@ -58,11 +57,13 @@ stored locally so the announcement does not depend on an icon CDN.
 `assets/notice-qq.svg` and `assets/notice-github.svg` use the `qq` and `github`
 glyphs from that same pinned package, with a light fill for the dark notice.
 
-`assets/notice-touhou-cloud.png` is the icon currently declared by
-`https://cloud.touhou.best/` as its `apple-touch-icon` (source URL at capture:
-`https://gitlab.com/img5133819/img/-/raw/main/Image_1742740025373.png`). It is
-used only to identify the CDN provider in the site announcement and is cached
-locally so mirrors/offline packages render consistently.
+`public/assets/notice-touhou-cloud.png` is the provider-published 车万云 icon
+declared by `https://cloud.touhou.best/`. The project owner has confirmed
+permission to use this mark. It is stored locally so the provider
+acknowledgement remains recognizable in mirrors and offline packages.
+
+Providers without explicitly documented redistribution permission are rendered
+as text-only links. Their site icons are not copied into this repository.
 
 The masthead collection menu and TH08 maintenance warning embed the `language`,
 `history`, `person`, and `warning` glyph paths from

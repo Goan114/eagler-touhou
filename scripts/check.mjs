@@ -23,7 +23,12 @@ const jobs = Number.isInteger(requestedJobs) && requestedJobs > 0
 
 function run(command, args) {
   return new Promise((resolvePromise, reject) => {
-    const child = spawn(command, args, { cwd: project, stdio: "inherit", shell: false });
+    const child = spawn(command, args, {
+      cwd: project,
+      stdio: "inherit",
+      shell: false,
+      env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" },
+    });
     child.once("error", reject);
     child.once("exit", (code, signal) => {
       if (code === 0) return resolvePromise();
@@ -46,7 +51,7 @@ async function runPool(tasks, concurrency = jobs) {
 }
 
 const excludedDirectories = new Set([
-  ".git", ".npm-cache", ".deploy-python", "node_modules", "artifacts", "archive",
+  ".git", ".cache", ".npm-cache", ".deploy-python", "node_modules", "artifacts", "archive",
   "archivetemporary", "dist", "design", "screenshots", "vendor", "private-assets",
   "generated-assets", "server-output", "__pycache__",
 ]);
@@ -58,7 +63,7 @@ async function collectSourceFiles(directory = project) {
     const path = resolve(directory, entry.name);
     const rel = relative(project, path).replaceAll("\\", "/");
     if (entry.isDirectory()) {
-      if (rel === "eagler-touhou" || rel === "android-webview-lab/out") continue;
+      if (rel === "eagler-touhou") continue;
       result.push(...await collectSourceFiles(path));
       continue;
     }
@@ -70,8 +75,14 @@ async function collectSourceFiles(directory = project) {
 const sourceFiles = await collectSourceFiles();
 const javascriptFiles = sourceFiles.filter(file => [".js", ".mjs", ".cjs"].includes(extname(file)));
 const pythonFiles = sourceFiles.filter(file => extname(file) === ".py");
+
+// TypeScript Launcher source is an authoritative source tree. The canonical
+// gate always recompiles it so strict type-checking cannot be skipped merely
+// because generated output happens to look fresh on disk.
+await run(process.execPath, ["scripts/build-launcher.mjs", "--force"]);
+
 await runPool(javascriptFiles.map(file => [process.execPath, ["--check", file]]));
-if (pythonFiles.length) await run("python", ["-m", "py_compile", ...pythonFiles]);
+if (pythonFiles.length) await run("python", ["scripts/check-python-syntax.py", ...pythonFiles]);
 
 // App Shell generation is build output only. The repository gate exercises the
 // builder without writing a generated Service Worker into the source tree.

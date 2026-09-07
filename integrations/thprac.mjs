@@ -1,5 +1,4 @@
 export const THPRAC_SCHEMA = "eagler-touhou/thprac-session/1";
-export const THPRAC_REPLAY_SCHEMA = "eagler-touhou/thprac-replay/1";
 
 const GAME_SCHEMAS = Object.freeze({
   th06: Object.freeze({
@@ -79,33 +78,6 @@ export function createThpracSession(game, input = {}) {
     features: [...THPRAC_FUNCTIONAL_FEATURES[game]],
     deferredFeatures: [...THPRAC_DEFERRED_FEATURES[game]]
   };
-}
-
-export function createThpracReplayMetadata(game, input = {}, { source = "advanced-practice" } = {}) {
-  const session = createThpracSession(game, input);
-  return {
-    schema: THPRAC_REPLAY_SCHEMA,
-    game,
-    source,
-    params: session.params
-  };
-}
-
-export function parseThpracReplayMetadata(value, expectedGame) {
-  const metadata = typeof value === "string" ? JSON.parse(value) : value;
-  if (!metadata || typeof metadata !== "object" || metadata.schema !== THPRAC_REPLAY_SCHEMA) {
-    throw new TypeError("unsupported thprac replay metadata");
-  }
-  if (metadata.game !== expectedGame) throw new TypeError(`replay metadata is for ${metadata.game}`);
-  return createThpracReplayMetadata(expectedGame, metadata.params, { source: metadata.source });
-}
-
-export function thpracReplaySidecarPath(replayPath) {
-  if (typeof replayPath !== "string" || replayPath.includes("\\") || !/(^|\/)replay\/[^/]+\.rpy$/i.test(replayPath)) {
-    throw new TypeError("invalid replay path");
-  }
-  if (replayPath.split("/").some(part => !part || part === "." || part === "..")) throw new TypeError("invalid replay path");
-  return `${replayPath}.thprac.json`;
 }
 
 export function getThpracSchema(game) {

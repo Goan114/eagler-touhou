@@ -4,10 +4,11 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
-import { APP_SHELL_FILES } from "../lib/frontend-manifest.mjs";
+import { APP_SHELL_FILES, resolveFrontendPackageSource } from "../lib/frontend-manifest.mjs";
+import { PUBLIC_SOURCE_ROOT } from "../lib/public-source.mjs";
 
 const project = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const outputDirectory = resolve(project, "assets", "fonts");
+const outputDirectory = resolve(PUBLIC_SOURCE_ROOT, "assets", "fonts");
 const sources = [
   ...APP_SHELL_FILES.filter(path => !path.startsWith("vendor/") && /\.(?:html|css|js|mjs)$/.test(path)),
   "NOTICE.txt",
@@ -38,7 +39,8 @@ const obsoleteOutputs = [
 
 const requested = new Set();
 for (const source of sources) {
-  for (const character of (await readFile(resolve(project, source), "utf8")).normalize("NFC")) {
+  const sourcePath = APP_SHELL_FILES.includes(source) ? resolveFrontendPackageSource(source) : resolve(project, source);
+  for (const character of (await readFile(sourcePath, "utf8")).normalize("NFC")) {
     if (character.codePointAt(0) >= 0x20) requested.add(character);
   }
 }

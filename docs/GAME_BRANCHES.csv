@@ -1,7 +1,0 @@
-file,line,source,disposition
-app.js,3063,"if (!meta || meta.source !== ""local-import"" || ![""th06"", ""th07""].includes(meta.game)) return;",KEEP: legacy cache compatibility boundary
-app.js,3079,"if (!meta || meta.source !== ""local-import"" || ![""th06"", ""th07""].includes(meta.game) || !Array.isArray(meta.files)) return;",KEEP: legacy cache compatibility boundary
-app.js,3309,"if (state.game === ""th08"" && typeof file.name === ""string"" && /^th08\.dat$/i.test(file.name)) {",EXCLUDED: game-specific input adapter
-app.js,3861,"$(""#th08MaintenanceCallout"").hidden = state.game !== ""th08"" || multiplayerProduct;",EXCLUDED: game-specific task
-scripts/verify-server-build.mjs,162,"if (declaredResourceMode !== ""import-partial"") {",KEEP: legacy deployed runtime-update read compatibility
-scripts/verify-server-build.mjs,167,"if (updates.length > 1) throw new Error(""invalid import-partial runtime update declarations"");",KEEP: legacy deployed runtime-update read compatibility

@@ -17,11 +17,12 @@ const project = directoryArgument ? resolve(directoryArgument.slice("--directory
 const forbiddenExtensions = new Set([".dat", ".data", ".wav", ".ogg", ".mid", ".midi", ".rpy", ".ttc"]);
 const publicAssets = new Set([
   "assets/touch-rotate-landscape.webp",
-  "assets/notice-bilibili.svg", "assets/notice-touhou-cloud.png",
+  "assets/notice-bilibili.svg",
+  "assets/notice-touhou-cloud.png",
   "assets/notice-github.svg", "assets/notice-qq.svg",
   "assets/fonts/touhou98.woff2",
   "assets/fonts/unifont-site.woff2",
-  "assets/fonts/noto-serif-sc-touhou.woff2", "assets/fonts/OFL-NotoSerifSC.txt",
+  "assets/fonts/OFL-Unifont.txt",
   "assets/fonts/yatra-one-latin.woff2", "assets/fonts/chill-round-gothic-site-medium.woff2", "assets/fonts/chill-round-gothic-site-bold.woff2", "assets/fonts/chill-round-gothic-site-heavy.woff2",
   "assets/fonts/OFL-YatraOne.txt", "assets/fonts/OFL-ChillRoundGothic.txt",
   "assets/fonts/NotoSansCJKsc-Regular.otf", "assets/fonts/OFL-NotoSansCJK.txt"
@@ -73,14 +74,15 @@ if (workspaceAudit) {
 }
 async function inspect(path) {
   const rel = relative(project, path).replaceAll("\\", "/");
-  if (hostGeneratedOriginalAssets.has(rel)) failures.push(`eagler-touhou/${rel} (original-game-derived host asset must not be source-published)`);
-  else if (rel.startsWith("assets/") && !publicAssets.has(rel)) failures.push(`eagler-touhou/${rel} (unreviewed public asset)`);
+  const publicRel = rel.startsWith("public/") ? rel.slice("public/".length) : rel;
+  if (hostGeneratedOriginalAssets.has(publicRel)) failures.push(`eagler-touhou/${rel} (original-game-derived host asset must not be source-published)`);
+  else if (publicRel.startsWith("assets/") && !publicAssets.has(publicRel)) failures.push(`eagler-touhou/${rel} (unreviewed public asset)`);
   if (forbiddenExtensions.has(extname(rel).toLowerCase())) failures.push(`eagler-touhou/${rel}`);
   if ((await stat(path)).size > 50 * 1024 * 1024) failures.push(`eagler-touhou/${rel} (>50 MiB)`);
 }
 async function walk(directory) {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
-    if (["node_modules", ".npm-cache", ".deploy-python", "design", "screenshots"].includes(entry.name)) continue;
+    if (["node_modules", ".cache", ".npm-cache", ".deploy-python", "design", "screenshots"].includes(entry.name)) continue;
     const path = resolve(directory, entry.name);
     if (entry.isDirectory()) await walk(path);
     else await inspect(path);
@@ -92,7 +94,10 @@ if (!directoryArgument && existsSync(resolve(project, ".git"))) {
   // and therefore still fail. A concrete export is audited with --directory.
   const files = new Set(execFileSync("git", ["-C", project, "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
     {encoding:"utf8"}).split("\0").filter(Boolean));
-  for (const asset of publicAssets) if (existsSync(resolve(project, asset))) files.add(asset);
+  for (const asset of publicAssets) {
+    const sourcePath = `public/${asset}`;
+    if (existsSync(resolve(project, sourcePath))) files.add(sourcePath);
+  }
   for (const file of files) if (existsSync(resolve(project, file)) && (await stat(resolve(project, file))).isFile()) {
     await inspect(resolve(project, file));
   }

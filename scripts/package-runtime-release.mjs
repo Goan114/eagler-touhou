@@ -1,8 +1,8 @@
-import { createHash } from "node:crypto";
-import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { createHash, randomUUID } from "node:crypto";
+import { cp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { basename, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { PRODUCT_GAMES } from "../product-catalog.mjs";
+import { PRODUCT_GAMES } from "../lib/contracts/product-catalog.mjs";
 import { RUNTIME_RELEASE_SCHEMA, runtimeStem, validateRuntimeReleaseManifest, verifyRuntimeRelease } from "../lib/runtime-release.mjs";
 import { extractGameDataLayout } from "../lib/runtime-data-layout.mjs";
 import { assertRuntimeDataShell } from "../lib/runtime-data-provider.mjs";
@@ -18,7 +18,8 @@ const required = name => {
   return resolve(args[name]);
 };
 const output = required("output");
-const staging = `${output}.staging`;
+const temporaryRoot = resolve(dirname(output), ".tmp");
+const staging = resolve(temporaryRoot, `${basename(output)}.staging-${randomUUID()}`);
 const builds = {
   th06: required("th06-build"),
   th06Multiplayer: required("th06-multiplayer-build"),
@@ -55,9 +56,10 @@ async function copyVariant(game, build, root, variant) {
   return files;
 }
 
+await mkdir(temporaryRoot, { recursive: true });
 await rm(staging, { recursive: true, force: true });
 await mkdir(staging, { recursive: true });
-
+try {
 const games = {};
 for (const game of Object.keys(PRODUCT_GAMES)) {
   const product = PRODUCT_GAMES[game];
@@ -112,6 +114,8 @@ const manifest = validateRuntimeReleaseManifest({
 await writeFile(resolve(staging, "runtime-release.json"), `${JSON.stringify(manifest, null, 2)}\n`);
 await verifyRuntimeRelease(staging);
 await rm(output, { recursive: true, force: true });
-await cp(staging, output, { recursive: true });
-await rm(staging, { recursive: true, force: true });
+await rename(staging, output);
 console.log(JSON.stringify({ output, games: Object.keys(games), schema: RUNTIME_RELEASE_SCHEMA }));
+} finally {
+  await rm(staging, { recursive: true, force: true });
+}

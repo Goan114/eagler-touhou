@@ -59,14 +59,12 @@ export function createStaticThcrapPack({ pack, resources, runtimeVersion }) {
     const bytes = assertBytes(resource?.bytes, `${targetPath} bytes`);
     if (entries.has(targetPath)) throw new Error(`duplicate thcrap target path: ${targetPath}`);
     const entryName = targetPath.slice(1);
-    const digest = sha256(bytes);
     entries.set(entryName, bytes);
     files.push({
       path: targetPath,
       sourcePath: typeof resource.sourcePath === "string" ? resource.sourcePath : resource.path,
       format: typeof resource.format === "string" ? resource.format : "binary",
-      bytes: bytes.length,
-      sha256: digest
+      bytes: bytes.length
     });
     if (entryName === "manifest.json") throw new Error("thcrap resource cannot replace pack manifest");
   }

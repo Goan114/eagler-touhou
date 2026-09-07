@@ -25,6 +25,6 @@ Module.eaglerOptions.thpracSession = {
 };
 ```
 
-两作会自动将 practice 参数写入原版录像旁的 `.rpy.thprac.json`，播放时自动读取。TH06 另导出 `_EaglerThpracSaveReplaySlot(slot)`，供宿主请求在运行中保存 1..99 号录像；调用后宿主仍负责同步 IDBFS。
+两作当前都把 practice 参数直接嵌入 Replay 的 PRAC trailer，并在播放时只从 Replay 本体读取。外部 `*.rpy.thprac.json` sidecar 从未成为发布格式，不属于支持的 Replay 数据模型。TH06 另导出 `_EaglerThpracSaveReplaySlot(slot)`，供宿主请求在运行中保存 1..99 号录像；调用后宿主仍负责同步 IDBFS。
 
 当前已实现粗粒度关卡跳转、直接帧跳转、初始资源/分数/Rank（TH07 含樱点）以及 practice 录像元数据。上游 thprac 依赖特定原版 ECL 字节偏移的逐符卡起点、多阶段符卡、对话开关和 TH06 帕秋莉假机体尚未移植，因此不得在界面上标记为可用。

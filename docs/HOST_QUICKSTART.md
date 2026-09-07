@@ -64,7 +64,7 @@ regenerates `dist/site`, verifies the deployment, then serves it only on
 `127.0.0.1:8130` and opens:
 
 ```text
-http://127.0.0.1:8130/eagler-touhou/
+http://127.0.0.1:8130/
 ```
 
 Using localhost is preferable to opening files directly: WebAssembly MIME,
@@ -125,4 +125,3 @@ leaving the three game directories empty:
 The archive contains no original Touhou game data. Recipients extract it, run
 `npm install`, copy their legally-owned games into the fixed folders, then run
 `npm run host`.
-

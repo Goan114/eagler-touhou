@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { PRODUCT_CONTENT } from "../../lib/content-definition.mjs";
-import { PRODUCT_GAMES } from "../../product-catalog.mjs";
+import { PRODUCT_GAMES } from "../../lib/contracts/product-catalog.mjs";
 import { RUNTIME_RELEASE_SCHEMA, runtimeStem, validateRuntimeReleaseManifest } from "../../lib/runtime-release.mjs";
 
 const identity = bytes => ({
@@ -59,4 +59,3 @@ export async function writeSyntheticRuntimeRelease(root) {
   await writeFile(resolve(root, "runtime-release.json"), `${JSON.stringify(manifest, null, 2)}\n`);
   return manifest;
 }
-

@@ -13,7 +13,7 @@
 
 DATA 包、WebKit smoke、Runtime Storage、部署 Python bootstrap、工作树 inventory 和其它可重建集成结果使用 `validation/`。仓库不再维护独立的“测试分发”产品拓扑；需要站点级验证时复用正式 Host/发布装配路径。正式候选由 `npm run release -- --input=... --output=...` 写入一个尚不存在的显式目录。
 
-历史 `dist/`、`archive/temporary/` 和旧 `artifacts/` 内容无限期保留，但它们不是兼容 API，正式构建不得从中隐式选取输入。保留只表示不自动移动或删除，不保证其中的旧站点、脚本或浏览器 profile 继续可执行。
+历史 `dist/`、`archive/temporary/` 和旧 `artifacts/` 内容不是兼容 API，正式构建不得从中隐式选取输入。完成交付后，这些可重建内容应移出项目目录或清理；需要长期保存的发布或验收证据必须进入明确的外部证据存储并记录对应 release identity。
 
 下列 build 目录全部是仅本地、可重建的开发/验证输入：
 
@@ -36,4 +36,10 @@ th07-eagler/build-web-th07-netplay
 
 浏览器可见的两个清单名称与职责固定：`host-manifest.json` 描述 Runtime、内容 identity、语言、音乐和服务器能力，`release-catalog.json` 只描述可安装 Package revision 与 Package Descriptor 地址。开发服务器也提供这两个标准端点；开发 Release Catalog 合法为空，不再存在第三种 `games.json` 协议。
 
-profile 表达产物权威级别：`web-development` 和 `web-validation-*` 只供本机开发或验证，`web-release-*` 才能进入发布候选。资源模式是另一维度，并且只有 `hosted` 与 `import` 两个正式值；后者不携带游戏内容、Runtime 更新或 Release Catalog 条目。旧的 `import-only` / `import-partial` 只属于历史部署快照，不再是 Launcher、打包器或 verifier 的兼容 API。
+站点产物始终是扁平、可搬移的 deployment root：`index.html`、`host-manifest.json`、`release-catalog.json`、`assets/`、`runtime/`、`games/` 和 `shared/` 直接位于该目录。产物不内嵌 `/eagler-touhou/` 或其他公开挂载路径；默认由服务器挂载到 `/`，需要子路径时由服务器显式配置，同一份产物无需重打包。
+
+从历史 `/eagler-touhou/` 挂载切换到 `/` 时，服务器临时拥有一层有界兼容：两个旧入口只重定向到 `/`；旧作用域的 `app-shell-sw.js` 返回不缓存的退役 Worker，由它注销旧注册并把受控窗口导航到 `/`；其余旧子路径仅在退役期间映射到同一扁平站点，避免旧缓存页面把 JSON 请求重定向成 HTML。该层不是第二套公开挂载 contract；确认已发布旧 Worker 的存量客户端自然淘汰后，应连同 `legacy-mount-retirement-sw.js` 和对应服务器规则一起删除。
+
+构建 scratch 默认进入操作系统临时目录；必须和最终目录处于同一文件系统才能原子切换的 staging，统一进入目标父目录的 `.tmp/`。需要在失败后保留诊断价值的候选进入 `.release-incomplete/`，不伪装成临时文件。正式候选内部不得出现 `.tmp`、`.staging`、`.next`、临时配置或人工 SSH 文件。
+
+profile 表达产物权威级别：`web-development` 和 `web-validation-*` 只供本机开发或验证，`web-release-*` 才能进入发布候选。资源模式是另一维度，并且只有 `hosted` 与 `import` 两个正式值；后者不携带游戏内容、Runtime 更新或 Release Catalog 条目。旧的 `import-only` / `import-partial` 只属于历史部署快照。Launcher 与 verifier 暂时保留只读兼容；新配置、打包器和发布产物只接受并写出 `import`。

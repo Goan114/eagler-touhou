@@ -88,22 +88,23 @@ if ($externalUrl) {
     [void]$baseFeatures.Remove('gameDataFallback')
 }
 $effectiveFeatureConfig = Join-Path ([IO.Path]::GetTempPath()) "eagler-touhou-import-features-$([guid]::NewGuid().ToString('N')).json"
-[IO.File]::WriteAllText($effectiveFeatureConfig, (($baseFeatures | ConvertTo-Json -Depth 20) + [Environment]::NewLine), [Text.UTF8Encoding]::new($false))
-
-$packageStaging = "$($layout.importPackages).staging-$([guid]::NewGuid().ToString('N'))"
+$packageTemporaryRoot = Join-Path (Split-Path ([string]$layout.importPackages) -Parent) '.tmp'
+$packageStaging = Join-Path $packageTemporaryRoot ((Split-Path ([string]$layout.importPackages) -Leaf) + '.staging-' + [guid]::NewGuid().ToString('N'))
 try {
+    [IO.File]::WriteAllText($effectiveFeatureConfig, (($baseFeatures | ConvertTo-Json -Depth 20) + [Environment]::NewLine), [Text.UTF8Encoding]::new($false))
     & node (Join-Path $project 'scripts\package-server.mjs') `
         "--output=$($layout.importSite)" `
         "--feature-config=$effectiveFeatureConfig" `
-        "--host-manifest=$($layout.site)\eagler-touhou\host-manifest.json" `
+        "--host-manifest=$($layout.site)\host-manifest.json" `
         "--runtime-release=$($layout.runtimeRelease)" `
-        "--artwork-dir=$($layout.site)\eagler-touhou\assets" `
+        "--artwork-dir=$($layout.site)\assets" `
         '--games=th06,th07,th08' `
         '--profile=web-validation-quick-import'
     if ($LASTEXITCODE -ne 0) { throw "Quick Import site generation failed: $LASTEXITCODE" }
     & node (Join-Path $project 'scripts\verify-server-build.mjs') ([string]$layout.importSite)
     if ($LASTEXITCODE -ne 0) { throw "Quick Import site verification failed: $LASTEXITCODE" }
 
+    New-Item -ItemType Directory -Path $packageTemporaryRoot -Force | Out-Null
     New-Item -ItemType Directory -Path $packageStaging -Force | Out-Null
     foreach ($game in @('th06', 'th07', 'th08')) {
         $archive = Join-Path $packageStaging "$game.zip"

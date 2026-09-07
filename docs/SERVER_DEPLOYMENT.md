@@ -8,7 +8,7 @@
 npm run release -- --input=D:\ReleaseInputs\release.json --output=D:\Releases\candidate
 ```
 
-入口要求目标目录尚不存在，先在带 `.incomplete-*` 后缀的隔离目录构建和验证，通过后才重命名为目标目录。输出包括 hosted/import 站点、Runtime、Package 内容、离线 ZIP、输入清单、Release Manifest、checksums 与分级验证报告。报告使用 `eagler-touhou/completion-report/1`，逐项记录 `IMPLEMENTED`、`BUILD-VERIFIED`、`STRUCTURE-VERIFIED`、`RUNTIME-VERIFIED`、`SEMANTIC-VERIFIED`、`HUMAN-ACCEPTED`、`RELEASED`。import 站直接消费本次 hosted 构建生成并验证过的内容清单，避免重新读取工作树中的旧产物身份。入口不上传或切换服务器，因此 `RELEASED` 为 `no`，未执行的浏览器、语义与人工验收为 `pending`。启用 OGG 时使用本次任务独立的 Python 环境，不依赖已有 `.deploy-python` 或系统 `soundfile`。
+入口要求目标目录尚不存在，先在目标父目录的 `.release-incomplete/` 中以唯一操作 ID 构建和验证，通过后才原子重命名为目标目录。进程级 scratch 位于操作系统临时目录并由 `finally` 清理。输出包括 hosted/import 站点、Runtime、Package 内容、离线 ZIP、输入清单、Release Manifest、checksums 与分级验证报告。报告使用 `eagler-touhou/completion-report/1`，逐项记录 `IMPLEMENTED`、`BUILD-VERIFIED`、`STRUCTURE-VERIFIED`、`RUNTIME-VERIFIED`、`SEMANTIC-VERIFIED`、`HUMAN-ACCEPTED`、`RELEASED`。import 站直接消费本次 hosted 构建生成并验证过的内容清单，避免重新读取工作树中的旧产物身份。入口不上传或切换服务器，因此 `RELEASED` 为 `no`，未执行的浏览器、语义与人工验收为 `pending`。启用 OGG 时使用本次任务独立的 Python 环境，不依赖已有 `.deploy-python` 或系统 `soundfile`。
 
 候选生成后或交接前可独立运行 `npm run verify:release -- D:\Releases\candidate`。该检查同时验证 Release Manifest/checksums、固定输出目录、每作 Package Descriptor 与离线 ZIP，以及完成状态报告；它不提升浏览器或人工验收等级。
 
@@ -29,7 +29,7 @@ Runtime Release 本身只允许本项目可再分发的 HTML / JavaScript / WebA
 .\deploy\Prepare-eagler-touhou-server.ps1 `
   -OutputDirectory 'D:\Sites\eagler-touhou-lite' `
   -FeatureConfig '.\deploy\server-features-import.example.json' `
-  -HostManifest 'D:\Releases\hosted\eagler-touhou\host-manifest.json'
+  -HostManifest 'D:\Releases\hosted\host-manifest.json'
 ```
 
 既有部署中的 `import-only` 和 `import-partial` 仍可由 Launcher 与 verifier 读取；新配置和新产物只接受、只写出 `import`。旧的稀疏 Runtime 更新格式只用于核验既有部署，不再有生成入口。
@@ -128,9 +128,19 @@ npm run verify:deployed -- https://example.invalid/
 
 迁移期间旧 HTTP Origin 和新 HTTPS Origin 必须同时保留。玩家通过 `migrate.html` 在旧页面读取浏览器本地数据，再通过 `postMessage` 传递给 HTTPS 页面；数据不上传到服务器。
 
+只有处于迁移窗口的部署，才应在私有 `server-features.json` 中显式启用 Launcher 入口：
+
+```json
+{
+  "originMigration": { "mode": "http-to-https" }
+}
+```
+
+纯 HTTP 部署和已经完成迁移的纯 HTTPS / HSTS 部署都应省略该字段。`migrate.html` 仍保留为可复用、非 App Shell 缓存的部署能力，但省略字段时 Launcher 不显示「存档恢复」。结束迁移窗口时删除该字段并重新生成部署产物，不需要修改域名或 Launcher 源码。
+
 迁移内容包括：
 
-- TH06 / TH07 的存档、Replay、设置和 thprac 文件；
+- TH06 / TH07 / TH08 的存档、Replay 和设置，以及支持作品的 thprac 文件；
 - Launcher 的设置；
 - Package Store 中已经安装的 Runtime、DATA、字体、OGG 和语言组件；
 - 旧版本的本地资源缓存。
@@ -141,4 +151,21 @@ npm run verify:deployed -- https://example.invalid/
 npm run verify:migration-cutover -- http://example.invalid/ https://example.invalid/
 ```
 
-`/eagler-touhou/migrate.html` 在两边都必须直接返回 200，并且在迁移窗口内不能被 HSTS 或永久重定向提前接管。
+`migrate.html` 相对于各自传入的站点基址解析；默认根部署即 `/migrate.html`。它在两边都必须直接返回 200，并且在迁移窗口内不能被 HSTS 或永久重定向提前接管。
+
+普通 HTTP 页面访问应干净重定向到 HTTPS，不附加迁移参数，也不自动弹出迁移提示。迁移由启用了上述 Host Manifest capability 的 HTTPS Launcher「存档恢复」入口显式发起；只有精确的 HTTP `/migrate.html` 为读取旧 Origin 数据而保留 200。
+
+迁移窗口结束后进入最终 HTTPS 状态时，需要同时完成两件事：
+
+1. 从私有 `server-features.json` 删除 `originMigration` 并重新生成部署产物；
+2. 在最终 HTTPS 链路启用 HSTS。Linux first-install 配置使用 `HSTS_MODE=final`，生成的站点发送 `Strict-Transport-Security: max-age=31536000`。如果 TLS 在 CDN/边缘终止，则必须确认该响应头没有被边缘层剥离。
+
+最终切换后从真实公网入口验证：
+
+```powershell
+npm run verify:hsts-cutover -- http://example.invalid/ https://example.invalid/
+```
+
+这个检查要求普通 HTTP 入口跳到 HTTPS、HTTPS 至少发布一年 `max-age` 的 HSTS，并且 Host Manifest 已经不再声明 `originMigration`。`includeSubDomains` 和 HSTS preload 不作为默认策略；只有在所有子域和长期 HTTPS 承诺都明确后再单独启用。
+
+浏览器成功接收过 HSTS 后，之后即使用户在地址栏输入裸域名并且浏览器原本会尝试 `http://`，也会先在本地升级为 HTTPS，再进入根 scope 的 Service Worker；这才使裸域名离线启动成为可能。首次访问前从未学习过 HSTS 的浏览器仍无法凭空离线升级，除非该域名另外进入 HSTS preload。

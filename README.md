@@ -5,7 +5,7 @@
 在保证原作体验的基础上，提供 触控适配 + 个性化布局、thprac 适配、多语言（基于 thcrap）、存档和 Replay 管理、多人联机大厅。
 在安全上下文条件下，启动器网页**可以被离线运行**。在玩家离线或服务器宕机时，玩家即使刷新了页面也可以使用 Service Worker 提供的缓存文件正常进行游戏。
 
-目前，主持本项目的域名总访问量已有 20w+。几乎解决了玩家提出的所有问题，并听取了大量用户的功能新增建议。
+项目的正式能力边界见 [Product surface](docs/PRODUCT_SURFACE.md)，当前系统的模块、数据流、离线与发布架构见 [Architecture](docs/ARCHITECTURE.md)。README 只保留面向使用者的概览，不作为第二份架构或功能 contract。
 
 ## 详细功能
 
@@ -30,12 +30,12 @@
 
 ### thprac 适配
 
-- 适配 [thprac](https://github.com/touhouworldcup/thprac) 的所有功能。
+- 提供 [thprac](https://github.com/touhouworldcup/thprac) 风格的关卡跳转、资源参数和练习 Replay 元数据等已记录子集；不宣称覆盖上游全部功能。
 - 支持在触控设备上使用模拟鼠标，并提供打开 Tab Tracker 和作弊菜单的模拟按键。（你如果需要 F12 菜单的话，讲讲为什么。）
 
 ### 多语言
 
-- 理论上支持 [thcrap 语言仓库](https://srv.thpatch.net/) 里的所有语言包。
+- 支持经本项目适配器验证的 [thcrap 语言仓库](https://srv.thpatch.net/) 语言包；具体兼容范围以 Host 提供的语言目录为准。
 - 服务器可以按作品指定语言包。你可以往里面加一堆奇怪的语言包，玩家只下载他选中的那个。
 
 ### 多人联机大厅
@@ -81,7 +81,7 @@ npm run vendor
 npm start
 ```
 
-然后打开 `http://127.0.0.1:8130/eagler-touhou/`。不能直接双击 `index.html`，因为游戏运行时、WASM、浏览器存储和跨页面通信都需要 HTTP(S) 环境。
+然后打开 `http://127.0.0.1:8130/`。不能直接双击 `index.html`，因为游戏运行时、WASM、浏览器存储和跨页面通信都需要 HTTP(S) 环境。
 
 本地可玩构建还需要 CMake、Ninja、Emscripten SDK、Python 3，以及合法持有的 TH06 / TH07 游戏文件。完整构建说明见[开发说明](docs/DEVELOPMENT.md)。
 
@@ -154,7 +154,7 @@ npm run audit:publish
 
 公开源码检查构建不含游戏资源，只能使用 `build-web-eagler-external`；本地可玩构建必须使用 `-EmbedLocalAssets` 生成 `build-web-eagler-default`。不得在同一 CMake 构建目录中切换 `TH_EXTERNAL_ASSETS`。
 
-运行时、多人、Replay、触控、游戏包和部署验证脚本见 `scripts/`。宿主与游戏之间的消息协议版本为 `eagler-touhou/1`。
+运行时、多人、Replay、触控、游戏包和部署测试见 `tests/`，浏览器 runner 位于 `tests/browser/`；构建与发布工具仍位于 `scripts/`。宿主与游戏之间的消息协议版本为 `eagler-touhou/1`。
 
 ## 上游项目、素材与许可
 
@@ -163,6 +163,6 @@ npm run audit:publish
 - [GensokyoClub/th06](https://github.com/GensokyoClub/th06)：《东方红魔乡》的反编译与可移植源码基础。本项目基于其 [`portable`](https://github.com/GensokyoClub/th06/tree/portable) 分支的 [`9a1c50b`](https://github.com/GensokyoClub/th06/commit/9a1c50b3e7821f2e32e0ff35de7e618216d796e5)，并在其上继续开发 `eagler` 运行时分支。
 - [some100/th07](https://github.com/some100/th07)：《东方妖妖梦》的反编译、跨平台移植与 Web 构建基础。本项目基于其 [`reallyportable`](https://github.com/some100/th07/tree/reallyportable) 分支的 [`9775193`](https://github.com/some100/th07/commit/97751939e47f6d83971fa6225c7ff2cb46ebb77c)，并在其上继续开发 `eagler` 运行时分支。
 
-SDL、Emscripten、webaudio-tinysynth、fflate 等基础设施及其许可信息见 [THIRD_PARTY.md](THIRD_PARTY.md)。界面素材及发布注意事项见 [ASSETS.md](ASSETS.md)，项目说明和版权说明见[关于页](about.html)。
+SDL、Emscripten、webaudio-tinysynth、fflate 等基础设施及其许可信息见 [THIRD_PARTY.md](THIRD_PARTY.md)。界面素材及发布注意事项见 [ASSETS.md](ASSETS.md)，项目说明和版权说明见[关于页](public/about.html)。
 
 本项目是非官方爱好者工程，与上海爱丽丝幻乐团、ZUN 及游戏发行方不存在隶属、授权、认可或赞助关系。项目不授予任何原版游戏内容的使用或再分发许可；不得利用本项目在互联网上上传、托管、共享或以其他任何形式分发无权发布的原版游戏数据、音乐、美术及其他受版权保护的资源。

@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { cp, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,13 +7,13 @@ import {
   PACKAGE_DESCRIPTOR_SCHEMA,
   canonicalPackagePayload,
   validatePackageDescriptor,
-} from "../package-descriptor.mjs";
-import { RELEASE_CATALOG_FILE, RELEASE_CATALOG_SCHEMA, validateReleaseCatalog } from "../release-catalog.mjs";
-import { HOST_MANIFEST_FILE, HOST_MANIFEST_SCHEMA, validateHostManifest } from "../host-manifest.mjs";
-import { PRODUCT_GAMES } from "../product-catalog.mjs";
+} from "../package/package-descriptor.mjs";
+import { RELEASE_CATALOG_FILE, RELEASE_CATALOG_SCHEMA, validateReleaseCatalog } from "../lib/contracts/release-catalog.mjs";
+import { HOST_MANIFEST_FILE, HOST_MANIFEST_SCHEMA, validateHostManifest } from "../lib/contracts/host-manifest.mjs";
+import { PRODUCT_GAMES, languagePriority } from "../lib/contracts/product-catalog.mjs";
 import { assertProductEntriesRegistered, normalizeProductSelection, selectProductEntries } from "../lib/product-selection.mjs";
 import { createPublicationHostSeed } from "../lib/publication-host-seed.mjs";
-import { RESOURCE_MODE_HOSTED, RESOURCE_MODE_IMPORT } from "../resource-mode.mjs";
+import { RESOURCE_MODE_HOSTED, RESOURCE_MODE_IMPORT } from "../lib/contracts/resource-mode.mjs";
 import { classifyBuildProfile } from "../lib/build-profile.mjs";
 import { extractGameDataLayout } from "../lib/runtime-data-layout.mjs";
 import { assemblePreloadData } from "../lib/preload-data-assembler.mjs";
@@ -23,7 +23,7 @@ import { deploymentAppShellPatterns } from "../lib/app-shell-policy.mjs";
 import { sourceIdentity, writeReleaseManifest, fileSetIdentity } from "../lib/release-manifest.mjs";
 import { verifyRuntimeRelease } from "../lib/runtime-release.mjs";
 import { WORKSPACE_REPOSITORIES, workspacePath, workspaceRoot } from "../lib/workspace-layout.mjs";
-import { FRONTEND_PACKAGE_FILES, hostArtworkFiles } from "../lib/frontend-manifest.mjs";
+import { FRONTEND_PACKAGE_FILES, hostArtworkFiles, resolveFrontendPackageSource } from "../lib/frontend-manifest.mjs";
 
 const project = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const args = Object.fromEntries(process.argv.slice(2).map(value => {
@@ -36,7 +36,8 @@ const required = name => {
   return resolve(args[name]);
 };
 const output = required("output");
-const staging = `${output}.staging`;
+const temporaryRoot = resolve(dirname(output), ".tmp");
+const staging = resolve(temporaryRoot, `${basename(output)}.staging-${randomUUID()}`);
 const workspace = workspaceRoot();
 if (output === project || output === workspace || output === resolve(output, "..")) {
   throw new Error(`unsafe output directory: ${output}`);
@@ -112,11 +113,6 @@ const LANGUAGE_DISPLAY_NAMES = Object.freeze({
   lang_en: "English",
   lang_ru: "Русский",
 });
-const languagePriority = id => id === "ja" ? 0
-  : id === "lang_zh-hans" ? 10
-  : id === "lang_zh-hant" ? 11
-  : id === "lang_en" ? 20
-  : 100;
 const canonicalLanguageIds = ids => [...ids].sort((a, b) =>
   languagePriority(a) - languagePriority(b) || a.localeCompare(b, "en"));
 const languageDisplayName = (id, fallback) => LANGUAGE_DISPLAY_NAMES[id] || fallback || id;
@@ -213,12 +209,12 @@ function staticPackPath(value, game) {
 }
 
 async function copyFrontend() {
-  const frontend = resolve(staging, "eagler-touhou");
+  const frontend = staging;
   await mkdir(frontend, { recursive: true });
   for (const name of FRONTEND_PACKAGE_FILES) {
     const target = resolve(frontend, name);
     await mkdir(resolve(target, ".."), { recursive: true });
-    await cp(resolve(project, name), target);
+    await cp(resolveFrontendPackageSource(name), target);
   }
   const copiedHostAssets = [];
   if (artworkDir) {
@@ -311,7 +307,9 @@ async function walk(directory, files = []) {
   return files;
 }
 
+await mkdir(temporaryRoot, { recursive: true });
 await rm(staging, { recursive: true, force: true });
+try {
 const hostUiAssets = await copyFrontend();
 const hostManifestPath = args["host-manifest"] ? resolve(args["host-manifest"]) : null;
 if (!hostedResources && !hostManifestPath) {
@@ -336,11 +334,14 @@ manifest.profile = buildProfile;
 manifest.shared = {
   resourceMode: serverResourceMode,
   ...(serverResourceMode === RESOURCE_MODE_HOSTED ? {
-    vanillaFont: `../shared/msgothic.ttc?v=${await versionFiles(dirname(vanillaFont), [basename(vanillaFont)])}`,
-    unicodeFont: `../shared/unifont.otf?v=${await versionFiles(dirname(font), [basename(font)])}`,
+    vanillaFont: `shared/msgothic.ttc?v=${await versionFiles(dirname(vanillaFont), [basename(vanillaFont)])}`,
+    unicodeFont: `shared/unifont.otf?v=${await versionFiles(dirname(font), [basename(font)])}`,
   } : {}),
   ...(serverNetplayRelay ? { netplayRelay: serverNetplayRelay } : {}),
   ...(serverGameDataFallback ? { gameDataFallback: serverGameDataFallback } : {}),
+  ...(configuredFeatures?.originMigration != null
+    ? { originMigration: configuredFeatures.originMigration }
+    : {}),
 };
 if (!hostedResources) {
   for (const entry of Object.values(manifest.games)) delete entry.package;
@@ -360,7 +361,7 @@ if (gameIds.includes("th08")) {
   const entry = manifest.games?.[game];
   if (!entry) throw new Error("TH08 product entry is missing from Host Manifest");
   const stem = "th08-modern";
-  const appRuntimeRoot = resolve(staging, "eagler-touhou", "runtime", game);
+  const appRuntimeRoot = resolve(staging, "runtime", game);
   await mkdir(appRuntimeRoot, { recursive: true });
   await assertAppManagedRuntimeShell(builds.th08, game, "normal", stem);
   const appRuntimeFiles = ["html", "js", "wasm"].map(extension => `${stem}.${extension}`);
@@ -413,7 +414,7 @@ for (const game of preloadGames) {
       : {}),
   };
   // Executable Runtime belongs to the App Shell in every resource mode.
-  const appRuntimeRoot = resolve(staging, "eagler-touhou", "runtime", game);
+  const appRuntimeRoot = resolve(staging, "runtime", game);
   await mkdir(appRuntimeRoot, { recursive: true });
   const appRuntimeFiles = ["html", "js", "wasm"].map(extension => `${game}.${extension}`);
   await assertAppManagedRuntimeShell(builds[game], game, "normal");
@@ -526,7 +527,7 @@ for (const game of preloadGames) {
         ...language,
         pack: {
           ...language.pack,
-          url: `../games/${game}/${outputRelativePack}`,
+          url: `games/${game}/${outputRelativePack}`,
           bytes: prepared.archive.length,
           sha256: prepared.sha256,
           runtimeVersion,
@@ -553,7 +554,7 @@ for (const game of preloadGames) {
     const sourceBase = musicSourceBase(game, mode);
     const targetBase = resolve(gameRoot, "music", mode);
     await copyFiles(sourceBase, targetBase, pack.files);
-    pack.base = `../games/${game}/music/${mode}/`;
+    pack.base = `games/${game}/music/${mode}/`;
     const identities = await Promise.all(pack.files.map(file => fileIdentity(resolve(sourceBase, file))));
     pack.sizes = identities.map(identity => identity.bytes);
     if (mode === "ogg") {
@@ -589,7 +590,7 @@ for (const game of preloadGames) {
   const languageEntries = [];
   for (const language of entry.languageOptions || []) {
     if (!language?.pack?.url || language.id === "ja") continue;
-    const url = new URL(language.pack.url, "https://package.invalid/eagler-touhou/");
+    const url = new URL(language.pack.url, "https://package.invalid/");
     if (url.origin !== "https://package.invalid" || !url.pathname.startsWith("/games/")) {
       throw new Error(`${game}: invalid packaged language URL ${language.pack.url}`);
     }
@@ -618,7 +619,7 @@ for (const game of preloadGames) {
   validatePackageDescriptor(descriptor);
   const descriptorName = `${game}.package.json`;
   await writeFile(resolve(staging, descriptorName), `${JSON.stringify(descriptor, null, 2)}\n`);
-  entry.package = { revision: descriptor.revision, descriptor: `../${descriptorName}` };
+  entry.package = { revision: descriptor.revision, descriptor: descriptorName };
 }
 
 if (hostedResources && gameIds.includes("th08")) {
@@ -647,7 +648,7 @@ if (hostedResources && gameIds.includes("th08")) {
     const sourceBase = musicSourceBase(game, "ogg");
     const targetBase = resolve(gameRoot, "music", "ogg");
     await copyFiles(sourceBase, targetBase, pack.files);
-    pack.base = `../games/${game}/music/ogg/`;
+    pack.base = `games/${game}/music/ogg/`;
     const identities = await Promise.all(pack.files.map(file => fileIdentity(resolve(sourceBase, file))));
     pack.sizes = identities.map(identity => identity.bytes);
     Object.assign(pack, fileSetIdentity(pack.files, identities));
@@ -692,7 +693,7 @@ if (hostedResources && gameIds.includes("th08")) {
   validatePackageDescriptor(descriptor);
   const descriptorName = `${game}.package.json`;
   await writeFile(resolve(staging, descriptorName), `${JSON.stringify(descriptor, null, 2)}\n`);
-  entry.package = { revision: descriptor.revision, descriptor: `../${descriptorName}` };
+  entry.package = { revision: descriptor.revision, descriptor: descriptorName };
 }
 
 const releaseCatalog = validateReleaseCatalog({
@@ -702,12 +703,12 @@ const releaseCatalog = validateReleaseCatalog({
     : [])),
 });
 validateHostManifest(manifest);
-await writeFile(resolve(staging, "eagler-touhou", HOST_MANIFEST_FILE), `${JSON.stringify(manifest, null, 2)}\n`);
-await writeFile(resolve(staging, "eagler-touhou", RELEASE_CATALOG_FILE), `${JSON.stringify(releaseCatalog, null, 2)}\n`);
+await writeFile(resolve(staging, HOST_MANIFEST_FILE), `${JSON.stringify(manifest, null, 2)}\n`);
+await writeFile(resolve(staging, RELEASE_CATALOG_FILE), `${JSON.stringify(releaseCatalog, null, 2)}\n`);
 const appShellBuild = await buildAppShell({
   quiet: true,
-  globDirectory: resolve(staging, "eagler-touhou"),
-  swDest: resolve(staging, "eagler-touhou", "app-shell-sw.js"),
+  globDirectory: staging,
+  swDest: resolve(staging, "app-shell-sw.js"),
   additionalGlobPatterns: deploymentAppShellPatterns({ games: gameIds, hostArtwork: hostUiAssets }),
 });
 
@@ -765,3 +766,6 @@ await writeReleaseManifest(staging, {
 await rm(output, { recursive: true, force: true });
 await rename(staging, output);
 console.log(JSON.stringify({ output, files: inventory.length + 3, bytes: inventory.reduce((sum, file) => sum + file.bytes, 0), music: deployment.music }));
+} finally {
+  await rm(staging, { recursive: true, force: true });
+}

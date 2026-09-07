@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { strToU8, zipSync } from "fflate";
-import { canonicalPackagePayload, validatePackageDescriptor } from "../package-descriptor.mjs";
+import { canonicalPackagePayload, validatePackageDescriptor } from "../package/package-descriptor.mjs";
 
 const site = resolve(process.argv[2] || "");
 const game = String(process.argv[3] || "").toLowerCase();

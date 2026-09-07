@@ -3,9 +3,11 @@ import { existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { inspectQuickHost } from "../lib/quick-host-layout.mjs";
+import { ensureLauncherBuild } from "../lib/launcher-build.mjs";
 
 const project = resolve(fileURLToPath(new URL("..", import.meta.url)));
+await ensureLauncherBuild();
+const { inspectQuickHost } = await import("../lib/quick-host-layout.mjs");
 const args = Object.fromEntries(process.argv.slice(2).map(value => {
   const split = value.indexOf("=");
   if (!value.startsWith("--") || split < 3) throw new Error(`invalid argument: ${value}`);
@@ -172,4 +174,3 @@ try {
   console.error(bad(`ERROR: ${error.message || error}`));
   process.exitCode = 1;
 }
-

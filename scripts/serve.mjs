@@ -16,25 +16,40 @@ import {
 } from "../server/static-content-policy.mjs";
 import { buildAppShell } from "../lib/app-shell-build.mjs";
 import { createDevelopmentHostManifest } from "../lib/development-host-manifest.mjs";
-import { HOST_MANIFEST_FILE } from "../host-manifest.mjs";
-import { RELEASE_CATALOG_FILE, RELEASE_CATALOG_SCHEMA } from "../release-catalog.mjs";
+import { DEVELOPMENT_CONTENT } from "../lib/development-content.mjs";
+import { FRONTEND_PACKAGE_FILES, hostArtworkFiles, resolveFrontendPackageSource } from "../lib/frontend-manifest.mjs";
+import { HOST_MANIFEST_FILE } from "../lib/contracts/host-manifest.mjs";
+import { RELEASE_CATALOG_FILE, RELEASE_CATALOG_SCHEMA } from "../lib/contracts/release-catalog.mjs";
+import { isMappedBrowserPublicationPath, resolveBrowserPublicationSource } from "../lib/launcher-build.mjs";
 import {
   APP_SHELL_OUTPUT_FILE,
   APP_SHELL_RUNTIME_GLOBS,
   isRepositoryAppShellInput,
 } from "../lib/app-shell-policy.mjs";
+import { assertSafeDevelopmentServerScope } from "../lib/development-server-scope.mjs";
+import { workspaceRoot } from "../lib/workspace-layout.mjs";
 
 const host = process.env.EAGLER_TOUHOU_HOST || "127.0.0.1";
 const port = Number.parseInt(process.argv[2] || process.env.EAGLER_TOUHOU_PORT || "8130", 10);
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("端口号无效");
 const project = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const root = resolve(process.argv[3] || resolve(project, ".."));
-const servedApp = existsSync(resolve(root, "eagler-touhou"))
-  ? resolve(root, "eagler-touhou")
-  : project;
-const sourceDevelopmentServer = servedApp === project;
+assertSafeDevelopmentServerScope({ host, project, root });
+const sourceDevelopmentServer = root === resolve(project, "..");
+const servedApp = sourceDevelopmentServer ? project : root;
+const defaultArtworkDirectory = sourceDevelopmentServer ? resolve(workspaceRoot(), "games", "host-artwork") : null;
+const configuredArtworkDirectory = process.env.EAGLER_TOUHOU_ARTWORK_DIR
+  ? resolve(process.env.EAGLER_TOUHOU_ARTWORK_DIR)
+  : defaultArtworkDirectory && existsSync(defaultArtworkDirectory) ? defaultArtworkDirectory : null;
+if (process.env.EAGLER_TOUHOU_ARTWORK_DIR && !existsSync(configuredArtworkDirectory)) {
+  throw new Error(`EAGLER_TOUHOU_ARTWORK_DIR does not exist: ${configuredArtworkDirectory}`);
+}
+const configuredNetplayRelay = process.env.EAGLER_TOUHOU_NETPLAY_RELAY?.trim() || undefined;
+const hostArtwork = new Set(hostArtworkFiles(Object.keys(DEVELOPMENT_CONTENT.games)));
 const developmentMetadata = sourceDevelopmentServer ? new Map([
-  [HOST_MANIFEST_FILE, `${JSON.stringify(await createDevelopmentHostManifest(), null, 2)}\n`],
+  [HOST_MANIFEST_FILE, `${JSON.stringify(await createDevelopmentHostManifest({
+    netplayRelay: configuredNetplayRelay,
+  }), null, 2)}\n`],
   [RELEASE_CATALOG_FILE, `${JSON.stringify({ schema: RELEASE_CATALOG_SCHEMA, games: {} }, null, 2)}\n`],
 ]) : null;
 const localAppShellOptions = {
@@ -74,7 +89,12 @@ async function rebuildAppShell() {
   }
 }
 const appShellWatcher = watch(servedApp, { recursive: true }, (_event, filename) => {
-  if (!filename || (!isRepositoryAppShellInput(filename) && !isRuntimeAppShellPath(filename))) return;
+  if (!filename) return;
+  const watchedPath = String(filename).replaceAll("\\", "/");
+  const publicLogicalPath = watchedPath.startsWith("public/") ? watchedPath.slice("public/".length) : null;
+  if (!isRepositoryAppShellInput(watchedPath) &&
+      !(publicLogicalPath && isRepositoryAppShellInput(publicLogicalPath)) &&
+      !isRuntimeAppShellPath(watchedPath)) return;
   if (appShellRebuildTimer) clearTimeout(appShellRebuildTimer);
   appShellRebuildTimer = setTimeout(() => void rebuildAppShell(), 500);
 });
@@ -123,8 +143,19 @@ createServer(async (request, response) => {
       response.end();
       return;
     }
-    if (developmentMetadata && pathname.startsWith("/eagler-touhou/")) {
-      const name = pathname.slice("/eagler-touhou/".length);
+    if (pathname === "/eagler-touhou" || pathname === "/eagler-touhou/") {
+      response.writeHead(302, { Location: "/", "Cache-Control": "no-store" });
+      response.end();
+      return;
+    }
+    const legacyRetirementWorker = pathname === "/eagler-touhou/app-shell-sw.js";
+    if (legacyRetirementWorker) {
+      pathname = "/legacy-mount-retirement-sw.js";
+    } else if (pathname.startsWith("/eagler-touhou/")) {
+      pathname = pathname.slice("/eagler-touhou".length);
+    }
+    if (developmentMetadata && pathname.startsWith("/")) {
+      const name = pathname.slice(1);
       const body = developmentMetadata.get(name);
       if (body != null) {
         response.writeHead(200, {
@@ -137,7 +168,7 @@ createServer(async (request, response) => {
         return;
       }
     }
-    const appShellUrl = `/eagler-touhou/${APP_SHELL_OUTPUT_FILE}`;
+    const appShellUrl = `/${APP_SHELL_OUTPUT_FILE}`;
     if (pathname === appShellUrl) {
       const tag = `\"${lastAppShellBuildId}\"`;
       const headers = {
@@ -156,13 +187,25 @@ createServer(async (request, response) => {
       else response.end(appShellWorker);
       return;
     }
-    if (pathname === "/") {
-      response.writeHead(308, { Location: `/eagler-touhou/${url.search}`, "Cache-Control": "no-store" });
-      response.end();
-      return;
+    const artworkPrefix = "/assets/";
+    const artworkName = pathname.startsWith(artworkPrefix) ? pathname.slice(artworkPrefix.length) : "";
+    const externalArtwork = configuredArtworkDirectory && hostArtwork.has(artworkName)
+      ? resolve(configuredArtworkDirectory, artworkName)
+      : null;
+    let file;
+    const publicPath = pathname.replace(/^\//, "");
+    const frontendPath = publicPath || "index.html";
+    if (sourceDevelopmentServer && FRONTEND_PACKAGE_FILES.includes(frontendPath)) {
+      file = resolveFrontendPackageSource(frontendPath);
+    } else if (externalArtwork && existsSync(externalArtwork)) {
+      file = externalArtwork;
+    } else {
+      const appCandidate = resolve(servedApp, `.${pathname}`);
+      const workspaceCandidate = resolve(root, `.${pathname}`);
+      if (appCandidate !== servedApp && !appCandidate.startsWith(servedApp + sep)) throw new Error("path outside application root");
+      if (workspaceCandidate !== root && !workspaceCandidate.startsWith(root + sep)) throw new Error("path outside workspace");
+      file = existsSync(appCandidate) ? appCandidate : workspaceCandidate;
     }
-    let file = resolve(root, `.${pathname}`);
-    if (file !== root && !file.startsWith(root + sep)) throw new Error("path outside workspace");
     let info = await stat(file);
     if (info.isDirectory() && !url.pathname.endsWith("/")) {
       response.writeHead(308, { Location: `${url.pathname}/${url.search}`, "Cache-Control": "no-store" });
@@ -178,7 +221,7 @@ createServer(async (request, response) => {
     // year-cached WASM/data file, which breaks Emscripten's EM_ASM table ABI.
     // Content-addressed language ZIPs are safe to keep immutable; everything
     // else must revalidate its ETag on each navigation/fetch.
-    const cacheControl = staticContentCacheControl(file);
+    const cacheControl = legacyRetirementWorker ? "no-store" : staticContentCacheControl(file);
     const commonHeaders = {
       "Content-Type": staticContentType(file),
       "Cache-Control": cacheControl,
@@ -186,6 +229,7 @@ createServer(async (request, response) => {
       "Last-Modified": info.mtime.toUTCString(),
       Vary: "Accept-Encoding",
     };
+    if (legacyRetirementWorker) commonHeaders["Service-Worker-Allowed"] = "/eagler-touhou/";
     if (request.headers["if-none-match"] === tag) {
       response.writeHead(304, commonHeaders); response.end(); return;
     }
@@ -214,6 +258,7 @@ createServer(async (request, response) => {
     if (!response.writableEnded) response.end("Not found");
   }
 }).listen(port, host, () => {
-  console.log(`eagler-touhou: http://${host}:${port}/eagler-touhou/`);
+  console.log(`eagler-touhou: http://${host}:${port}/`);
+  console.log(`host artwork: ${configuredArtworkDirectory || "not configured"}`);
   console.log(`thcrap: ${thcrapEnabled ? (runtimeCompiler ? "enabled" : "enabled without runtime compiler") : "disabled"}`);
 });

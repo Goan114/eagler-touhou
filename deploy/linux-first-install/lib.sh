@@ -18,9 +18,11 @@ load_config() {
   : "${MIGRATION_MAP_ID:?MIGRATION_MAP_ID is required}"
   RELAY_MODE=${RELAY_MODE:-local}
   TURN_MODE=${TURN_MODE:-local}
+  HSTS_MODE=${HSTS_MODE:-disabled}
   KEEP_RELEASES=${KEEP_RELEASES:-3}
   case "$RELAY_MODE" in local|external|disabled) ;; *) echo "Invalid RELAY_MODE: $RELAY_MODE" >&2; exit 2;; esac
   case "$TURN_MODE" in local|external|disabled) ;; *) echo "Invalid TURN_MODE: $TURN_MODE" >&2; exit 2;; esac
+  case "$HSTS_MODE" in disabled|final) ;; *) echo "Invalid HSTS_MODE: $HSTS_MODE" >&2; exit 2;; esac
   [[ "$SITE_ROOT" == /* && "$SITE_ROOT" != / && "$SITE_ROOT" != /srv ]] || {
     echo "SITE_ROOT must be a dedicated absolute directory below /: $SITE_ROOT" >&2
     exit 2
@@ -122,7 +124,7 @@ for item in manifest["files"]:
     if isinstance(item.get("bytes"), int) and path.stat().st_size != item["bytes"]:
         raise SystemExit(f"deployment file size mismatch: {rel}")
     declared.add(rel)
-if "eagler-touhou/index.html" not in declared or "eagler-touhou/app.js" not in declared:
+if "index.html" not in declared or "app.js" not in declared:
     raise SystemExit("Launcher entry files are absent from deployment.json")
 actual = {
     p.relative_to(root).as_posix()
