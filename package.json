@@ -73,6 +73,7 @@
     "test:th07mp-webrtc:browser": "python tests/test-th07mp-webrtc.py",
     "test:origin-migration": "node tests/test-origin-migration.mjs",
     "test:origin-migration:browser": "python tests/test-origin-migration-browser.py",
+    "test:music-selection:browser": "python tests/browser/test-music-selection.py",
     "rebuild:web": "pwsh -NoProfile -ExecutionPolicy Bypass -File ../Rebuild-Web-Runtimes.ps1",
     "prepare:thcrap": "node scripts/prepare-thcrap.mjs",
     "test:shell": "node tests/test-shell-protocol.mjs",
