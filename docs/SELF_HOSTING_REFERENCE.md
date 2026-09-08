@@ -101,6 +101,11 @@ The Import site publishes the Launcher and App-managed Runtime but not the
 hosted original game payload. The ZIPs use the same canonical Package
 Descriptor format as hosted installation.
 
+If `dist/site/` is already a verified hosted generation for the current game,
+Runtime Release, configuration and music inputs, Import reuses it instead of
+rebuilding the hosted base. Maintainers can force that base to be rebuilt with
+`npm run import -- --rebuild-hosted-base`.
+
 `import-only` and `import-partial` are historical read-compatibility values,
 not new production modes.
 

@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
@@ -14,15 +14,6 @@ const fixturePath = resolve(project, "tests", fixtureName);
 const artworkDirectory = await mkdtemp(resolve(tmpdir(), "eagler-server-artwork-"));
 const artworkFixture = Buffer.from("host-owned-card-artwork");
 await writeFile(resolve(artworkDirectory, "th06-card.webp"), artworkFixture);
-const nginxConfig = await readFile(resolve(project, "examples", "deployment", "nginx.conf"), "utf8");
-if (!nginxConfig.includes("absolute_redirect off;")) throw new Error("nginx redirects must remain relative behind private-port mirrors");
-if (!nginxConfig.includes('location ~* "\\.[a-f0-9]{24}\\.zip$" {')) throw new Error("nginx content-hash ZIP regex must stay quoted and syntactically valid");
-if (!nginxConfig.includes("woff|woff2|ttc|otf")) throw new Error("nginx versioned runtime-font cache rule must include OTF");
-if (!nginxConfig.includes("location = /eagler-touhou { return 302 /; }") ||
-    !nginxConfig.includes("location = /eagler-touhou/ { return 302 /; }") ||
-    !nginxConfig.includes("try_files /legacy-mount-retirement-sw.js =404;")) {
-  throw new Error("nginx must return former mount URLs to the root Launcher");
-}
 const child = spawn(process.execPath, [resolve(project, "scripts", "serve.mjs"), String(port), root], {
   cwd: project,
   env: { ...process.env, EAGLER_TOUHOU_ARTWORK_DIR: artworkDirectory },

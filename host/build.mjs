@@ -2,7 +2,8 @@
 import { spawn } from "node:child_process";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ensureNodeDependencies } from "./lib/node-environment.mjs";
+import { inspectHostWorkspace } from "../lib/host-workspace.mjs";
+import { assertSupportedNode, ensureNodeDependencies } from "./lib/node-environment.mjs";
 import { run } from "./lib/process.mjs";
 
 const projectRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -30,6 +31,7 @@ function openBrowser(url) {
   }
   try {
     const child = spawn(command, args, { detached: true, stdio: "ignore", windowsHide: true });
+    child.once("error", () => {});
     child.unref();
   } catch {
     // Browser opening is a convenience only; the printed URL is authoritative.
@@ -46,6 +48,9 @@ const bind = String(args.bind || "127.0.0.1");
 const port = Number.parseInt(String(args.port || "8130"), 10);
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(`invalid --port=${args.port}`);
 
+assertSupportedNode();
+console.log("[Build] Validating self-host inputs and configuration");
+await inspectHostWorkspace(hostRoot, { music });
 await ensureNodeDependencies(projectRoot);
 const { buildHostedSite } = await import("./lib/site-builder.mjs");
 const { layout } = await buildHostedSite({ projectRoot, hostRoot, music, python });

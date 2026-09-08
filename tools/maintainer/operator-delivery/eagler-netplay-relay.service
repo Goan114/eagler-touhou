@@ -1,0 +1,21 @@
+[Unit]
+Description=Eagler Touhou Netplay Relay
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=eagler-touhou
+Group=eagler-touhou
+WorkingDirectory=/opt/eagler-touhou/services/relay
+EnvironmentFile=/etc/eagler-touhou/relay.env
+ExecStart=/usr/bin/node server/netplay-relay.mjs
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+
+[Install]
+WantedBy=multi-user.target

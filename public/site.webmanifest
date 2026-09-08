@@ -2,7 +2,7 @@
   "id": "./",
   "name": "EAGLER TOUHOU",
   "short_name": "EAGLER TOUHOU",
-  "description": "东方红魔乡、妖妖梦网页版。",
+  "description": "进入网站就能玩的东方原作游戏启动器 / 联机平台，提供了高刷新率适配、触控适配、汉化、thprac 以及原版联机 Mod。",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

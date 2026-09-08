@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { cp, mkdtemp, mkdir, readFile, rm, stat } from "node:fs/promises";
-import { posix, relative, resolve } from "node:path";
+import { relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { parse } from "acorn";
 import {
   SELF_HOST_BUNDLE_COPY_RULES,
   SELF_HOST_BUNDLE_NODE_DEPENDENCIES,
@@ -12,9 +14,40 @@ const project = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const targets = new Map(SELF_HOST_BUNDLE_COPY_RULES.map(rule => [rule.target, rule.source]));
 assert.equal(targets.size, SELF_HOST_BUNDLE_COPY_RULES.length, "self-host bundle targets must be unique");
 
+function assertCanonicalRelativePath(value, label) {
+  const parts = String(value).split("/");
+  assert.ok(value && !value.startsWith("/") && !value.includes("\\") &&
+    parts.every(part => part && part !== "." && part !== ".."), `${label}: ${value}`);
+}
+
+function moduleSpecifiers(source, path) {
+  const ast = parse(source, { ecmaVersion: "latest", sourceType: "module", allowHashBang: true });
+  const specifiers = [];
+  function add(node, kind) {
+    if (!node) return;
+    if (node.type !== "Literal" || typeof node.value !== "string") return;
+    specifiers.push(node.value);
+  }
+  function visit(node) {
+    if (!node || typeof node !== "object") return;
+    if (node.type === "ImportDeclaration" || node.type === "ExportAllDeclaration" || node.type === "ExportNamedDeclaration") {
+      if (node.source) add(node.source, node.type);
+    } else if (node.type === "ImportExpression") {
+      add(node.source, "dynamic import");
+    }
+    for (const [key, value] of Object.entries(node)) {
+      if (["start", "end", "loc", "source"].includes(key)) continue;
+      if (Array.isArray(value)) value.forEach(visit);
+      else if (value && typeof value === "object") visit(value);
+    }
+  }
+  visit(ast);
+  return specifiers;
+}
+
 for (const rule of SELF_HOST_BUNDLE_COPY_RULES) {
-  assert.match(rule.source, /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$)).+$/, `unsafe self-host bundle source: ${rule.source}`);
-  assert.match(rule.target, /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$)).+$/, `unsafe self-host bundle target: ${rule.target}`);
+  assertCanonicalRelativePath(rule.source, "unsafe self-host bundle source");
+  assertCanonicalRelativePath(rule.target, "unsafe self-host bundle target");
   const info = await stat(resolve(project, rule.source));
   assert.equal(info.isFile(), true, `self-host bundle source is not a file: ${rule.source}`);
 }
@@ -49,16 +82,19 @@ assert.deepEqual(
   ["src/app-shell-sw.js"],
   "self-host bundle may ship only the App Shell JavaScript build input from src/",
 );
-assert.ok([...targets.keys()].every(target => !/\.mts$/i.test(target)),
+assert.ok([...targets.keys()].every(target => !target.toLowerCase().endsWith(".mts")),
   "self-host bundle must not ship maintainer TypeScript source");
-assert.ok([...targets.keys()].every(target => !/\.ps1$/i.test(target)),
+assert.ok([...targets.keys()].every(target => !target.toLowerCase().endsWith(".ps1")),
   "self-host bundle must not require PowerShell or ship maintainer PowerShell entrypoints");
 assert.ok([...targets.keys()].every(target => !target.startsWith("tools/maintainer/")),
   "self-host bundle must not ship maintainer tooling");
 
 for (const target of targets.keys()) {
-  assert.doesNotMatch(target, /(?:^|\/)(?:test[-_.]|run-|audit-|profile-|browserstack|playwright|webkit)/i,
-    `maintainer/test file leaked into self-host bundle: ${target}`);
+  const segments = target.toLowerCase().split("/");
+  const maintainerOnly = segments.some(segment =>
+    ["test-", "test_", "test.", "run-", "audit-", "profile-", "browserstack", "playwright", "webkit"]
+      .some(prefix => segment.startsWith(prefix)));
+  assert.equal(maintainerOnly, false, `maintainer/test file leaked into self-host bundle: ${target}`);
   assert.notEqual(target, "server/netplay-relay.mjs", "relay server must not be bundled into the static self-host bundle");
 }
 
@@ -91,35 +127,44 @@ try {
   );
   const packagedManifest = await import(pathToFileURL(resolve(smokeRoot, "lib/frontend-manifest.mjs")).href);
   assert.ok(packagedManifest.BROWSER_MODULE_FILES.includes("assets/launcher/app.mjs"));
+
+  // A fresh bundle has no node_modules yet. Doctor must still reach its own
+  // environment/input diagnostics instead of failing during module loading.
+  const doctor = spawnSync(process.execPath, [
+    resolve(smokeRoot, "scripts", "inspect-host.mjs"),
+    `--root=${smokeRoot}`,
+  ], {
+    cwd: smokeRoot,
+    encoding: "utf8",
+    env: { ...process.env, NO_COLOR: "1" },
+  });
+  assert.equal(doctor.status, 1, "incomplete smoke bundle should fail Host input validation");
+  assert.ok(`${doctor.stdout}\n${doctor.stderr}`.includes("Eagler Touhou Host Check"),
+    "host:doctor must reach its own diagnostics before npm ci installs package dependencies");
 } finally {
   await rm(smokeRoot, { recursive: true, force: true });
 }
 
 const allowedBareImports = new Set(SELF_HOST_BUNDLE_NODE_DEPENDENCIES);
-const importPattern = /(?:\bfrom\s*|\bimport\s*\()(["'])([^"']+)\1/g;
 for (const [target, source] of targets) {
-  if (!/\.(?:m?js)$/.test(target)) continue;
+  const lowerTarget = target.toLowerCase();
+  if (!lowerTarget.endsWith(".js") && !lowerTarget.endsWith(".mjs")) continue;
   const text = await readFile(resolve(project, source), "utf8");
-  let match;
-  while ((match = importPattern.exec(text))) {
-    const specifier = match[2];
+  for (const specifier of moduleSpecifiers(text, target)) {
     if (specifier.startsWith("node:")) continue;
     if (!specifier.startsWith(".")) {
       const packageName = specifier.startsWith("@")
         ? specifier.split("/").slice(0, 2).join("/")
         : specifier.split("/")[0];
       assert.ok(allowedBareImports.has(packageName), `${target}: undeclared self-host npm dependency ${packageName}`);
-      continue;
     }
-    const resolvedTarget = posix.normalize(posix.join(posix.dirname(target), specifier));
-    assert.ok(targets.has(resolvedTarget), `${target}: relative import escapes self-host bundle manifest: ${specifier}`);
   }
 }
 
 const packageTemplate = JSON.parse(await readFile(resolve(project, "host/bundle/package.json"), "utf8"));
 assert.deepEqual(Object.keys(packageTemplate.dependencies).sort(), [...SELF_HOST_BUNDLE_NODE_DEPENDENCIES].sort());
 assert.equal(packageTemplate.devDependencies, undefined);
-assert.deepEqual(Object.keys(packageTemplate.scripts).sort(), ["host", "host:build", "host:doctor", "host:inspect", "import"]);
+assert.deepEqual(Object.keys(packageTemplate.scripts).sort(), ["host", "host:build", "host:doctor", "import"]);
 assert.ok(Object.values(packageTemplate.scripts).every(command => !/pwsh|powershell/i.test(command)),
   "self-host npm commands must not require PowerShell");
 

@@ -6,6 +6,8 @@ type UiMessageEntry = readonly [key: string, zhCN: string, english: string];
 // One tuple owns both translations, so a new key cannot silently exist in only
 // one locale. Keys describe meaning rather than copying the Chinese source.
 const entries = [
+  ["site.documentTitle", "网页上的东方原作 ~ EAGLER TOUHOU", "Original Touhou Games on the Web ~ EAGLER TOUHOU"],
+  ["site.description", "进入网站就能玩的东方原作游戏启动器 / 联机平台，提供了高刷新率适配、触控适配、汉化、thprac 以及原版联机 Mod。", "A browser-playable launcher and multiplayer platform for original Touhou games, with high-refresh-rate support, touch controls, translations, thprac, and multiplayer mods for the original games."],
   ["filter.aria", "游戏分类", "Game categories"],
   ["filter.all", "全部", "All"],
   ["filter.original", "原版", "Original"],
@@ -289,7 +291,7 @@ export function applyStaticTranslations(root: ParentNode | null | undefined = gl
     const value = translatedValue(element.dataset.i18n);
     if (value != null) element.textContent = value;
   }
-  const bindings = [["aria-label", "i18nAriaLabel"], ["title", "i18nTitle"], ["placeholder", "i18nPlaceholder"], ["alt", "i18nAlt"]] as const;
+  const bindings = [["aria-label", "i18nAriaLabel"], ["title", "i18nTitle"], ["placeholder", "i18nPlaceholder"], ["alt", "i18nAlt"], ["content", "i18nContent"]] as const;
   for (const [attribute, property] of bindings) {
     const selector = `[data-${property.replace(/[A-Z]/g, value => `-${value.toLowerCase()}`)}]`;
     for (const element of root.querySelectorAll<HTMLElement>(selector)) {

@@ -21,6 +21,8 @@ const keys = validateUiCatalogs();
 assert.deepEqual(Object.keys(UI_MESSAGES["zh-CN"]), keys);
 assert.deepEqual(Object.keys(UI_MESSAGES.en), keys);
 setUiLocale("en", { persist: false, notify: false });
+assert.equal(t("site.documentTitle"), "Original Touhou Games on the Web ~ EAGLER TOUHOU");
+assert.match(t("site.description"), /launcher and multiplayer platform/);
 assert.equal(t("nav.lessMotion"), "Less motion");
 assert.equal(t("status.roomCreated", { code: "123456" }), "Room 123456 created");
 assert.equal(t("missing.fixture"), "missing.fixture", "runtime JS callers must retain fail-soft missing-key behavior");
@@ -33,9 +35,22 @@ applyStaticTranslations({ querySelectorAll: selector => selector === "[data-i18n
 assert.equal(translatedElement.textContent, "更少动画",
   "static translation must update matching DOM text from the active catalog");
 
+const translatedMeta = {
+  dataset: { i18nContent: "site.description" },
+  content: "",
+  setAttribute(name, value) { this[name] = value; },
+};
+applyStaticTranslations({
+  querySelectorAll: selector => selector === "[data-i18n-content]" ? [translatedMeta] : [],
+});
+assert.equal(translatedMeta.content, t("site.description"),
+  "metadata content must follow the active UI locale");
+
 // These are integration selectors consumed by the i18n owner, not styling locks.
 assert.match(index, /id="uiLanguageSelect"/);
 assert.match(index, /data-i18n="nav\.lessMotion"/);
+assert.match(index, /<title data-i18n="site\.documentTitle">网页上的东方原作 ~ EAGLER TOUHOU<\/title>/);
+assert.match(index, /<meta name="description"[^>]+data-i18n-content="site\.description">/);
 assert.ok(FRONTEND_PACKAGE_FILES.includes("assets/launcher/i18n.mjs"),
   "the browser i18n owner must be part of the published frontend closure");
 

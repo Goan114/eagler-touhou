@@ -76,6 +76,7 @@ export const REPOSITORY_NODE_TESTS = Object.freeze([
   "tests/test-release-manifest.mjs",
   "tests/test-release-bundle.mjs",
   "tests/test-release-entry.mjs",
+  "tests/test-operator-delivery.mjs",
 ]);
 
 export const REPOSITORY_PYTHON_TESTS = Object.freeze([

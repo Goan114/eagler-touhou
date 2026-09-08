@@ -3,6 +3,14 @@ export interface GameZoomPoint {
   y: number;
 }
 
+export interface GameZoomPointerInput {
+  pointerId: number;
+  pointerType: string;
+  clientX: number;
+  clientY: number;
+  currentTarget: EventTarget | null;
+}
+
 interface GameZoomPinch {
   ids: [number, number];
   distance: number;
@@ -135,7 +143,7 @@ export function createGameZoomController(options: GameZoomControllerOptions) {
     };
   }
 
-  function pointerClientPoint(event: PointerEvent): GameZoomPoint {
+  function pointerClientPoint(event: GameZoomPointerInput): GameZoomPoint {
     // Runtime-window PointerEvents are iframe-local. The host direct-touch
     // surface reports visual host coordinates, so undo the current iframe
     // transform before the common zoom mapping applies the scale again.
@@ -150,7 +158,7 @@ export function createGameZoomController(options: GameZoomControllerOptions) {
     return { x: event.clientX, y: event.clientY };
   }
 
-  function beginPointer(event: PointerEvent) {
+  function beginPointer(event: GameZoomPointerInput) {
     if (!state.active || event.pointerType === "mouse") return;
     const base = getBaseOffset();
     const point = pointerClientPoint(event);
@@ -161,7 +169,7 @@ export function createGameZoomController(options: GameZoomControllerOptions) {
     if (state.pointers.size >= 2) beginPinch();
   }
 
-  function movePointer(event: PointerEvent) {
+  function movePointer(event: GameZoomPointerInput) {
     if (!state.active || !state.pointers.has(event.pointerId)) return;
     const base = getBaseOffset();
     const point = pointerClientPoint(event);
@@ -182,7 +190,7 @@ export function createGameZoomController(options: GameZoomControllerOptions) {
     applyTransform(scale, midX - base.x - pinch.contentX * scale, midY - base.y - pinch.contentY * scale);
   }
 
-  function endPointer(event: PointerEvent) {
+  function endPointer(event: GameZoomPointerInput) {
     if (!state.pointers.has(event.pointerId)) return;
     state.pointers.delete(event.pointerId);
     state.pinch = null;

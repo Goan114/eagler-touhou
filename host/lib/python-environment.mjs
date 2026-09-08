@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import { resolve } from "node:path";
 import { run } from "./process.mjs";
 
@@ -17,25 +18,31 @@ async function importsWork(python) {
   return result.code === 0;
 }
 
+async function isPython3(python) {
+  if (!python) return false;
+  if ((python.includes("/") || python.includes("\\")) && !existsSync(python)) return false;
+  const result = await run(python, [
+    "-c", "import sys; print(sys.version.split()[0]); raise SystemExit(0 if sys.version_info.major == 3 else 1)",
+  ], { capture: true, allowFailure: true }).catch(() => ({ code: 1 }));
+  return result.code === 0;
+}
+
 export async function ensurePythonEnvironment({ projectRoot, hostRoot, python = "python" }) {
   const environment = resolve(hostRoot, ".cache", "python");
   const privatePython = environmentPython(environment);
   if (await importsWork(privatePython)) return privatePython;
 
-  const probe = await run(python, ["-c", "import sys; print(sys.version.split()[0]); raise SystemExit(0 if sys.version_info.major == 3 else 1)"], {
-    capture: true,
-    allowFailure: true,
-  }).catch(() => ({ code: 1, stdout: "" }));
-  if (probe.code !== 0) {
+  if (existsSync(privatePython) && await isPython3(privatePython)) {
+    console.log("[Build] Repairing Python build dependencies in the existing private environment");
+  } else if (!await isPython3(python)) {
     throw new Error(`Python 3 is required for self-host asset preparation. Configured interpreter: ${python}`);
-  }
-
-  if (!existsSync(privatePython)) {
-    console.log(`[Host] Creating Python environment: ${environment}`);
+  } else {
+    await rm(environment, { recursive: true, force: true });
+    console.log(`[Build] Creating Python environment: ${environment}`);
     await run(python, ["-m", "venv", environment]);
   }
 
-  console.log("[Host] Preparing locked Python build dependencies");
+  console.log("[Build] Preparing Python build dependencies");
   await run(privatePython, [
     "-m", "pip", "install", "--disable-pip-version-check",
     "-r", resolve(projectRoot, "host", "requirements.txt"),

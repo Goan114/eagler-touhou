@@ -114,7 +114,7 @@ node host/build.mjs --build-only --music=midi
 
 ## Generate Import artifacts
 
-To generate an import-only site and verified game-content ZIPs:
+To generate an import site and verified game-content ZIPs:
 
 ```text
 npm run import

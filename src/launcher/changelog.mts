@@ -77,9 +77,9 @@ export function renderChangelogText(documentObj: Document, target: HTMLElement, 
       bullets = null;
       continue;
     }
-    if (/^(功能更新|Bug 修复|问题修复|其他)$/.test(line)) {
+    if (line.startsWith("## ")) {
       const heading = documentObj.createElement("h3");
-      heading.textContent = line;
+      heading.textContent = line.slice(3).trim();
       ensureEntry().append(heading);
       bullets = null;
       continue;

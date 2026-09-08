@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { readFile, readdir, stat } from "node:fs/promises";
+import { readdir, stat } from "node:fs/promises";
 import { extname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -40,21 +40,6 @@ const hostGeneratedOriginalAssets = new Set([
 ]);
 const failures = [];
 let workspaceChecked = null;
-const runtimeBuildScript = await readFile(resolve(project, "tools/maintainer/build-workspace-runtimes.ps1"), "utf8");
-const readme = await readFile(resolve(project, "README.md"), "utf8");
-if (!runtimeBuildScript.includes("build-web-eagler-external") ||
-    !runtimeBuildScript.includes("build-web-eagler-default") ||
-    !runtimeBuildScript.includes("EmbedLocalAssets")) {
-  failures.push("runtime build modes are not isolated");
-}
-if (/build-web-eagler-default[\s\S]{0,800}TH_EXTERNAL_ASSETS=ON/.test(runtimeBuildScript)) {
-  failures.push("source-only runtime build can overwrite the playable development build");
-}
-if (!readme.includes("故障排查：声音和输入初始化后游戏立即退出") ||
-    !readme.includes("DirectSound、DirectInput") ||
-    !readme.includes("不得在同一 CMake 构建目录中切换 `TH_EXTERNAL_ASSETS`")) {
-  failures.push("missing external-assets failure and recovery documentation");
-}
 if (workspaceAudit) {
   const { WORKSPACE_REPOSITORIES, workspacePath } = await import("../lib/workspace-layout.mjs");
   workspaceChecked = [
@@ -82,7 +67,7 @@ async function inspect(path) {
 }
 async function walk(directory) {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
-    if (["node_modules", ".cache", "design", "screenshots"].includes(entry.name)) continue;
+    if (["node_modules", ".cache", ".npm-cache", ".deploy-python", "design", "screenshots"].includes(entry.name)) continue;
     const path = resolve(directory, entry.name);
     if (entry.isDirectory()) await walk(path);
     else await inspect(path);

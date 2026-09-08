@@ -6,7 +6,7 @@
 - License: Apache License 2.0
 - Purpose: lightweight, sample-free General MIDI synthesis for the MIDI Web build.
 
-Run `npm install --ignore-scripts` followed by `npm run vendor` to reproduce the vendored file.
+Run `npm ci --ignore-scripts` followed by `npm run vendor` to reproduce the vendored file.
 
 `public/vendor/fflate.min.js` is generated from `fflate@0.8.3`.
 
@@ -19,7 +19,8 @@ The masthead wordmark uses `font-touhou98@1.0.0`.
 - Project: https://github.com/thwiki/font-touhou98
 - License: MIT
 - Purpose: render the `eagler☯touhou` brand wordmark with the Touhou PC-98-derived Web font.
-- Vendored file: `public/assets/fonts/touhou98.woff2`
+- Vendored file: `public/assets/fonts/touhou98.woff2`; the README wordmark at
+  `docs/assets/eagler-touhou-wordmark.svg` is derived from the same font.
 
 The ordinary site UI uses self-hosted subsets of Yatra One and
 ChillRoundGothic.
@@ -91,7 +92,7 @@ Brands collection referenced by the Mizuki frontend.
 - Purpose: identify the Bilibili, QQ group, and GitHub links in the site announcement.
 - Vendored files: `public/assets/notice-bilibili.svg`, `public/assets/notice-qq.svg`, `public/assets/notice-github.svg`
 
-`public/assets/notice-touhou-cloud.png` is the provider-published 车万云 mark
+`public/assets/notice-touhou-cloud.png` is the provider-published Touhou Cloud mark
 declared by `https://cloud.touhou.best/`. It is included for provider
 identification with permission confirmed by the project owner.
 

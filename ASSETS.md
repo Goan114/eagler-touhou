@@ -47,6 +47,10 @@ assembly and is not tracked as public source content.
 `font-touhou98@1.0.0`; the masthead wordmark `eagler☯touhou` uses it. Upstream
 project and license metadata are recorded in `THIRD_PARTY.md`.
 
+`docs/assets/eagler-touhou-wordmark.svg` stores the same `EAGLER☯TOUHOU`
+wordmark as font outlines for the repository README. Keeping the outlines local
+makes the README mark render consistently without loading a Web font.
+
 ## Announcement brand icons
 
 `assets/notice-bilibili.svg` is the Bilibili brand glyph taken from the exact
@@ -57,7 +61,7 @@ stored locally so the announcement does not depend on an icon CDN.
 `assets/notice-qq.svg` and `assets/notice-github.svg` use the `qq` and `github`
 glyphs from that same pinned package, with a light fill for the dark notice.
 
-`public/assets/notice-touhou-cloud.png` is the provider-published 车万云 icon
+`public/assets/notice-touhou-cloud.png` is the provider-published Touhou Cloud icon
 declared by `https://cloud.touhou.best/`. The project owner has confirmed
 permission to use this mark. It is stored locally so the provider
 acknowledgement remains recognizable in mirrors and offline packages.

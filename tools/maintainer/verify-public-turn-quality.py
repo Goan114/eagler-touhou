@@ -1,10 +1,11 @@
 import json
 import sys
-from playwright.sync_api import sync_playwright
 
 
 if len(sys.argv) < 2:
     raise SystemExit("usage: python tools/maintainer/verify-public-turn-quality.py <launcher-url>")
+from playwright.sync_api import sync_playwright
+
 URL = sys.argv[1]
 
 

@@ -90,7 +90,7 @@ and should not silently rebuild game Runtimes from source.
 ## Pull-request hygiene
 
 - Keep commits focused enough to review by ownership boundary.
-- Do not commit `node_modules`, `.cache`,
+- Do not commit `node_modules`, `.cache`, `.npm-cache`, `.deploy-python`,
   `dist`, `artifacts`, screenshots, private originals, or locally extracted
   game assets.
 - Run `git diff --check` before submitting.
@@ -99,10 +99,11 @@ and should not silently rebuild game Runtimes from source.
 
 ## Licensing and security
 
-The project currently has no published project-level license. Third-party
-licenses in `THIRD_PARTY.md`, `ASSETS.md`, or vendored files apply only to the
-components they describe and do not establish a license for the repository as
-a whole.
+Project-authored code and documentation are licensed under the repository's
+MIT License. Third-party code, fonts, icons and assets identified in
+`THIRD_PARTY.md`, `ASSETS.md`, vendored files or their adjacent notices remain
+under their respective licenses. Separate Runtime repositories are governed by
+their own license notices.
 
 A dedicated private vulnerability-reporting channel has not yet been
 published. Do not include sensitive exploit details, credentials, private game

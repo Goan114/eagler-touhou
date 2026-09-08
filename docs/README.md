@@ -81,6 +81,7 @@ source/configuration and regenerate it.
 Contribution workflow and engineering expectations are documented in
 [`CONTRIBUTING.md`](../CONTRIBUTING.md).
 
-The repository does not currently publish a project-level license or a private
-security-reporting channel. Those are maintainer policy decisions and must not
-be inferred from third-party licenses or from the repository being public.
+Project-authored code and documentation are licensed under the repository's
+MIT License. Third-party components and separate Runtime repositories remain
+under their own license notices. A private security-reporting channel has not
+yet been published and must not be inferred from the repository being public.

@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
-import { cp, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, resolve } from "node:path";
+import { resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { inspectHostWorkspace } from "../../lib/host-workspace.mjs";
 import { workspacePath } from "../../lib/workspace-layout.mjs";
@@ -24,6 +24,71 @@ async function fileExists(path) {
   try { return (await stat(path)).isFile(); } catch { return false; }
 }
 
+async function treeHasFileNewerThan(root, cutoff) {
+  let entries;
+  try {
+    entries = await readdir(root, { withFileTypes: true });
+  } catch (error) {
+    if (error?.code === "ENOENT") return false;
+    throw error;
+  }
+  for (const entry of entries) {
+    const path = resolve(root, entry.name);
+    if (entry.isDirectory()) {
+      if (await treeHasFileNewerThan(path, cutoff)) return true;
+    } else if (entry.isFile() && (await stat(path)).mtimeMs > cutoff) {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function reusableHostedBase(projectRoot, layout) {
+  let deployment;
+  try {
+    deployment = JSON.parse(await readFile(resolve(layout.site, "deployment.json"), "utf8"));
+  } catch {
+    return false;
+  }
+  if (deployment.format !== "eagler-touhou-deployment/1" ||
+      deployment.profile !== "web-validation-self-host" ||
+      deployment.resourceMode !== "hosted") return false;
+  const actualGames = Array.isArray(deployment.games)
+    ? [...new Set(deployment.games.map(value => String(value).toLowerCase()))].sort()
+    : [];
+  if (actualGames.join(",") !== [...GAMES].sort().join(",")) return false;
+  const actualMusic = Array.isArray(deployment.music)
+    ? [...new Set(deployment.music.map(value => String(value).toLowerCase()))].sort()
+    : [];
+  if (actualMusic.join(",") !== [...layout.music].sort().join(",")) return false;
+  const generatedAt = Date.parse(String(deployment.generatedAt || ""));
+  if (!Number.isFinite(generatedAt)) return false;
+  const provenancePath = resolve(projectRoot, "self-host-provenance.json");
+  if (existsSync(provenancePath)) {
+    try {
+      const provenance = JSON.parse(await readFile(provenancePath, "utf8"));
+      const releaseManifest = JSON.parse(await readFile(resolve(layout.site, "release-manifest.json"), "utf8"));
+      if (provenance.schema !== "eagler-touhou/self-host-bundle-provenance/1" ||
+          !provenance.launcherRepository || !provenance.launcherSource ||
+          JSON.stringify(releaseManifest.sources?.[provenance.launcherRepository]) !== JSON.stringify(provenance.launcherSource)) {
+        return false;
+      }
+    } catch {
+      return false;
+    }
+  }
+  for (const root of [layout.runtimeRelease, layout.shared, ...GAMES.map(game => layout.games[game])]) {
+    if (await treeHasFileNewerThan(root, generatedAt)) return false;
+  }
+  if (existsSync(layout.config) && (await stat(layout.config)).mtimeMs > generatedAt) return false;
+  const verification = await run(process.execPath, [script(projectRoot, "scripts/verify-server-build.mjs"), layout.site], {
+    cwd: projectRoot,
+    capture: true,
+    allowFailure: true,
+  });
+  return verification.code === 0;
+}
+
 async function resolveFonts(projectRoot, layout) {
   let unicode = layout.bundledFonts.unicode;
   if (!unicode) unicode = workspacePath("dependencies", "unifont-15.1.05", "unifont-15.1.05.otf");
@@ -36,7 +101,7 @@ async function resolveFonts(projectRoot, layout) {
   }
   if (!japanese) {
     japanese = unicode;
-    console.warn("[Host] Japanese runtime font is not bundled; using the Unicode font fallback");
+    console.warn("[Build] Japanese runtime font is not bundled; using the Unicode font fallback");
   }
   return Object.freeze({ unicode, japanese });
 }
@@ -67,7 +132,11 @@ async function prepareFeatureConfig(projectRoot, layout, resourceMode) {
 async function prepareLanguages(projectRoot, layout, python, thtk, font) {
   const languageRoot = resolve(layout.root, ".cache", "generated", "language-packs");
   const th06Archives = TH06_ARCHIVES.map(name => resolve(layout.games.th06, name));
+  let task = 0;
+  const total = 4;
   for (const language of ["lang_zh-hans", "lang_en"]) {
+    const label = language === "lang_zh-hans" ? "Simplified Chinese" : "English";
+    console.log(`[Languages ${++task}/${total}] TH06 ${label}`);
     await run(process.execPath, [
       script(projectRoot, "scripts/prepare-th06-language-pack.mjs"),
       "--game", "th06", "--language", language,
@@ -76,6 +145,7 @@ async function prepareLanguages(projectRoot, layout, python, thtk, font) {
       "--output", resolve(languageRoot, "th06"),
       "--font-file", font, "--font-python", python,
     ], { cwd: projectRoot });
+    console.log(`[Languages ${++task}/${total}] TH07 ${label}`);
     await run(process.execPath, [
       script(projectRoot, "scripts/prepare-th06-language-pack.mjs"),
       "--game", "th07", "--language", language,
@@ -85,6 +155,7 @@ async function prepareLanguages(projectRoot, layout, python, thtk, font) {
       "--font-file", font, "--font-python", python,
     ], { cwd: projectRoot });
   }
+  console.log("Default languages ready: Japanese / Simplified Chinese / English");
   return Object.freeze({
     th06: resolve(languageRoot, "th06"),
     th07: resolve(languageRoot, "th07"),
@@ -148,21 +219,21 @@ async function prepareOgg(projectRoot, layout, python) {
 export async function buildHostedSite({ projectRoot, hostRoot, music = "midi,ogg", python = "python" }) {
   const layout = await inspectHostWorkspace(hostRoot, { music });
   const modes = [...layout.music];
-  console.log("[Host 1/6] Preparing build environment");
+  console.log("[Build 1/6] Preparing build environment");
   const hostPython = await ensurePythonEnvironment({ projectRoot, hostRoot: layout.root, python });
   const thtk = await ensureThtk({ hostRoot: layout.root });
   const fonts = await resolveFonts(projectRoot, layout);
 
-  console.log("[Host 2/6] Preparing language packs");
+  console.log("[Build 2/6] Preparing language packs");
   const languages = await prepareLanguages(projectRoot, layout, hostPython, thtk, fonts.unicode);
-  console.log("[Host 3/6] Preparing Launcher artwork");
+  console.log("[Build 3/6] Preparing Launcher artwork");
   const artwork = await prepareArtwork(projectRoot, layout, hostPython);
   const th06DataAssets = await prepareTh06DataAssets(projectRoot, layout, hostPython, fonts);
-  console.log("[Host 4/6] Preparing music");
+  console.log("[Build 4/6] Preparing music");
   const ogg = modes.includes("ogg") ? await prepareOgg(projectRoot, layout, hostPython) : null;
   const features = await prepareFeatureConfig(projectRoot, layout, "hosted");
   try {
-    console.log("[Host 5/6] Assembling static site");
+    console.log("[Build 5/6] Assembling static site");
     const args = [
       script(projectRoot, "scripts/package-server.mjs"),
       `--output=${layout.site}`,
@@ -185,7 +256,7 @@ export async function buildHostedSite({ projectRoot, hostRoot, music = "midi,ogg
       for (const game of GAMES) args.push(`--${game}-ogg=${ogg[game]}`);
     }
     await run(process.execPath, args, { cwd: projectRoot });
-    console.log("[Host 6/6] Verifying generated site");
+    console.log("[Build 6/6] Verifying generated site");
     await run(process.execPath, [script(projectRoot, "scripts/verify-server-build.mjs"), layout.site], { cwd: projectRoot });
   } finally {
     await rm(features, { force: true });
@@ -193,13 +264,24 @@ export async function buildHostedSite({ projectRoot, hostRoot, music = "midi,ogg
   return Object.freeze({ layout, python: hostPython, thtk, fonts });
 }
 
-export async function buildImportArtifacts({ projectRoot, hostRoot, music = "midi,ogg", python = "python" }) {
-  const { layout } = await buildHostedSite({ projectRoot, hostRoot, music, python });
+export async function buildImportArtifacts({
+  projectRoot,
+  hostRoot,
+  music = "midi,ogg",
+  python = "python",
+  rebuildHostedBase = false,
+}) {
+  let layout = await inspectHostWorkspace(hostRoot, { music });
+  if (!rebuildHostedBase && await reusableHostedBase(projectRoot, layout)) {
+    console.log(`Reusing verified hosted base: ${layout.site}`);
+  } else {
+    ({ layout } = await buildHostedSite({ projectRoot, hostRoot, music, python }));
+  }
   const features = await prepareFeatureConfig(projectRoot, layout, "import");
   const packageTemporaryRoot = resolve(layout.dist, ".tmp");
   const packageStaging = resolve(packageTemporaryRoot, `import.staging-${randomUUID()}`);
   try {
-    console.log("[Import 1/3] Assembling import-only site");
+    console.log("[Import 1/3] Assembling import site");
     await run(process.execPath, [
       script(projectRoot, "scripts/package-server.mjs"),
       `--output=${layout.importSite}`,

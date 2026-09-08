@@ -9,7 +9,6 @@
   "scripts": {
     "host": "node host/build.mjs",
     "host:build": "node host/build.mjs --build-only",
-    "host:inspect": "node scripts/inspect-host.mjs",
     "host:doctor": "node scripts/inspect-host.mjs",
     "import": "node host/build-import.mjs"
   },

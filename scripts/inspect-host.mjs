@@ -3,10 +3,8 @@ import { existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ensureLauncherBuild } from "../lib/launcher-build.mjs";
 
 const project = resolve(fileURLToPath(new URL("..", import.meta.url)));
-await ensureLauncherBuild();
 const { inspectHostWorkspace } = await import("../lib/host-workspace.mjs");
 const args = Object.fromEntries(process.argv.slice(2).map(value => {
   const split = value.indexOf("=");
@@ -19,8 +17,8 @@ const postImport = args["post-import"] === "1" || args["post-import"] === "true"
 const colorEnabled = args.json !== "1" && args.json !== "true" &&
   process.env.NO_COLOR == null && process.env.TERM !== "dumb" &&
   (process.stdout.isTTY || (process.env.FORCE_COLOR != null && process.env.FORCE_COLOR !== "0"));
-const deploymentDoc = existsSync(join(root, "HOST-DEPLOYMENT.md"))
-  ? "HOST-DEPLOYMENT.md"
+const deploymentDoc = existsSync(join(root, "SELF-HOSTING-REFERENCE.md"))
+  ? "SELF-HOSTING-REFERENCE.md"
   : "docs/SELF_HOSTING_REFERENCE.md";
 
 const ansi = Object.freeze({ green: "\x1b[32m", yellow: "\x1b[33m", red: "\x1b[31m", reset: "\x1b[0m" });
@@ -60,11 +58,18 @@ function run(command, argv) {
 }
 
 function inspectBuildEnvironment() {
+  const nodeMajor = Number.parseInt(process.versions.node.split(".")[0], 10);
   const privatePython = process.platform === "win32"
     ? join(root, ".cache", "python", "Scripts", "python.exe")
     : join(root, ".cache", "python", "bin", "python");
-  const pythonCommand = existsSync(privatePython) ? privatePython : (args.python || "python");
-  const pythonProbe = run(pythonCommand, ["-c", "import sys; print('.'.join(map(str, sys.version_info[:3]))); raise SystemExit(0 if sys.version_info.major == 3 else 1)"]);
+  const configuredPython = args.python || "python";
+  const privateProbe = existsSync(privatePython)
+    ? run(privatePython, ["-c", "import sys; print('.'.join(map(str, sys.version_info[:3]))); raise SystemExit(0 if sys.version_info.major == 3 else 1)"])
+    : null;
+  const pythonCommand = privateProbe?.ok ? privatePython : configuredPython;
+  const pythonProbe = privateProbe?.ok
+    ? privateProbe
+    : run(configuredPython, ["-c", "import sys; print('.'.join(map(str, sys.version_info[:3]))); raise SystemExit(0 if sys.version_info.major == 3 else 1)"]);
   const privateReady = existsSync(privatePython) && run(privatePython, ["-c", "import fontTools, soundfile, PIL"]).ok;
 
   let thtk;
@@ -80,7 +85,10 @@ function inspectBuildEnvironment() {
   }
 
   return Object.freeze({
-    node: Object.freeze({ status: "OK", version: process.version }),
+    node: Object.freeze({
+      status: Number.isInteger(nodeMajor) && nodeMajor >= 22 ? "OK" : "UNSUPPORTED",
+      version: process.version,
+    }),
     python: Object.freeze({
       status: pythonProbe.ok ? "OK" : (pythonProbe.available ? "UNSUPPORTED" : "MISSING"),
       version: pythonProbe.ok ? pythonProbe.stdout : "",
@@ -136,10 +144,14 @@ try {
         }
       }
     }
-    const buildBlocked = buildEnvironment.python.status !== "OK" || buildEnvironment.thtk === "NOT INSTALLED" || !generatedOutputReady;
+    const buildBlocked = buildEnvironment.node.status !== "OK" || buildEnvironment.python.status !== "OK" ||
+      buildEnvironment.thtk === "NOT INSTALLED" || !generatedOutputReady;
     const status = buildBlocked ? "FAILED" : result.warnings.length ? "READY WITH WARNINGS" : "READY";
     console.log(`\n${"Result".padEnd(26)}${doctorValue(status)}`);
     if (buildBlocked || result.warnings.length) console.log("");
+    if (buildEnvironment.node.status !== "OK") {
+      console.log(bad("ERROR: Node.js 22 or newer is required for self-hosting."));
+    }
     if (buildEnvironment.python.status !== "OK") {
       console.log(bad("ERROR: Python 3 is required. Install Python and ensure it is available on PATH."));
     }

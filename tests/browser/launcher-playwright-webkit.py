@@ -646,60 +646,137 @@ def main() -> int:
                         "Emscripten managed DATA preload was not materialized: "
                         + json.dumps(managed_data, ensure_ascii=False)
                     )
-                multitouch = page.evaluate(
+
+                runtime.evaluate(
+                    """
+                    () => {
+                      globalThis.__eaglerDirectTouchProbe = [];
+                      if (globalThis.__eaglerDirectTouchProbeInstalled) return;
+                      globalThis.__eaglerDirectTouchProbeInstalled = true;
+                      addEventListener('message', event => {
+                        const message = event.data;
+                        if (message?.protocol !== 'eagler-touhou/1' || message?.command !== 'direct-touch') return;
+                        globalThis.__eaglerDirectTouchProbe.push({
+                          type: message.type,
+                          id: message.id,
+                          x: message.x,
+                          y: message.y,
+                        });
+                      });
+                    }
+                    """
+                )
+                simultaneous_move_focus = page.evaluate(
                     """
                     () => {
                       const surface = document.getElementById('touchDirectSurface');
                       const focus = document.getElementById('touchFocus');
                       const frame = document.getElementById('gameFrame');
                       if (!surface || !focus || !frame) throw new Error('touch regression controls missing');
-                      const sr = surface.getBoundingClientRect();
                       const fr = frame.getBoundingClientRect();
                       const br = focus.getBoundingClientRect();
-                      const pointer = (target, type, id, x, y, primary = false) => target.dispatchEvent(new PointerEvent(type, {
-                        bubbles: true,
-                        cancelable: true,
-                        pointerId: id,
-                        pointerType: 'touch',
-                        isPrimary: primary,
-                        clientX: x,
-                        clientY: y,
-                        buttons: type === 'pointerup' ? 0 : 1,
-                      }));
+                      const list = touches => ({
+                        length: touches.length,
+                        item: index => touches[index] ?? null,
+                      });
+                      const contact = (target, identifier, clientX, clientY) => ({
+                        target, identifier, clientX, clientY,
+                      });
+                      const dispatch = (target, type, touches) => {
+                        const event = new Event(type, { bubbles: true, cancelable: true });
+                        Object.defineProperty(event, 'changedTouches', { value: list(touches) });
+                        target.dispatchEvent(event);
+                        return event.defaultPrevented;
+                      };
                       const moveX = fr.left + fr.width * 0.60;
                       const moveY = fr.top + fr.height * 0.60;
-                      pointer(surface, 'pointerdown', 101, moveX, moveY, true);
-                      pointer(surface, 'pointermove', 101, moveX + 24, moveY - 12, true);
-                      pointer(focus, 'pointerdown', 102, br.left + br.width / 2, br.top + br.height / 2, false);
-                      const focusDuring = focus.getAttribute('aria-pressed') === 'true' && focus.classList.contains('is-on');
-                      pointer(surface, 'pointermove', 101, moveX + 48, moveY - 18, true);
-                      const focusAfterMove = focus.getAttribute('aria-pressed') === 'true' && focus.classList.contains('is-on');
-                      pointer(focus, 'pointerup', 102, br.left + br.width / 2, br.top + br.height / 2, false);
-                      const focusAfterRelease = focus.getAttribute('aria-pressed') === 'true' || focus.classList.contains('is-on');
-                      pointer(surface, 'pointerup', 101, moveX + 48, moveY - 18, true);
-                      return {
-                        surfaceHidden: surface.hidden,
-                        focusHidden: focus.hidden,
-                        surfaceWidth: sr.width,
-                        focusDuring,
-                        focusAfterMove,
-                        focusAfterRelease,
-                      };
+                      const focusX = br.left + br.width / 2;
+                      const focusY = br.top + br.height / 2;
+                      let frameFocusCalls = 0;
+                      Object.defineProperty(frame, 'focus', {
+                        configurable: true,
+                        value: () => { frameFocusCalls++; },
+                      });
+                      const prevented = [];
+                      try {
+                        prevented.push(dispatch(surface, 'touchstart', [contact(surface, 101, moveX, moveY)]));
+                        prevented.push(dispatch(surface, 'touchmove', [contact(surface, 101, moveX + 24, moveY - 12)]));
+                        prevented.push(dispatch(focus, 'touchstart', [contact(focus, 102, focusX, focusY)]));
+                        const focusDuring = focus.getAttribute('aria-pressed') === 'true' && focus.classList.contains('is-on');
+                        prevented.push(dispatch(surface, 'touchmove', [contact(surface, 101, moveX + 48, moveY - 18)]));
+                        const focusAfterMove = focus.getAttribute('aria-pressed') === 'true' && focus.classList.contains('is-on');
+                        prevented.push(dispatch(focus, 'touchend', [contact(focus, 102, focusX, focusY)]));
+                        const focusAfterRelease = focus.getAttribute('aria-pressed') === 'true' || focus.classList.contains('is-on');
+                        prevented.push(dispatch(surface, 'touchmove', [contact(surface, 101, moveX + 72, moveY - 24)]));
+                        prevented.push(dispatch(surface, 'touchend', [contact(surface, 101, moveX + 72, moveY - 24)]));
+                        return {
+                          surfaceHidden: surface.hidden,
+                          focusHidden: focus.hidden,
+                          surfaceWidth: surface.getBoundingClientRect().width,
+                          focusDuring,
+                          focusAfterMove,
+                          focusAfterRelease,
+                          frameFocusCalls,
+                          prevented,
+                        };
+                      } finally {
+                        delete frame.focus;
+                      }
                     }
                     """
                 )
+                page.wait_for_timeout(80)
+                simultaneous_move_focus_messages = runtime.evaluate(
+                    """() => globalThis.__eaglerDirectTouchProbe?.slice() || []"""
+                )
+                simultaneous_move_focus_types = [entry.get("type") for entry in simultaneous_move_focus_messages]
                 if (
-                    multitouch["surfaceHidden"]
-                    or multitouch["focusHidden"]
-                    or multitouch["surfaceWidth"] <= 0
-                    or not multitouch["focusDuring"]
-                    or not multitouch["focusAfterMove"]
-                    or multitouch["focusAfterRelease"]
+                    simultaneous_move_focus["surfaceHidden"]
+                    or simultaneous_move_focus["focusHidden"]
+                    or simultaneous_move_focus["surfaceWidth"] <= 0
+                    or not simultaneous_move_focus["focusDuring"]
+                    or not simultaneous_move_focus["focusAfterMove"]
+                    or simultaneous_move_focus["focusAfterRelease"]
+                    or simultaneous_move_focus["frameFocusCalls"] != 0
+                    or not all(simultaneous_move_focus["prevented"])
+                    or simultaneous_move_focus_types != ["down", "move", "move", "move", "up"]
                 ):
                     raise RuntimeError(
-                        "WebKit simultaneous direct-move + hold-focus regression failed: "
-                        + json.dumps(multitouch, ensure_ascii=False)
+                        "iOS direct-move + hold-focus ownership regression failed: "
+                        + json.dumps(
+                            {
+                                "ui": simultaneous_move_focus,
+                                "messages": simultaneous_move_focus_messages,
+                            },
+                            ensure_ascii=False,
+                        )
                     )
+
+                direct_tap_probe = None
+                if browserstack_enabled:
+                    runtime.evaluate("() => { globalThis.__eaglerDirectTouchProbe = []; }")
+                    tap_point = page.evaluate(
+                        """
+                        () => {
+                          const frame = document.getElementById('gameFrame');
+                          const rect = frame.getBoundingClientRect();
+                          return { x: rect.left + rect.width * 0.62, y: rect.top + rect.height * 0.58 };
+                        }
+                        """
+                    )
+                    page.touchscreen.tap(tap_point["x"], tap_point["y"])
+                    page.wait_for_timeout(120)
+                    page.touchscreen.tap(tap_point["x"], tap_point["y"])
+                    page.wait_for_timeout(120)
+                    direct_tap_probe = runtime.evaluate(
+                        """() => globalThis.__eaglerDirectTouchProbe?.slice() || []"""
+                    )
+                    direct_tap_types = [entry.get("type") for entry in direct_tap_probe]
+                    if direct_tap_types[-4:] != ["down", "up", "down", "up"]:
+                        raise RuntimeError(
+                            "iOS consecutive direct-touch taps did not reach Runtime: "
+                            + json.dumps(direct_tap_probe, ensure_ascii=False)
+                        )
                 post_release_frames = None
                 if args.game == "th08":
                     # iOS/WebKit can transiently drop canvas focus as the last
@@ -758,7 +835,11 @@ def main() -> int:
                     "localGeneration": local_generation,
                     "blockedRemotePackageRequests": len(blocked),
                     "managedData": managed_data,
-                    "simultaneousMoveFocus": multitouch,
+                    "simultaneousMoveFocus": {
+                        "ui": simultaneous_move_focus,
+                        "messages": simultaneous_move_focus_messages,
+                    },
+                    "directTouchTaps": direct_tap_probe,
                     "postReleaseFrames": post_release_frames,
                     "status": local_last["status"],
                     "capabilities": capabilities,

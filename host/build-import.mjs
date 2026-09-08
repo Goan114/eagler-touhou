@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ensureNodeDependencies } from "./lib/node-environment.mjs";
+import { inspectHostWorkspace } from "../lib/host-workspace.mjs";
+import { assertSupportedNode, ensureNodeDependencies } from "./lib/node-environment.mjs";
 import { run } from "./lib/process.mjs";
 
 const projectRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -21,10 +22,14 @@ const args = parseArgs(process.argv.slice(2));
 const hostRoot = resolve(String(args.root || projectRoot));
 const music = String(args.music || "midi,ogg");
 const python = String(args.python || process.env.PYTHON || "python");
+const rebuildHostedBase = !!args["rebuild-hosted-base"];
 
+assertSupportedNode();
+console.log("[Import] Validating self-host inputs and configuration");
+await inspectHostWorkspace(hostRoot, { music });
 await ensureNodeDependencies(projectRoot);
 const { buildImportArtifacts } = await import("./lib/site-builder.mjs");
-await buildImportArtifacts({ projectRoot, hostRoot, music, python });
+await buildImportArtifacts({ projectRoot, hostRoot, music, python, rebuildHostedBase });
 await run(process.execPath, [
   resolve(projectRoot, "scripts", "inspect-host.mjs"),
   `--root=${hostRoot}`, `--music=${music}`, "--post-import=1",

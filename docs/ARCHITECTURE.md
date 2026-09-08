@@ -165,7 +165,7 @@ Examples of already separated owners include:
   Runtime pack validation remain separate owners.
 - `src/launcher/music-availability.mts` - effective music-mode selection from
   audio/MIDI capability plus installed and remote OGG availability. Remote
-  continuation is revision-bound and import-only mode cannot invent a remote
+  continuation is revision-bound and import mode cannot invent a remote
   source; effective fallback never rewrites the persisted explicit preference.
   Download, decode, Package Store and Runtime lifecycle remain in `src/launcher/app.mts`.
 - `src/launcher/language-pack-validation.mts` - pure validation of unpacked

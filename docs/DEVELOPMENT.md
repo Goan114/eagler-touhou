@@ -1,14 +1,14 @@
-# 开发说明
+# Development
 
-开始跨模块修改前先阅读 `ARCHITECTURE.md`。它是当前系统边界、数据流和 contract 所有权的长期总览；`PRODUCT_SURFACE.md` 是正式支持功能面的单一清单，`../integrations/RUNTIME_CONTRACT.md` 定义 thcrap/thprac 的有限 Runtime 边界。本文件只负责开发环境、命令和维护流程，不重复维护架构清单。
+Read `ARCHITECTURE.md` before making cross-module changes. It is the long-lived overview of current system boundaries, data flow, and contract ownership. `PRODUCT_SURFACE.md` is the single list of formally supported product capabilities, and `../integrations/RUNTIME_CONTRACT.md` defines the bounded thcrap/thprac Runtime boundary. This document owns only the development environment, commands, and maintenance workflow; it does not duplicate the architecture inventory.
 
-开发站的本机源声明位于 `lib/development-content.mjs`，`lib/development-host-manifest.mjs` 从实际 Runtime、DATA 和音乐输入构造合法的 `web-development` Host Manifest。`npm start` 直接通过站点根下的 `/host-manifest.json` 端点提供它，同时提供合法的空 `release-catalog.json`。源码根不保存生成的 `games.json`；`npm run check` 会直接验证开发 Host Manifest contract。
+Local development content declarations live in `lib/development-content.mjs`. `lib/development-host-manifest.mjs` constructs a valid `web-development` Host Manifest from the actual Runtime, DATA, and music inputs. `npm start` serves it directly at the site-root `/host-manifest.json` endpoint and also serves a valid empty `release-catalog.json`. The source root does not store a generated `games.json`; `npm run check` validates the development Host Manifest contract directly.
 
-产品内容名称与 Runtime mount 位于不含本机路径的 `lib/content-definition.mjs`。维护者专用的 workspace、build profile、Runtime Release、publication 等 contract 也集中在 `lib/`。作者维护的 HTML、CSS、站点图片、字体和 vendored browser files 位于 `public/`，开发服务器把它映射到 URL 根；发布器仍按显式清单把这些文件装配到扁平 deployment root，不会把 `public/` 目录名带进产物。共享 application contract 与 Launcher TypeScript 源码分别位于 `src/contracts/`、`src/launcher/`，由 `tsconfig.launcher.json` 编译到 gitignored 的 `.cache/build/browser/assets/`；开发服务器把这些生成文件映射到稳定的 `/assets/contracts/`、`/assets/launcher/` URL，站点和 self-host bundle 打包器再复制到各自产物的 `assets/`。正式发布由 `lib/publication-host-seed.mjs` 提供无本机路径的 build-time seed，随后 package-server 物化并验证真正的 Host Manifest；日常使用者不需要手写这些内部参数。
+Product content names and Runtime mounts live in the machine-independent `lib/content-definition.mjs`. Maintainer-only workspace, build-profile, Runtime Release, publication, and related contracts are also centralized under `lib/`. Author-maintained HTML, CSS, site images, fonts, and vendored browser files live under `public/`, which the development server maps to the URL root. The publisher still assembles those files into a flat deployment root from an explicit manifest; the `public/` directory name never enters the artifact. Shared application contracts and Launcher TypeScript source live under `src/contracts/` and `src/launcher/`, respectively. `tsconfig.launcher.json` compiles them into the gitignored `.cache/build/browser/assets/`. The development server maps those generated files to stable `/assets/contracts/` and `/assets/launcher/` URLs, and the site and self-host bundle packagers copy them into their own `assets/` output. Formal publication starts from the machine-independent build-time seed in `lib/publication-host-seed.mjs`; the package server then materializes and validates the real Host Manifest. Ordinary users do not write these internal parameters manually.
 
-## 工作区
+## Workspace
 
-完整 Runtime 开发需要 sibling 源码工作区。物理目录名由 `config/workspace.json` 统一拥有；不要在 Node / Python / PowerShell 脚本里另写一份 sibling 路径表。
+Full Runtime development requires sibling source repositories. `config/workspace.json` exclusively owns their physical directory names; do not duplicate a sibling-path table in Node, Python, or PowerShell scripts.
 
 ```powershell
 mkdir eagler-touhou-workspace
@@ -22,7 +22,7 @@ git -C .\th06-eagler\vendored\SDL_ttf submodule update --init external/freetype 
 git -C .\th07-eagler\vendored\SDL_ttf submodule update --init external/freetype external/plutosvg external/plutovg
 ```
 
-目录结构：
+Expected layout:
 
 ```text
 workspace/
@@ -35,40 +35,40 @@ workspace/
 └─ toolchains/
 ```
 
-完整 Runtime 开发需要 Node.js 22 或更新版本、CMake、Ninja、Emscripten SDK 和 Python 3。普通 self-host 不需要 CMake/Ninja/Emscripten；其 Python 构建依赖由 `host/requirements.txt` 和 `host/lib/python-environment.mjs` 管理。
+Full Runtime development requires Node.js 22 or newer, CMake, Ninja, the Emscripten SDK, and Python 3. Ordinary self-hosting does not require CMake, Ninja, or Emscripten; its Python build dependencies are managed by `host/requirements.txt` and `host/lib/python-environment.mjs`.
 
-## 安装依赖与检查
+## Install dependencies and run checks
 
 ```powershell
 cd .\eagler-touhou
-npm install --ignore-scripts
+npm ci --ignore-scripts
 npm run vendor
 npm run build:launcher
 npm run check
 ```
 
-启动本地启动器：
+Start the local Launcher:
 
 ```powershell
 npm start
 ```
 
-打开 `http://127.0.0.1:8130/`。不能直接双击 `index.html`。
+Open `http://127.0.0.1:8130/`. Do not open `index.html` directly.
 
-卡片图和站点图标是部署者合法持有的 Host 输入，不属于公开 source。标准工作区可把已经准备好的 `th06-card.webp`、`th07-card.webp`、`th08-card.webp` 与 `th06.ico` 放在 `..\games\host-artwork\`；源码开发服务器会从该目录提供这些固定文件，但不会把它们复制进仓库。非标准布局使用 `EAGLER_TOUHOU_ARTWORK_DIR` 显式指定同一输入目录。正式 Host 仍由 Host assembly 从原版资源生成或通过 `--artwork-dir` 接收 override。
+Game-card artwork and the site icon are legally owned Host inputs supplied by the operator and are not public source. A standard workspace may place prepared `th06-card.webp`, `th07-card.webp`, `th08-card.webp`, and `th06.ico` files under `..\games\host-artwork\`. The source development server serves those fixed files from that directory without copying them into the repository. A non-standard layout specifies the same input directory explicitly through `EAGLER_TOUHOU_ARTWORK_DIR`. Formal Host assembly still generates artwork from original resources or accepts an override through `--artwork-dir`.
 
-## 构建运行时
+## Build Runtimes
 
-不含原版资源的源码构建检查：
+Run the resource-free source-build check:
 
 ```powershell
 .\tools\maintainer\build-workspace-runtimes.ps1 `
   -EmsdkDirectory '..\toolchains\emsdk'
 ```
 
-该模式输出到两个游戏仓库的 `build-web-eagler-external`，用于公开源码编译检查，不能直接启动游戏。
+This mode writes `build-web-eagler-external` in both game repositories. It verifies that public source compiles and cannot launch the games directly.
 
-本地可玩构建需要把合法持有的游戏资源嵌入到独立目录：
+A locally playable build embeds legally owned game resources in separate build directories:
 
 ```powershell
 .\tools\maintainer\build-workspace-runtimes.ps1 `
@@ -76,21 +76,21 @@ npm start
   -EmbedLocalAssets
 ```
 
-默认从 `..\th06-eagler\assets` 和 `..\th07-eagler\assets` 读取资源，输出到 `build-web-eagler-default`。也可以使用 `-Th06AssetDirectory` 和 `-Th07AssetDirectory` 指定目录。
+By default, resources are read from `..\th06-eagler\assets` and `..\th07-eagler\assets`, and output is written to `build-web-eagler-default`. Use `-Th06AssetDirectory` and `-Th07AssetDirectory` to specify other directories.
 
-需要完整站点验证时使用正式的 self-host/发布装配路径，而不是维护第二套“测试分发”拓扑。开发 Runtime 构建仍可作为显式输入参与各自的集成测试；正式候选只由 `npm run release` 的显式 `--output` 产生，普通 self-host 的验证站点位于 `dist/site`。
+Full-site verification uses the formal self-host/release assembly path instead of maintaining a second test-distribution topology. Development Runtime builds may still be explicit inputs to their respective integration tests. Only `npm run release` with an explicit `--output` produces a formal candidate; an ordinary self-host verification site lives at `dist/site`.
 
-新的可导入游戏包只使用 `eagler-touhou/package/1` Package Descriptor。维护者需要从已装配的站点生成离线 ZIP 时使用 `npm run package:offline-game -- <site> th06 [output.zip]`；旧 `game-data-pack/1` / `offline-game-pack/1` 只保留读取兼容，不再有生成命令。
+New importable game packages use only the `eagler-touhou/package/1` Package Descriptor. A maintainer can generate an offline ZIP from an assembled site with `npm run package:offline-game -- <site> th06 [output.zip]`. Historical `game-data-pack/1` and `offline-game-pack/1` formats remain read-compatible only and no longer have producer commands.
 
-`npm run package:runtime-release -- --output=PATH --th06-build=PATH --th06-multiplayer-build=PATH --th07-build=PATH --th07-multiplayer-build=PATH --th08-build=PATH` 是低层维护者 producer：它把五个已经完成并可追溯的 Runtime build 组装成 resource-free Runtime Release，并生成带尺寸和 SHA-256 的 `runtime-release.json`。它不构建 Runtime、不读取原版游戏内容，也不代替 `npm run release` 的正式站点装配与验收。
+`npm run package:runtime-release -- --output=PATH --th06-build=PATH --th06-multiplayer-build=PATH --th07-build=PATH --th07-multiplayer-build=PATH --th08-build=PATH` is a low-level maintainer producer. It assembles five completed and traceable Runtime builds into a resource-free Runtime Release and emits `runtime-release.json` with byte sizes and SHA-256 hashes. It neither builds a Runtime nor reads original game content, and it does not replace the formal site assembly and acceptance performed by `npm run release`.
 
-其它生成物分类与消费规则见 `docs/ARTIFACTS.md`。
+See `docs/ARTIFACTS.md` for the classification and consumption rules of other generated output.
 
-两个构建目录必须保持隔离。不要在同一 CMake 构建目录中来回切换 `TH_EXTERNAL_ASSETS`：CMake 会复用缓存，外置资源构建不会包含游戏档案。
+Keep the two build modes isolated. Do not toggle `TH_EXTERNAL_ASSETS` in one CMake build directory: CMake reuses cached configuration, and an external-resource build does not contain game archives.
 
-生成的 `.data` 等文件包含原版游戏资源，仅限本机或获授权的私有部署使用，不得提交或分发。
+Generated `.data` and similar files contain original game resources. They are restricted to local use or an authorized private deployment and must not be committed or distributed.
 
-## 常用验证
+## Routine verification
 
 ```powershell
 npm run check
@@ -103,36 +103,36 @@ npm run verify:deployed -- https://example.invalid/
 npm run verify:practice
 ```
 
-`npm run check` 是日常编辑循环的快速单仓门禁：只跑确定性的源码语法、生成物新鲜度、模块/格式/包契约和公开资源审计；不访问公网，不启动真实浏览器，不要求 sibling 游戏仓库或原版游戏资源。互不依赖的检查会有限并发执行；诊断并发问题时可设置 `EAGLER_CHECK_JOBS=1`。
+`npm run check` is the fast single-repository gate for the normal edit loop. It runs deterministic source syntax, generated-output freshness, module/format/package contracts, and public-resource audits. It does not access the public network, launch a real browser, require sibling game repositories, or require original game resources. Independent checks run with bounded concurrency; set `EAGLER_CHECK_JOBS=1` when diagnosing concurrency issues.
 
-`npm run check:workspace` 是显式的跨仓集成门禁，会额外读取 TH06/TH07/TH08 工作区状态并运行本地 Runtime/HTTP/格式集成。它也承载少量“结构本身就是 contract”的快速跨仓检查：共享 Runtime 协议词汇、ReplayX/EAGX ABI/PRAC ownership，以及 always-hitbox 不得污染 gameplay RNG/EffectManager 的安全边界。普通实现形状、浏览器、BrowserStack、完整 OGG baseline、公开网络、完整 Runtime 构建和正式 Release 验证继续保持为按需或发布前测试，不能因为“覆盖更多”就加入每次编辑后的默认 `check`。
+`npm run check:workspace` is the explicit cross-repository integration gate. It additionally reads the TH06/TH07/TH08 workspace state and runs local Runtime, HTTP, and format integrations. It also owns a small number of fast cross-repository checks where structure itself is the contract: shared Runtime protocol vocabulary, ReplayX/EAGX ABI and PRAC ownership, and the safety boundary that always-hitbox presentation must not alter gameplay RNG or `EffectManager`. Ordinary implementation shape, browser tests, BrowserStack, the full OGG baseline, public networking, complete Runtime builds, and formal Release verification remain on-demand or pre-release lanes; broader coverage alone is not a reason to add them to the default `check`.
 
-公开网络、公共 Relay/TURN 和性能 profiling 都属于 remote/ops lane。相关脚本必须显式接收目标 URL；仓库不会为这些命令内置 `touhou.vip` / `test.touhou.vip` 默认值。这样普通本地测试、误执行或 fork 项目不会因为省略参数而访问项目基础设施。
+Public-network, public Relay/TURN, and performance-profiling tasks belong to the remote/operations lane. Their scripts must receive an explicit target URL. Repository commands never embed `touhou.vip` or `test.touhou.vip` as defaults, preventing ordinary local tests, accidental invocation, or forks from contacting project infrastructure when a target is omitted.
 
-这些非 hermetic 维护者探针统一位于 `tools/maintainer/`，其输入、证据边界和对应命令见 `tools/maintainer/README.md`。它们不是普通自动化测试，也不是面向托管者的通用部署工具。
+These non-hermetic maintainer probes live under `tools/maintainer/`. Their inputs, evidence boundaries, and commands are documented in `tools/maintainer/README.md`. They are neither ordinary automated tests nor general deployment tools for self-host operators.
 
-`npm run verify:practice` 是独立的本机 browser/release acceptance lane。它使用临时 HTTPS/HTTP2、隔离且采用默认动效偏好的 Chrome/Chromium profile、合成 Host artwork 和无私有 DATA 的有效 Host Manifest，固定为 Lighthouse desktop、10 ms RTT、40 Mbps 吞吐的本机高速参考 profile。为控制 Lighthouse 的正常测量波动，正式 lane 默认采集五次，并使用 Lighthouse 自带的 `computeMedianRun` 选择代表性报告；它不会挑选最高分，输出也会列出每次 Performance 与 TBT。代表性报告必须让 Performance、Accessibility、Best Practices、SEO 及五项核心性能指标全部达到 100，并通过三条基于用户可见语义的 catalog、单机选择、联机入口浏览场景。默认报告写入操作系统临时目录；正式候选可用 `--report=PATH` 把报告写到仓库外的证据目录。该参考环境用于发现 Launcher 自身退化，不代替真实托管网络、正式 artwork、设备或公开发布验收。`--profile=standard --diagnostic=1` 可用 Lighthouse 标准 desktop 40 ms/10 Mbps profile 查看环境敏感基线，`--diagnostic=1` 也可查看参考 profile 未达门槛时的完整分数；调试时可用奇数 `--runs=1`、`3`、`5`、`7` 或 `9` 调整采样数，正式命令仍是五次采样的硬门禁。
+`npm run verify:practice` is an independent local browser/release acceptance lane. It uses temporary HTTPS/HTTP2, an isolated Chrome/Chromium profile with default motion preferences, synthetic Host artwork, and a valid Host Manifest without private DATA. Its fixed high-speed local reference profile uses Lighthouse desktop with 10 ms RTT and 40 Mbps throughput. To control normal Lighthouse measurement variance, the formal lane collects five runs and uses Lighthouse's own `computeMedianRun` to select the representative report; it never selects the highest score, and output lists every run's Performance score and TBT. The representative report must score 100 for Performance, Accessibility, Best Practices, SEO, and all five core performance metrics, and it must pass three catalog, single-player selection, and multiplayer-entry browsing scenarios based on user-visible semantics. Reports default to the operating system's temporary directory; a formal candidate may use `--report=PATH` to write evidence outside the repository. This reference environment detects Launcher regressions but does not replace real hosting, formal artwork, device, or public-release acceptance. Use `--profile=standard --diagnostic=1` for an environment-sensitive baseline with Lighthouse's standard 40 ms/10 Mbps desktop profile. `--diagnostic=1` also exposes complete scores when the reference profile misses a threshold. Debugging may use an odd `--runs=1`, `3`, `5`, `7`, or `9`; the formal command remains a hard five-run gate.
 
-`npm run test:runtime-release-host` 是显式的发布链 integration：它先生成 resource-free Runtime Release，再把 logical workspace 指向一个不含游戏源码仓的空目录，只依赖 Runtime Release 与显式原版输入组装并验证 Host。该测试比默认编辑门禁更重，因此不并入 `npm run check`。
+`npm run test:runtime-release-host` is an explicit release-chain integration. It first generates a resource-free Runtime Release, then points the logical workspace at an empty directory without game source repositories, and assembles and verifies a Host using only the Runtime Release and explicit original-resource inputs. This test is heavier than the default edit gate and therefore is not part of `npm run check`.
 
-`npm run test:multiplayer-replay-launcher:browser` 是聚焦的 Browser lane：它自行启动本地 HTTP 站并用同源最小 Runtime stub 捕获 Launcher 的真实 `configure`/`launch` 协议，只证明 Multiplayer Replay 选择 MP Runtime/storage identity、发送 `replayViewer: true` 且不夹带房间 `netplay*` 配置；它不依赖 Relay、WASM 或私有 DATA，也不冒充 Runtime Replay 播放测试。
+`npm run test:multiplayer-replay-launcher:browser` is a focused Browser lane. It starts its own local HTTP site and uses a same-origin minimal Runtime stub to capture the Launcher's real `configure`/`launch` protocol. It proves only that Multiplayer Replay selects the MP Runtime/storage identity, sends `replayViewer: true`, and includes no room `netplay*` configuration. It depends on neither Relay, WASM, nor private DATA and does not pretend to test Runtime Replay playback.
 
-`npm run test:multiplayer-spectator-launcher:browser` 是对应的旁观 Launcher 编排场景：两个原始 lobby 客户端只负责占用玩家席并开始一局，Launcher 必须在“仅未入座”状态收到 `start` 后保持不启动，只有显式加入旁观并收到 `spectator-start` 后才进入 Runtime；测试随后从真实 `configure` payload 验证 spectator 身份、人数和互斥 relay role query。真实 spectator gameplay/backlog/reconnect 仍由 Runtime/relay 自己的 browser/contract tests 负责。
+`npm run test:multiplayer-spectator-launcher:browser` is the corresponding spectator Launcher orchestration scenario. Two raw lobby clients occupy the player seats and start a game. After receiving `start` while merely unseated, the Launcher must remain stopped; it may enter the Runtime only after explicitly joining as a spectator and receiving `spectator-start`. The test then validates spectator identity, counts, and mutually exclusive relay-role query parameters from the real `configure` payload. Actual spectator gameplay, backlog, and reconnect behavior remain owned by Runtime/relay browser and contract tests.
 
-`npm run test:package-store:browser` 是 hermetic 的 Package Store/Installer Browser lane：它自行启动本地静态站并在真实 Chromium IndexedDB 中验证 ArrayBuffer canonicalization、bulk read、source lookup、GC/watchdog、AbortSignal/AbortError 传播、本地 ZIP 在 revision 相同场景仍使用用户提供的新字节、成功切换延后 GC，以及失败/尺寸错误更新不得切换 current generation 且必须清除 pending。它还通过真实 `installPublishedPackage()` 验证同一个 AbortSignal 从 Release Catalog 的 Descriptor fetch 一直传到 Package file fetch，取消后 current generation 不变。`tests/test-package-store-contract.mjs` 只保留无法靠普通成功/失败场景证明的 crash-atomic 结构边界：current/pending 切换必须发生在同一个 IndexedDB readwrite transaction 中；`npm run test:package-installer` 直接复用这条 Browser lane，不再保留空壳 source-shape test；`tests/test-package-launcher.mjs` 只保留 optional-component/carry-forward 等纯策略行为。
+`npm run test:package-store:browser` is the hermetic Package Store/Installer Browser lane. In real Chromium IndexedDB it validates ArrayBuffer canonicalization, bulk reads, source lookup, GC/watchdog behavior, AbortSignal/AbortError propagation, replacement with user-supplied bytes when a local ZIP has the same revision, GC only after a successful switch, and preservation of the current generation plus removal of pending state after failed or size-invalid updates. Through the real `installPublishedPackage()`, it also proves that one AbortSignal propagates from the Release Catalog Descriptor fetch through Package file fetches and that cancellation leaves the current generation unchanged. `tests/test-package-store-contract.mjs` retains only the crash-atomic structural boundary that ordinary success/failure scenarios cannot prove: current/pending must switch inside one IndexedDB readwrite transaction. `npm run test:package-installer` reuses this Browser lane directly and no longer retains an empty source-shape test. `tests/test-package-launcher.mjs` owns only pure policies such as optional components and carry-forward behavior.
 
-`npm run test:th06-netplay-launcher:browser` 是显式的跨仓 Browser lane：它从 `createDevelopmentHostManifest()` 取得当前开发 Runtime/DATA 身份，通过 dedicated `th06mp` 产品和真实 lobby room 启动两个 TH06MP Runtime，并强制走 Host-owned WebSocket fallback，验证至少推进到确认帧 300 且两端 canonical hash 一致。它依赖当前 TH06MP build，因此不进入默认 `npm run check`。
+`npm run test:th06-netplay-launcher:browser` is an explicit cross-repository Browser lane. It obtains current development Runtime/DATA identities from `createDevelopmentHostManifest()`, launches two TH06MP Runtimes through the dedicated `th06mp` product and a real lobby room, forces the Host-owned WebSocket fallback, and verifies progress through at least confirmed frame 300 with matching canonical hashes. It depends on the current TH06MP build and therefore is not part of the default `npm run check`.
 
-本地开发站默认不假定 Relay 已经运行。需要在普通 Launcher 中启用 TH06MP/TH07MP 时，启动服务前设置 `EAGLER_TOUHOU_NETPLAY_RELAY`，例如本机 Relay 使用 `ws://127.0.0.1:18142/`，或使用明确授权的测试 WSS。该值会进入开发 Host Manifest 并通过正式 URL contract 验证；不要把临时 Relay 地址写入产品目录。
+The local development site does not assume a Relay is running. To enable TH06MP/TH07MP in the ordinary Launcher, set `EAGLER_TOUHOU_NETPLAY_RELAY` before starting the server—for example, `ws://127.0.0.1:18142/` for a local Relay or an explicitly authorized test WSS. The value enters the development Host Manifest and passes the formal URL contract. Never write a temporary Relay address into the product catalog.
 
-测试的规范性准入规则由 `ARCHITECTURE.md` 的 **Testing architecture** 统一拥有。新增测试前先回答三个问题：它保护的稳定 invariant 是什么；能证明该 invariant 的最小测试边界是什么；如果实现保持行为不变而重构，这条断言是否仍应成立。答不清楚时不应先写测试再寻找理由。
+`ARCHITECTURE.md` exclusively owns normative test-admission rules under **Testing architecture**. Before adding a test, answer three questions: which stable invariant does it protect; what is the smallest boundary that can prove that invariant; and would the assertion remain valid after a behavior-preserving refactor? If those questions have no clear answers, do not write a test first and search for a justification later.
 
-针对特定功能的检查集中在 `tests/`。新的专用 Browser test entrypoint / runner 归入 `tests/browser/`；部分既有显式 Browser lanes 仍位于 `tests/` 根目录，必须继续由 `package.json` 的显式命令拥有，直到一次完整的测试布局迁移统一处理。旧的源码正则/布局锁只可视为迁移证据：它们没有 grandfathered 权威性。重构暴露出脆弱断言时，应先恢复真实 contract，再把覆盖迁到 owner behavior / repository integration / browser-device 等正确层级，然后删除或降级旧 change-detector test；不得为了维持旧测试绿色而保留错误模块边界。
+Feature-specific checks live under `tests/`. New dedicated Browser test entrypoints and runners belong under `tests/browser/`. Some established explicit Browser lanes remain at the test root and must continue to be owned by explicit `package.json` commands until one coherent test-layout migration moves them together. Old source-regex and layout locks are migration evidence only; they have no grandfathered authority. When a refactor exposes a brittle assertion, restore the real contract first, move coverage to the appropriate owner behavior, repository integration, browser/device, or other layer, and then delete or demote the old change-detector test. Never preserve an incorrect module boundary merely to keep an old test green.
 
-默认测试应当 hermetic、deterministic、可重复运行，不依赖公网、sleep timing、用户本机持久状态或未声明 sibling 内容。真实浏览器、WebKit/WebView、设备触控、公开网络和发布候选验证属于显式重型 lane；它们只用于小测试无法证明的性质，也不能反过来用源码 grep 冒充真实设备回归。
+Default tests must be hermetic, deterministic, and repeatable. They do not depend on the public network, sleep timing, persistent state from the user's machine, or undeclared sibling content. Real browsers, WebKit/WebView, device touch, public networking, and release-candidate verification are explicit heavy lanes used only for properties smaller tests cannot prove. Conversely, source grep cannot masquerade as a real-device regression test.
 
-## 运行时资源缺失
+## Missing Runtime resources
 
-如果游戏完成声音和输入初始化后立即退出，通常是运行时没有取得原版游戏档案。确认本地可玩构建使用 `TH_EXTERNAL_ASSETS=OFF`，并重新执行带 `-EmbedLocalAssets` 的构建。
+If a game exits immediately after sound and input initialization, the Runtime usually failed to obtain the original game archives. Confirm that the locally playable build uses `TH_EXTERNAL_ASSETS=OFF`, then rebuild with `-EmbedLocalAssets`.
 
-公开源码检查构建使用 `TH_EXTERNAL_ASSETS=ON`，不能直接供开发网页启动游戏。不要复制或提交 `.data` 解决资源缺失问题。
+The public source-build check uses `TH_EXTERNAL_ASSETS=ON` and cannot launch from the development site directly. Do not solve missing resources by copying or committing `.data`.

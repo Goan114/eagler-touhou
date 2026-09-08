@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "Browser Launcher and self-host site builder for Touhou Project 6-8 ports, with local packages, offline support, touch controls, and multiplayer.",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "repository": {
     "type": "git",
@@ -28,7 +29,6 @@
     "build:launcher": "node scripts/build-launcher.mjs --force",
     "host": "node host/build.mjs",
     "host:build": "node host/build.mjs --build-only",
-    "host:inspect": "node scripts/inspect-host.mjs",
     "host:doctor": "node scripts/inspect-host.mjs",
     "import": "node host/build-import.mjs",
     "relay": "node scripts/build-launcher.mjs && node server/netplay-relay.mjs",

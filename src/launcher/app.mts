@@ -84,6 +84,7 @@ import {
   postTouchControls as postRuntimeTouchControls,
 } from "./touch-runtime-protocol.mjs";
 import { createGameZoomController } from "./game-zoom.mjs";
+import type { GameZoomPointerInput } from "./game-zoom.mjs";
 import {
   allocateReplayName,
   isReplayFilePath,
@@ -3678,6 +3679,11 @@ function refocusGameIfNeeded() {
   // intentionally a no-op.  Do not force the Android Player -> Runtime focus
   // relay here; doing so on every fire/focus/bomb/escape input cancels active
   // pointer streams and causes visible frame hitches on mobile WebView.
+  // On iOS the gameplay finger is intentionally owned by the host document's
+  // direct-touch surface. Re-focusing the iframe while that TouchEvent sequence
+  // is still active can make WebKit terminate or re-route the gesture. HUD
+  // controls must only change their own state until the gameplay touches end.
+  if (iosWebKitTouch && directTouchPointers.size) return;
   if (document.activeElement !== frame) frame.focus({ preventScroll: true });
 }
 
@@ -6470,13 +6476,30 @@ function currentDirectTouchFrameRect(force = false) {
   return directTouchFrameRect;
 }
 
-function directTouchFramePoint(event: PointerEvent, forceRect = false) {
+function directTouchFramePoint(event: { clientX: number; clientY: number }, forceRect = false) {
   const rect = currentDirectTouchFrameRect(forceRect);
   if (!rect) return null;
   return {
     x: (event.clientX - rect.left) / rect.width,
     y: (event.clientY - rect.top) / rect.height,
   };
+}
+
+function directTouchZoomInput(touch: Touch): GameZoomPointerInput {
+  return {
+    pointerId: touch.identifier,
+    pointerType: "touch",
+    clientX: touch.clientX,
+    clientY: touch.clientY,
+    currentTarget: touchDirectSurface,
+  };
+}
+
+function forEachChangedTouch(event: TouchEvent, callback: (touch: Touch) => void) {
+  for (let index = 0; index < event.changedTouches.length; index++) {
+    const touch = event.changedTouches.item(index);
+    if (touch) callback(touch);
+  }
 }
 
 function postDirectTouch(type: DirectTouchType, touch: DirectTouchPoint) {
@@ -6492,7 +6515,7 @@ function cancelDirectTouches(notifyRuntime = true) {
 }
 
 touchDirectSurface.addEventListener("pointerdown", event => {
-  if (event.pointerType === "mouse" || touchDirectSurface.hidden || directTouchPointers.has(event.pointerId)) return;
+  if (iosWebKitTouch || event.pointerType === "mouse" || touchDirectSurface.hidden || directTouchPointers.has(event.pointerId)) return;
   const point = directTouchFramePoint(event, directTouchPointers.size === 0 || gameZoom.isActive());
   if (!point) return;
   event.preventDefault();
@@ -6504,6 +6527,7 @@ touchDirectSurface.addEventListener("pointerdown", event => {
 });
 
 touchDirectSurface.addEventListener("pointermove", event => {
+  if (iosWebKitTouch) return;
   const touch = directTouchPointers.get(event.pointerId);
   if (!touch) return;
   // The game iframe geometry is stable throughout normal gameplay. Re-reading
@@ -6520,6 +6544,7 @@ touchDirectSurface.addEventListener("pointermove", event => {
 });
 
 const releaseDirectTouch = (event: PointerEvent) => {
+  if (iosWebKitTouch) return;
   const touch = directTouchPointers.get(event.pointerId);
   if (!touch) return;
   event.preventDefault?.();
@@ -6534,6 +6559,58 @@ const releaseDirectTouch = (event: PointerEvent) => {
 touchDirectSurface.addEventListener("pointerup", releaseDirectTouch);
 touchDirectSurface.addEventListener("pointercancel", releaseDirectTouch);
 touchDirectSurface.addEventListener("lostpointercapture", releaseDirectTouch);
+
+touchDirectSurface.addEventListener("touchstart", event => {
+  if (!iosWebKitTouch || touchDirectSurface.hidden) return;
+  // On iOS a completed tap can synthesize compatibility mouse/click events and
+  // transfer focus away from the Runtime iframe. Own the native TouchEvent
+  // sequence instead: WebKit keeps that sequence targeted at the element that
+  // received touchstart, which avoids cross-frame PointerEvent capture quirks.
+  event.preventDefault();
+  forEachChangedTouch(event, contact => {
+    if (directTouchPointers.has(contact.identifier)) return;
+    const point = directTouchFramePoint(contact, directTouchPointers.size === 0 || gameZoom.isActive());
+    if (!point) return;
+    const touch = { id: nextDirectTouchId--, ...point };
+    directTouchPointers.set(contact.identifier, touch);
+    if (gameZoom.isActive()) gameZoom.beginPointer(directTouchZoomInput(contact));
+    postDirectTouch("down", touch);
+  });
+  runtimeDiagnosticState.directTouches = directTouchPointers.size;
+}, { passive: false });
+
+touchDirectSurface.addEventListener("touchmove", event => {
+  if (!iosWebKitTouch) return;
+  event.preventDefault();
+  forEachChangedTouch(event, contact => {
+    const touch = directTouchPointers.get(contact.identifier);
+    if (!touch) return;
+    const point = directTouchFramePoint(contact, gameZoom.isActive());
+    if (!point) return;
+    touch.x = point.x;
+    touch.y = point.y;
+    if (gameZoom.isActive()) gameZoom.movePointer(directTouchZoomInput(contact));
+    postDirectTouch("move", touch);
+  });
+}, { passive: false });
+
+const releaseIosDirectTouches = (event: TouchEvent) => {
+  if (!iosWebKitTouch) return;
+  event.preventDefault();
+  forEachChangedTouch(event, contact => {
+    const touch = directTouchPointers.get(contact.identifier);
+    if (!touch) return;
+    const point = directTouchFramePoint(contact, gameZoom.isActive());
+    if (point) { touch.x = point.x; touch.y = point.y; }
+    directTouchPointers.delete(contact.identifier);
+    if (gameZoom.isActive()) gameZoom.endPointer(directTouchZoomInput(contact));
+    postDirectTouch("up", touch);
+  });
+  runtimeDiagnosticState.directTouches = directTouchPointers.size;
+  if (!directTouchPointers.size) invalidateDirectTouchFrameRect();
+};
+touchDirectSurface.addEventListener("touchend", releaseIosDirectTouches, { passive: false });
+touchDirectSurface.addEventListener("touchcancel", releaseIosDirectTouches, { passive: false });
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") cancelDirectTouches(true);
 });
@@ -6555,6 +6632,7 @@ function setTouchFocus(value: boolean) {
 
 const touchFocusButton = $("#touchFocus");
 touchFocusButton.addEventListener("pointerdown", event => {
+  if (iosWebKitTouch) return;
   if (!state.launched || state.options.touchFocusMode === "two-finger") return;
   event.preventDefault();
   try { touchFocusButton.setPointerCapture(event.pointerId); } catch {}
@@ -6562,6 +6640,7 @@ touchFocusButton.addEventListener("pointerdown", event => {
   else void setTouchFocus(!touchControls.focusEnabled);
 });
 const releaseHeldTouchFocus = (event: PointerEvent) => {
+  if (iosWebKitTouch) return;
   if (state.options.touchFocusMode !== "hold-button") return;
   event?.preventDefault?.();
   void setTouchFocus(false);
@@ -6569,6 +6648,19 @@ const releaseHeldTouchFocus = (event: PointerEvent) => {
 touchFocusButton.addEventListener("pointerup", releaseHeldTouchFocus);
 touchFocusButton.addEventListener("pointercancel", releaseHeldTouchFocus);
 touchFocusButton.addEventListener("lostpointercapture", releaseHeldTouchFocus);
+touchFocusButton.addEventListener("touchstart", event => {
+  if (!iosWebKitTouch || !state.launched || state.options.touchFocusMode === "two-finger") return;
+  event.preventDefault();
+  if (state.options.touchFocusMode === "hold-button") void setTouchFocus(true);
+  else void setTouchFocus(!touchControls.focusEnabled);
+}, { passive: false });
+const releaseIosHeldTouchFocus = (event: TouchEvent) => {
+  if (!iosWebKitTouch || state.options.touchFocusMode !== "hold-button") return;
+  event.preventDefault();
+  void setTouchFocus(false);
+};
+touchFocusButton.addEventListener("touchend", releaseIosHeldTouchFocus, { passive: false });
+touchFocusButton.addEventListener("touchcancel", releaseIosHeldTouchFocus, { passive: false });
 touchFocusButton.addEventListener("click", event => {
   if (event.detail !== 0 || !state.launched || state.options.touchFocusMode !== "toggle-button") return;
   void setTouchFocus(!touchControls.focusEnabled);
