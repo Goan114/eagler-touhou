@@ -6,12 +6,13 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { PRODUCT_GAMES } from "../lib/contracts/product-catalog.mjs";
 import { formalReleaseSourceOwners, normalizeFormalReleaseInput } from "../lib/release-plan.mjs";
 
-const workspace = "C:/workspace";
-const inputDirectory = "C:/release-input";
+const workspace = resolve("workspace-fixture");
+const inputDirectory = resolve("release-input-fixture");
+const normalizationOptions = { inputDirectory, workspace, windir: resolve("windows-fixture") };
 const validInput = {
   schema: "eagler-touhou/release-input/1",
   prepare: {
@@ -23,21 +24,21 @@ const validInput = {
     Music: ["midi"],
   },
 };
-const plan = normalizeFormalReleaseInput(validInput, { inputDirectory, workspace, windir: "C:/Windows" });
+const plan = normalizeFormalReleaseInput(validInput, normalizationOptions);
 assert.deepEqual(plan.games, Object.keys(PRODUCT_GAMES));
 assert.equal(plan.prepare.Profile, "web-release-hosted");
 assert.deepEqual(plan.prepare.Games, Object.keys(PRODUCT_GAMES));
-assert.equal(plan.prepare.RuntimeRelease, "C:\\release-input\\runtime-release");
+assert.equal(plan.prepare.RuntimeRelease, resolve(inputDirectory, "runtime-release"));
 assert.deepEqual(formalReleaseSourceOwners(), ["launcher"]);
 
 assert.throws(() => normalizeFormalReleaseInput({ ...validInput, prepare: { ...validInput.prepare, RuntimeRelease: "" } }, {
-  inputDirectory, workspace,
+  ...normalizationOptions,
 }), /requires prepare\.RuntimeRelease/);
 assert.throws(() => normalizeFormalReleaseInput({ ...validInput, games: ["th07"] }, {
-  inputDirectory, workspace,
+  ...normalizationOptions,
 }), /must contain every registered product/);
 assert.throws(() => normalizeFormalReleaseInput({ ...validInput, prepare: { ...validInput.prepare, Th08Build: "build" } }, {
-  inputDirectory, workspace,
+  ...normalizationOptions,
 }), /belongs to maintainer Runtime compilation/);
 
 const root = await mkdtemp(join(tmpdir(), "eagler-release-entry-"));
