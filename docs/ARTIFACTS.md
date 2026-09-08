@@ -7,11 +7,11 @@
 | `release/` | `npm run release` 生成的完整候选 | 必须有 Release Manifest、checksums 和验证报告；发布仍需明确授权。 |
 | `validation/` | 测试站、浏览器报告、临时打包候选 | 可以重建；正式发布器不得扫描或隐式选取。 |
 | `fixtures/` | 人工审核过的稳定测试输入 | 测试只读；更新需同步说明其 contract。 |
-| `deploy/` | 部署与切换证据 | 记录目标、时间和对应 release identity。 |
+| `operations/` | 公网部署/切换等外部操作证据 | 记录目标、时间和对应 release identity；不作为源码或发布输入。 |
 | `snapshots/` | 外部或历史快照 | 必须记录来源和采集时间，不作为源码或 release 输入。 |
 | `tmp/` | 无长期证据价值的中间文件 | 正式构建禁止读取；允许在确认无使用者后清理。 |
 
-DATA 包、WebKit smoke、Runtime Storage、部署 Python bootstrap、工作树 inventory 和其它可重建集成结果使用 `validation/`。仓库不再维护独立的“测试分发”产品拓扑；需要站点级验证时复用正式 Host/发布装配路径。正式候选由 `npm run release -- --input=... --output=...` 写入一个尚不存在的显式目录。
+DATA 包、WebKit smoke、Runtime Storage、工作树 inventory 和其它可重建集成结果使用 `validation/`。仓库不再维护独立的“测试分发”产品拓扑；需要站点级验证时复用正式 self-host/发布装配路径。正式候选由 `npm run release -- --input=... --output=...` 写入一个尚不存在的显式目录。
 
 历史 `dist/`、`archive/temporary/` 和旧 `artifacts/` 内容不是兼容 API，正式构建不得从中隐式选取输入。完成交付后，这些可重建内容应移出项目目录或清理；需要长期保存的发布或验收证据必须进入明确的外部证据存储并记录对应 release identity。
 

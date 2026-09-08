@@ -1,7 +1,5 @@
 node_modules/
-.npm-cache/
 .cache/
-.deploy-python/
 *.admin-staging/
 server-output/
 private-assets/

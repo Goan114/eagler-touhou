@@ -5,8 +5,9 @@ import { publicTreePolicyViolation } from "../lib/public-tree-policy.mjs";
 
 assert.match(publicTreePolicyViolation("screenshots/mobile.png"), /not public source/);
 assert.match(publicTreePolicyViolation("debug.pid"), /ephemeral/);
-assert.match(publicTreePolicyViolation("deploy/server-features-customer.json"), /site-specific/);
-assert.equal(publicTreePolicyViolation("deploy/server-features-import.example.json"), "");
+assert.match(publicTreePolicyViolation("host/config/site-features.customer.json"), /site-specific/);
+assert.equal(publicTreePolicyViolation("host/config/site-features.default.json"), "");
+assert.equal(publicTreePolicyViolation("host/config/site-features.import.example.json"), "");
 assert.equal(publicTreePolicyViolation("tests/fixtures/reference.png"), "");
 
 const listed = spawnSync("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-z"], {

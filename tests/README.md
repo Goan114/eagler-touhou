@@ -35,7 +35,7 @@ deployment lanes that deliberately remain outside the default plan.
 
 Browser lanes must state whether they are hermetic, workspace-dependent,
 device-backed or remote. Public Relay/TURN probes and other live operational
-checks belong in `scripts/ops/`, not here. Fixed screenshots, local CDP
+checks belong in `tools/maintainer/`, not here. Fixed screenshots, local CDP
 profiles, one-machine timings and investigation transcripts are evidence for a
 specific run and should be stored outside the public source tree.
 

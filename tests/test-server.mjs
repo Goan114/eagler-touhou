@@ -14,7 +14,7 @@ const fixturePath = resolve(project, "tests", fixtureName);
 const artworkDirectory = await mkdtemp(resolve(tmpdir(), "eagler-server-artwork-"));
 const artworkFixture = Buffer.from("host-owned-card-artwork");
 await writeFile(resolve(artworkDirectory, "th06-card.webp"), artworkFixture);
-const nginxConfig = await readFile(resolve(project, "deploy", "nginx-eagler-touhou.conf"), "utf8");
+const nginxConfig = await readFile(resolve(project, "examples", "deployment", "nginx.conf"), "utf8");
 if (!nginxConfig.includes("absolute_redirect off;")) throw new Error("nginx redirects must remain relative behind private-port mirrors");
 if (!nginxConfig.includes('location ~* "\\.[a-f0-9]{24}\\.zip$" {')) throw new Error("nginx content-hash ZIP regex must stay quoted and syntactically valid");
 if (!nginxConfig.includes("woff|woff2|ttc|otf")) throw new Error("nginx versioned runtime-font cache rule must include OTF");

@@ -4,7 +4,7 @@
 
 开发站的本机源声明位于 `lib/development-content.mjs`，`lib/development-host-manifest.mjs` 从实际 Runtime、DATA 和音乐输入构造合法的 `web-development` Host Manifest。`npm start` 直接通过站点根下的 `/host-manifest.json` 端点提供它，同时提供合法的空 `release-catalog.json`。源码根不保存生成的 `games.json`；`npm run check` 会直接验证开发 Host Manifest contract。
 
-产品内容名称与 Runtime mount 位于不含本机路径的 `lib/content-definition.mjs`。维护者专用的 workspace、build profile、Runtime Release、publication 等 contract 也集中在 `lib/`。作者维护的 HTML、CSS、站点图片、字体和 vendored browser files 位于 `public/`，开发服务器把它映射到 URL 根；发布器仍按显式清单把这些文件装配到扁平 deployment root，不会把 `public/` 目录名带进产物。共享 application contract 与 Launcher TypeScript 源码分别位于 `src/contracts/`、`src/launcher/`，由 `tsconfig.launcher.json` 编译到 gitignored 的 `.cache/build/browser/assets/`；开发服务器把这些生成文件映射到稳定的 `/assets/contracts/`、`/assets/launcher/` URL，站点和 Host Kit 打包器再复制到各自产物的 `assets/`。正式发布由 `lib/publication-host-seed.mjs` 提供无本机路径的 build-time seed，随后 package-server 物化并验证真正的 Host Manifest；日常使用者不需要手写这些内部参数。
+产品内容名称与 Runtime mount 位于不含本机路径的 `lib/content-definition.mjs`。维护者专用的 workspace、build profile、Runtime Release、publication 等 contract 也集中在 `lib/`。作者维护的 HTML、CSS、站点图片、字体和 vendored browser files 位于 `public/`，开发服务器把它映射到 URL 根；发布器仍按显式清单把这些文件装配到扁平 deployment root，不会把 `public/` 目录名带进产物。共享 application contract 与 Launcher TypeScript 源码分别位于 `src/contracts/`、`src/launcher/`，由 `tsconfig.launcher.json` 编译到 gitignored 的 `.cache/build/browser/assets/`；开发服务器把这些生成文件映射到稳定的 `/assets/contracts/`、`/assets/launcher/` URL，站点和 self-host bundle 打包器再复制到各自产物的 `assets/`。正式发布由 `lib/publication-host-seed.mjs` 提供无本机路径的 build-time seed，随后 package-server 物化并验证真正的 Host Manifest；日常使用者不需要手写这些内部参数。
 
 ## 工作区
 
@@ -35,7 +35,7 @@ workspace/
 └─ toolchains/
 ```
 
-需要 Node.js 22 或更新版本、CMake、Ninja、Emscripten SDK 和 Python 3。生成 OGG 时还需要 `deploy/requirements.txt` 中的 Python 依赖。
+完整 Runtime 开发需要 Node.js 22 或更新版本、CMake、Ninja、Emscripten SDK 和 Python 3。普通 self-host 不需要 CMake/Ninja/Emscripten；其 Python 构建依赖由 `host/requirements.txt` 和 `host/lib/python-environment.mjs` 管理。
 
 ## 安装依赖与检查
 
@@ -62,7 +62,7 @@ npm start
 不含原版资源的源码构建检查：
 
 ```powershell
-.\scripts\Build-eagler-runtimes.ps1 `
+.\tools\maintainer\build-workspace-runtimes.ps1 `
   -EmsdkDirectory '..\toolchains\emsdk'
 ```
 
@@ -71,14 +71,14 @@ npm start
 本地可玩构建需要把合法持有的游戏资源嵌入到独立目录：
 
 ```powershell
-.\scripts\Build-eagler-runtimes.ps1 `
+.\tools\maintainer\build-workspace-runtimes.ps1 `
   -EmsdkDirectory '..\toolchains\emsdk' `
   -EmbedLocalAssets
 ```
 
 默认从 `..\th06-eagler\assets` 和 `..\th07-eagler\assets` 读取资源，输出到 `build-web-eagler-default`。也可以使用 `-Th06AssetDirectory` 和 `-Th07AssetDirectory` 指定目录。
 
-需要完整站点验证时使用正式的 Host/发布装配路径，而不是维护第二套“测试分发”拓扑。开发 Runtime 构建仍可作为显式输入参与各自的集成测试；正式候选只由 `npm run release` 的显式 `--output` 或 Quick Host 的 `dist/site` 产生。
+需要完整站点验证时使用正式的 self-host/发布装配路径，而不是维护第二套“测试分发”拓扑。开发 Runtime 构建仍可作为显式输入参与各自的集成测试；正式候选只由 `npm run release` 的显式 `--output` 产生，普通 self-host 的验证站点位于 `dist/site`。
 
 新的可导入游戏包只使用 `eagler-touhou/package/1` Package Descriptor。维护者需要从已装配的站点生成离线 ZIP 时使用 `npm run package:offline-game -- <site> th06 [output.zip]`；旧 `game-data-pack/1` / `offline-game-pack/1` 只保留读取兼容，不再有生成命令。
 
@@ -109,7 +109,7 @@ npm run verify:practice
 
 公开网络、公共 Relay/TURN 和性能 profiling 都属于 remote/ops lane。相关脚本必须显式接收目标 URL；仓库不会为这些命令内置 `touhou.vip` / `test.touhou.vip` 默认值。这样普通本地测试、误执行或 fork 项目不会因为省略参数而访问项目基础设施。
 
-这些非 hermetic 维护者探针统一位于 `scripts/ops/`，其输入、证据边界和对应命令见 `scripts/ops/README.md`。它们不是普通自动化测试，不应移回 `tests/`。
+这些非 hermetic 维护者探针统一位于 `tools/maintainer/`，其输入、证据边界和对应命令见 `tools/maintainer/README.md`。它们不是普通自动化测试，也不是面向托管者的通用部署工具。
 
 `npm run verify:practice` 是独立的本机 browser/release acceptance lane。它使用临时 HTTPS/HTTP2、隔离且采用默认动效偏好的 Chrome/Chromium profile、合成 Host artwork 和无私有 DATA 的有效 Host Manifest，固定为 Lighthouse desktop、10 ms RTT、40 Mbps 吞吐的本机高速参考 profile。为控制 Lighthouse 的正常测量波动，正式 lane 默认采集五次，并使用 Lighthouse 自带的 `computeMedianRun` 选择代表性报告；它不会挑选最高分，输出也会列出每次 Performance 与 TBT。代表性报告必须让 Performance、Accessibility、Best Practices、SEO 及五项核心性能指标全部达到 100，并通过三条基于用户可见语义的 catalog、单机选择、联机入口浏览场景。默认报告写入操作系统临时目录；正式候选可用 `--report=PATH` 把报告写到仓库外的证据目录。该参考环境用于发现 Launcher 自身退化，不代替真实托管网络、正式 artwork、设备或公开发布验收。`--profile=standard --diagnostic=1` 可用 Lighthouse 标准 desktop 40 ms/10 Mbps profile 查看环境敏感基线，`--diagnostic=1` 也可查看参考 profile 未达门槛时的完整分数；调试时可用奇数 `--runs=1`、`3`、`5`、`7` 或 `9` 调整采样数，正式命令仍是五次采样的硬门禁。
 

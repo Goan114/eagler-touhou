@@ -79,7 +79,7 @@ async () => {
                 source: `data/${game}.data`, target: `/${game}.data`, revision: 'data-r1', bytes: 1,
               },
               'ogg-1': {
-                source: `ogg/${game}_01.ogg`, target: `${musicMount}/${game}_01.ogg`, revision: 'ogg-r1', bytes: 1,
+                source: `ogg/${game}_01.ogg`, target: `${musicMount}/${game}_01.ogg`, revision: 'ogg-r1',
               },
               'ogg-2': {
                 source: `ogg/${game}_02.ogg`, target: `${musicMount}/${game}_02.ogg`, revision: 'ogg-r1', bytes: 1,
@@ -100,6 +100,59 @@ async () => {
           pendingGeneration: null,
         }, game);
       }
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+  } finally {
+    db.close();
+  }
+}
+"""
+
+
+RUNTIME_PROTOCOL_STUB = r"""<!doctype html>
+<meta charset="utf-8">
+<script>
+(() => {
+  const protocol = "eagler-touhou/1";
+  const game = location.pathname.match(/runtime-stub\/(th0[678])\.html/)?.[1] || "";
+  window.__eaglerTestMessages = [];
+  window.__eaglerTestWrites = [];
+  const FS = {
+    mkdirTree(path) {},
+    writeFile(path, data) {
+      window.__eaglerTestWrites.push({ path, bytes: Array.from(data) });
+    },
+  };
+  window.FS = FS;
+  window.Module = { FS, touhouMusicMode: "midi" };
+  window.addEventListener("message", event => {
+    const message = event.data || {};
+    if (event.origin !== location.origin || message.protocol !== protocol || message.game !== game) return;
+    window.__eaglerTestMessages.push(message);
+    event.source.postMessage({ protocol, game, request: message.request, ok: true }, event.origin);
+  });
+  window.parent.postMessage({ protocol, game, event: "ready" }, location.origin);
+})();
+</script>
+"""
+
+
+CORRUPT_LOCAL_OGG = """
+async () => {
+  const db = await new Promise((resolve, reject) => {
+    const request = indexedDB.open('eagler-touhou-package-store-v1', 1);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  try {
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('objects', 'readwrite');
+      tx.objectStore('objects').put(
+        { data: new ArrayBuffer(0), type: 'audio/ogg', bytes: 0 },
+        'obj-local-th06-ogg-0001',
+      );
       tx.oncomplete = resolve;
       tx.onerror = () => reject(tx.error);
       tx.onabort = () => reject(tx.error);
@@ -135,10 +188,11 @@ def main() -> int:
             def strip_published_ogg(route):
                 response = route.fetch()
                 manifest = response.json()
-                for game in manifest.get("games", {}).values():
+                for game_id, game in manifest.get("games", {}).items():
                     music = game.get("music") or {}
                     music.pop("ogg", None)
                     music.pop("wav", None)
+                    game["runtime"] = f"runtime-stub/{game_id}.html"
                 headers = {
                     key: value for key, value in response.headers.items()
                     if key.lower() not in {"content-length", "content-encoding"}
@@ -151,6 +205,11 @@ def main() -> int:
                 )
 
             page.route("**/host-manifest.json", strip_published_ogg)
+            page.route("**/release-catalog.json", lambda route: route.fulfill(status=404, body="not published in this test"))
+            page.route(
+                "**/runtime-stub/*.html*",
+                lambda route: route.fulfill(status=200, content_type="text/html", body=RUNTIME_PROTOCOL_STUB),
+            )
             page.goto(f"{origin}/", wait_until="load", timeout=30_000)
             try:
                 page.wait_for_function("() => window.__eaglerBoot?.done === true", timeout=30_000)
@@ -221,9 +280,61 @@ def main() -> int:
                 if not result["valueAfterRender"].startswith("ogg-"):
                     raise AssertionError(f"render reverted explicit local OGG selection: {result}")
 
+            page.locator('.game-th06:not(.game-multiplayer)').click()
+            page.wait_for_function("() => !document.getElementById('musicOption').hidden")
+            page.select_option("#musicSelect", "ogg-full")
+            page.locator("#launch").click()
+            page.wait_for_function(
+                "document.querySelector('#gameFrame')?.contentWindow?.__eaglerTestMessages?.some(message => message.command === 'launch')",
+                timeout=30_000,
+            )
+            runtime_result = page.locator("#gameFrame").evaluate("""frame => {
+              const runtime = frame.contentWindow;
+              return {
+                configure: runtime.__eaglerTestMessages.find(message => message.command === 'configure'),
+                writes: runtime.__eaglerTestWrites,
+                musicMode: runtime.Module.touhouMusicMode,
+              };
+            }""")
+            if runtime_result["configure"]["music"] != "midi":
+                raise AssertionError(f"local OGG must configure the Runtime barrier as MIDI first: {runtime_result}")
+            if runtime_result["musicMode"] != "ogg":
+                raise AssertionError(f"local OGG did not become the active Runtime mode: {runtime_result}")
+            if runtime_result["writes"] != [
+                {"path": "/bgm/th06_01.ogg", "bytes": [2]},
+                {"path": "/bgm/th06_02.ogg", "bytes": [3]},
+            ]:
+                raise AssertionError(f"local OGG Package objects were not installed into the Runtime FS: {runtime_result}")
+
+            page.goto(f"{origin}/", wait_until="load", timeout=30_000)
+            page.wait_for_function("() => window.__eaglerBoot?.done === true", timeout=30_000)
+            page.evaluate(CORRUPT_LOCAL_OGG)
+            page.reload(wait_until="load")
+            page.wait_for_function("() => window.__eaglerBoot?.done === true", timeout=30_000)
+            page.evaluate("document.querySelector('#changelogDialog')?.close()")
+            page.locator('.game-th06:not(.game-multiplayer)').click()
+            page.select_option("#musicSelect", "ogg-full")
+            page.locator("#launch").click()
+            page.wait_for_function(
+                "document.querySelector('#gameFrame')?.contentWindow?.__eaglerTestMessages?.some(message => message.command === 'launch')",
+                timeout=30_000,
+            )
+            fallback_result = page.locator("#gameFrame").evaluate("""frame => ({
+              musicMode: frame.contentWindow.Module.touhouMusicMode,
+              writes: frame.contentWindow.__eaglerTestWrites,
+            })""")
+            fallback_result["selectedMode"] = page.locator("#musicSelect").input_value()
+            fallback_result["toast"] = page.locator("#toast").inner_text()
+            if fallback_result["musicMode"] != "midi" or fallback_result["selectedMode"] != "midi":
+                raise AssertionError(f"corrupt local OGG did not produce one coherent MIDI fallback: {fallback_result}")
+            if "本次改用 MIDI" not in fallback_result["toast"]:
+                raise AssertionError(f"local OGG fallback was not explained to the user: {fallback_result}")
+
             print(json.dumps({
                 "musicSelectionBrowser": "PASS",
                 "hostPublishesOgg": False,
+                "runtimeLaunch": runtime_result,
+                "corruptLocalFallback": fallback_result,
                 "products": results,
             }, ensure_ascii=False))
             browser.close()

@@ -47,7 +47,7 @@ thcrap repository and patch formats.
   the Host/Launcher pipeline. This is a bounded adapter, not a claim that every
   upstream patch or language is compatible.
 
-Server-side conversion of original archive/message formats uses `thdat` and `thmsg` from thtk 12. The Quick Host Kit does not redistribute thtk. On Windows, the Host build downloads the pinned official thtk 12 release ZIP from the upstream GitHub release, verifies SHA-256 `f6acc00f377b6537e8d504794aec8445cb1e0d6490d2c89d56b3315677765154`, and stores it under the local `.cache/` build-tool cache. On non-Windows systems, `thdat` and `thmsg` must already be available on `PATH`.
+Server-side conversion of original archive/message formats uses `thdat` and `thmsg` from thtk 12. The self-host bundle does not redistribute thtk binaries. On Windows, the Host build downloads the pinned official thtk 12 release ZIP from the upstream GitHub release, verifies SHA-256 `f6acc00f377b6537e8d504794aec8445cb1e0d6490d2c89d56b3315677765154`, and stores it under the local `.cache/` build-tool cache. On non-Windows systems, `thdat` and `thmsg` must already be available on `PATH`.
 
 - Project: https://github.com/thpatch/thtk
 - License: 2-clause BSD-style license

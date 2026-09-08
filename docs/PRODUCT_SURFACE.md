@@ -104,7 +104,7 @@ Service Worker storage/offline model.
 
 - Japanese base game.
 - Host-selected thcrap language packages.
-- Quick Host default preparation of Japanese, Simplified Chinese and English.
+- Self-host default preparation of Japanese, Simplified Chinese and English.
 - Per-language font subset generation and packaging.
 - Selected language resources can travel inside offline/import packages.
 
@@ -143,7 +143,7 @@ not hard-coded deployment promises in this document.
 ### Deliberate limitations
 
 - Mid-game spectator join is not a formal supported capability.
-- TURN availability is server-managed and not guaranteed by a static Host Kit.
+- TURN availability is server-managed and not guaranteed by a static self-host site/bundle.
 - A Host without WebSocket Relay configuration remains valid, but loses that
   fallback path and should report it as a warning rather than a build failure.
 
@@ -167,13 +167,13 @@ A deployer may expose an administrator-provided external package/download link.
 The Launcher opens the configured source; absence of this setting is a normal
 optional warning, not a failed Host build.
 
-## Host Kit / Quick Host surface
+## Self-host surface
 
 Supported deployer workflow:
 
 ```text
 install Node.js + Python
-unpack Host Kit
+use a source checkout or unpack a self-host bundle
 place originals under games/
 edit eagler-touhou.config.json when needed
 npm run host
@@ -186,7 +186,7 @@ site assembly, Workbox generation and verification.
 `dist/site` is disposable output. `.cache` is intentionally reusable across
 rebuilds.
 
-Quick Import uses the same originals/Host assembly inputs and produces
+The Import build uses the same originals/self-host assembly inputs and produces
 installable package ZIPs; it is not a separate game-resource ownership tree.
 
 ## Compatibility-only surface
@@ -214,7 +214,7 @@ These are engineering/release facilities rather than player features:
 - BrowserStack/WebKit and other explicit browser gates;
 - publication audits and remote deployment probes.
 
-Ordinary Host Kit users should not need the Runtime source repositories or
+Ordinary self-host users should not need the Runtime source repositories or
 Emscripten toolchain.
 
 ## Change rule

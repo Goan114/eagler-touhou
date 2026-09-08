@@ -5,9 +5,9 @@ import { fileURLToPath } from "node:url";
 
 const project = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const explicitRemoteEntrypoints = [
-  "scripts/ops/verify-public-relay-fallback.mjs",
-  "scripts/ops/verify-public-targeted-relay.mjs",
-  "scripts/ops/verify-public-turn-quality.py",
+  "tools/maintainer/verify-public-relay-fallback.mjs",
+  "tools/maintainer/verify-public-targeted-relay.mjs",
+  "tools/maintainer/verify-public-turn-quality.py",
 ];
 
 for (const file of explicitRemoteEntrypoints) {

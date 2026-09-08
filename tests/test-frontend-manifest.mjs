@@ -76,6 +76,8 @@ assert.ok(FRONTEND_PACKAGE_FILES.every(path => !/(?:^|\/)th0[678]-card\.webp$/i.
 assert.deepEqual(hostArtworkFiles(["th06", "th07", "th08"]), [
   "th06-card.webp", "th06.ico", "th07-card.webp", "th08-card.webp",
 ]);
+assert.deepEqual(hostArtworkFiles(["th07"]), ["th07-card.webp", "th06.ico"],
+  "the site favicon is required even when TH06 is not a selected product");
 assert.match(
   relative(project, resolveFrontendPackageSource("assets/launcher/app.mjs")).replaceAll("\\", "/"),
   /^\.cache\/build\/browser\/assets\/launcher\/app\.mjs$/,

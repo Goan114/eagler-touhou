@@ -4,7 +4,7 @@
 ![Node.js >=22](https://img.shields.io/badge/Node.js-%3E%3D22-43853d)
 ![Python 3](https://img.shields.io/badge/Python-3-3776ab)
 
-`eagler-touhou` 是一个在 Web 上运行东方 Project 原作移植版的启动器、浏览器本地游戏包管理器与部署工具集。
+`eagler-touhou` 是一个在 Web 上运行东方 Project 原作移植版的启动器、浏览器本地游戏包管理器与自托管站点生成工具。
 
 在保证原作体验的基础上，提供 触控适配 + 个性化布局、thprac 适配、多语言（基于 thcrap）、存档和 Replay 管理、多人联机大厅。
 在安全上下文条件下，启动器网页**可以被离线运行**。在玩家离线或服务器宕机时，玩家即使刷新了页面也可以使用 Service Worker 提供的缓存文件正常进行游戏。
@@ -18,9 +18,9 @@
 | 了解当前正式支持什么 | [Product surface](docs/PRODUCT_SURFACE.md) |
 | 看模块、数据流、离线与发布架构 | [Architecture](docs/ARCHITECTURE.md) |
 | 本地开发与验证 | [Development](docs/DEVELOPMENT.md) · [Contributing](CONTRIBUTING.md) |
-| 用原版游戏目录快速生成可部署站点 | [Quick Host](docs/HOST_QUICKSTART.md) |
-| 维护 Host Kit / 静态部署 | [Host deployment](docs/HOST_DEPLOYMENT.md) |
-| 正式 Release、服务器/CDN、HTTP→HTTPS 与 HSTS | [Server deployment](docs/SERVER_DEPLOYMENT.md) |
+| 用原版游戏目录生成可部署的自托管站点 | [Self-hosting](docs/SELF_HOSTING.md) |
+| 自托管配置、Import、Relay / TURN 与 Web Server 要求 | [Self-hosting reference](docs/SELF_HOSTING_REFERENCE.md) |
+| 正式 Release、HTTP→HTTPS / HSTS 与公网行为验证 | [Release engineering](docs/RELEASE.md) |
 | 浏览全部工程文档和仓库目录职责 | [Documentation index](docs/README.md) |
 
 README 只保留面向使用者和新贡献者的概览，不作为第二份架构或功能 contract。
@@ -103,27 +103,24 @@ npm start
 
 本地可玩构建还需要 CMake、Ninja、Emscripten SDK、Python 3，以及合法持有的 TH06 / TH07 游戏文件。完整构建说明见[开发说明](docs/DEVELOPMENT.md)。
 
-## 服务器部署
+## 自托管
 
-绝大多数部署不需要填写 feature 配置或编译 Runtime。推荐使用固定的 Quick Host 布局：Host Kit 根目录直接包含 `runtime-release/`（TH06/07 普通+多人以及 TH08 的 HTML/JS/WASM 成品）、`games/th06`、`games/th07`、`games/th08` 与 `eagler-touhou.config.json`。直接运行 `npm run host` 即可；首次缺少锁定依赖时它会自动执行 `npm ci`。它会生成 hosted 站点并默认只在 `127.0.0.1:8130` 提供服务；`npm run host:build` 只生成同一份可直接上传公网服务器的静态 `dist/site`。详见 [Quick Host](docs/HOST_QUICKSTART.md)。
+普通自托管只需要 Node.js 22+、Python 3、一个经过验证且不含原版资源的 `runtime-release/`，以及部署者合法持有的 TH06 / TH07 / TH08 原版目录。公开自托管入口由 Node 驱动，不要求 PowerShell、CMake、Ninja、Emscripten 或 Runtime 源码仓库。
+
+固定输入布局是 `runtime-release/`、`games/th06`、`games/th07`、`games/th08` 和可选的 `eagler-touhou.config.json`。运行：
+
+```text
+npm run host:build   # 生成并验证 dist/site
+npm run host         # 生成同一站点后在 127.0.0.1:8130 本地提供服务
+npm run import       # 生成 import-only 站点和三作可导入 ZIP
+```
+
+首次缺少锁定 Node 依赖时 Host 会自动执行 `npm ci`；Python 构建依赖安装在自托管根目录的 `.cache/python/`。Windows 上 thtk 12 从官方 release 下载并校验 SHA-256；其它平台使用 PATH 中的 `thdat` / `thmsg`。详见 [Self-hosting](docs/SELF_HOSTING.md)。
 
 部署者可以选择两种资源模式：
 
 - `hosted`：服务器提供启动器、运行组件和由部署者生成的游戏资源；
 - `import`：服务器提供启动器和运行组件，玩家自行导入完整游戏包；该模式不发布游戏内容、Runtime 更新或 Release Catalog 条目。
-
-正式 Host 的正常输入是一个**不含任何原版游戏资源**的 all-product Runtime Release，加上部署者自己合法持有的三作原版资源。Host 组装不要求部署者另外取得 TH06 / TH07 / TH08 Runtime 源码仓或重新编译 Runtime：
-
-```powershell
-python -m pip install -r .\deploy\requirements.txt
-.\deploy\Prepare-eagler-touhou-server.ps1 `
-  -RuntimeRelease 'D:\Releases\runtime-release' `
-  -Th06Directory 'D:\Games\th06' `
-  -Th07Directory 'D:\Games\th07' `
-  -Th08Directory 'D:\Games\th08' `
-  -OutputDirectory 'D:\Sites\eagler-touhou' `
-  -Music midi,ogg
-```
 
 Runtime Release 只包含本项目可分发的 HTML / JavaScript / WebAssembly 与资源布局元数据，不包含 `.data`、原版 `.dat`、原版音乐、从原作提取的卡图/图标或其它原作资源。缺少非必要 UI 素材时只降级对应界面功能，不应使游戏内容部署整体失败。
 
@@ -134,7 +131,7 @@ npm run package:offline-game -- D:\Sites\eagler-touhou th06
 npm run package:offline-game -- D:\Sites\eagler-touhou th07
 ```
 
-服务器可以配置语言包、`thprac`、外部游戏数据备用地址，以及外部或本地的 WebSocket Relay / TURN。完整的资源模式、语言包、缓存、HTTPS、原子发布和 HTTP → HTTPS 数据迁移说明见[服务器部署说明](docs/SERVER_DEPLOYMENT.md)。
+站点可以配置语言包、`thprac`、外部游戏数据备用地址和 WebSocket Relay；TURN 由联机服务自行管理。完整的资源模式、语言包、缓存、HTTP → HTTPS 数据迁移和服务器行为要求见[自托管参考](docs/SELF_HOSTING_REFERENCE.md)与[Release engineering](docs/RELEASE.md)。
 
 正式站点应使用 HTTPS，并正确提供 `.wasm`、JavaScript、字体和音频的 MIME 类型。发布时应先生成并验证完整目录，再以原子方式切换版本，避免玩家拿到互不匹配的 HTML、JS、WASM 或 DATA。
 
@@ -172,7 +169,7 @@ npm run audit:publish
 
 公开源码检查构建不含游戏资源，只能使用 `build-web-eagler-external`；本地可玩构建必须使用 `-EmbedLocalAssets` 生成 `build-web-eagler-default`。不得在同一 CMake 构建目录中切换 `TH_EXTERNAL_ASSETS`。
 
-运行时、多人、Replay、触控、游戏包和部署测试见 `tests/`。新的专用 Browser test entrypoint / runner 归入 `tests/browser/`；部分既有显式 Browser lanes 仍保留在 `tests/` 根目录，等待一次完整的测试布局迁移，而不是逐个制造路径 churn。构建与发布工具仍位于 `scripts/`。宿主与游戏之间的消息协议版本为 `eagler-touhou/1`。
+运行时、多人、Replay、触控、游戏包和站点测试见 `tests/`。新的专用 Browser test entrypoint / runner 归入 `tests/browser/`；部分既有显式 Browser lanes 仍保留在 `tests/` 根目录，等待一次完整的测试布局迁移，而不是逐个制造路径 churn。普通自托管入口位于 `host/`，可复用 Node 工具位于 `scripts/` / `lib/`，仅项目维护者使用的发布与公网探针位于 `tools/maintainer/`。宿主与游戏之间的消息协议版本为 `eagler-touhou/1`。
 
 ## 上游项目、素材与许可
 

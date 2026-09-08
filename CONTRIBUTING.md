@@ -90,7 +90,7 @@ and should not silently rebuild game Runtimes from source.
 ## Pull-request hygiene
 
 - Keep commits focused enough to review by ownership boundary.
-- Do not commit `node_modules`, `.cache`, `.npm-cache`, `.deploy-python`,
+- Do not commit `node_modules`, `.cache`,
   `dist`, `artifacts`, screenshots, private originals, or locally extracted
   game assets.
 - Run `git diff --check` before submitting.

@@ -1,12 +1,14 @@
 # Maintainer commands
 
-`scripts/` contains executable maintainer/CI entrypoints. Reusable policy and
+`scripts/` contains portable product build, packaging, verification, and CI
+entrypoints. Reusable policy and
 assembly logic should live in `lib/`; automated tests live in `tests/`.
+Machine-, account-, or maintainer-infrastructure-specific utilities belong in
+`tools/maintainer/`, not in this portable command surface.
 
 The directory is intentionally flat by default. A subdirectory is introduced
-only when it represents a real operational subsystem rather than merely a file
-category. `ops/` is the current example: it contains live/public probes that
-cannot be part of hermetic repository checks.
+only when it represents a real product/build subsystem rather than merely a
+file category.
 
 ## Command families
 
@@ -14,8 +16,10 @@ cannot be part of hermetic repository checks.
 - `package-*`, `release.mjs` - artifact producers;
 - `verify-*`, `audit-*`, `check.mjs` - verification and publication gates;
 - `serve*.mjs` - local development/static serving;
-- `resolve-*`, `inspect-*`, `list-*`, `write-*` - thin maintainer adapters;
-- `ops/` - explicit public-network/live operational verification.
+- `resolve-*`, `inspect-*`, `list-*`, `write-*` - thin CLI adapters;
+
+Live/public maintainer probes are deliberately documented separately in
+[`tools/maintainer/`](../tools/maintainer/README.md).
 
 Prefer the stable npm entrypoints documented in the root README and
 `docs/README.md` for normal workflows. Tests already scheduled by

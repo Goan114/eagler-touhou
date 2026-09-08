@@ -90,8 +90,8 @@ try {
     try {
       launcherSource = await sourceIdentity(project);
     } catch {
-      const provenance = JSON.parse(await readFile(resolve(project, "host-kit-provenance.json"), "utf8"));
-      if (provenance.schema !== "eagler-touhou/host-kit-provenance/1" ||
+      const provenance = JSON.parse(await readFile(resolve(project, "self-host-provenance.json"), "utf8"));
+      if (provenance.schema !== "eagler-touhou/self-host-bundle-provenance/1" ||
           provenance.launcherRepository !== WORKSPACE_REPOSITORIES.launcher ||
           !provenance.launcherSource || typeof provenance.launcherSource !== "object") {
         throw new Error("cannot identify Launcher source for refreshed release provenance");

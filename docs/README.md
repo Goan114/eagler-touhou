@@ -16,13 +16,12 @@ deployment, and verification.
 
 ## Hosting and deployment
 
-- [Quick Host](HOST_QUICKSTART.md) - shortest supported path for an operator
+- [Self-hosting](SELF_HOSTING.md) - shortest supported path for an operator
   with a Runtime Release and legally-owned TH06/TH07/TH08 installations.
-- [Host deployment](HOST_DEPLOYMENT.md) - Host Kit inputs, generated static
+- [Self-hosting reference](SELF_HOSTING_REFERENCE.md) - self-host inputs, generated static
   site, resource modes, WebSocket relay/TURN configuration, and updates.
-- [Server deployment](SERVER_DEPLOYMENT.md) - maintainer release candidates,
-  server/CDN requirements, atomic rollout, HTTP-to-HTTPS migration, and the
-  final HSTS cutover.
+- [Release engineering](RELEASE.md) - maintainer release candidates,
+  HTTP-to-HTTPS migration/HSTS contracts and public behavior verification.
 
 These documents intentionally serve different audiences. Do not duplicate
 their content just to make each document standalone: link to the owning
@@ -44,16 +43,18 @@ document instead.
 | `public/` | Source-controlled Web surface: HTML, CSS, manifest, static fonts/assets, vendored browser files, and tiny browser entry facades. |
 | `src/launcher/` | Authoritative Launcher TypeScript implementation. |
 | `src/contracts/` | Typed browser-visible metadata and protocol contracts. |
-| `src/browser-facades/` | Generated-delivery/browser-facing contract facades built from the typed contract owners. |
+| `src/browser-facades/` | Tracked compatibility/publication facades for browser-facing contract URLs; they re-export the typed contract owners and are not TypeScript-generated source. |
 | `src/app-shell-sw.js` | Service Worker source. Generated App Shell output does not live here. |
 | [`package/`](../package/README.md) | Browser Package Store, package generation/install/ZIP subsystem. This is product code, not npm metadata. |
 | `legacy/` | Deliberately bounded read/migration compatibility for previously published data formats. New writes do not target legacy formats. |
 | [`lib/`](../lib/README.md) | Reusable Node-side build, release, verification, and contract adapters. Reusable code belongs here rather than in CLI scripts. |
 | `server/` | Standalone relay/TURN-side server code and server configuration helpers. |
 | `integrations/` | External integration adapters such as thprac. |
-| [`scripts/`](../scripts/README.md) | Maintainer CLI entrypoints. Live/public operational probes are isolated under `scripts/ops/`. |
+| `host/` | Portable Node self-host entrypoints, pinned content-preparation inputs, Python requirements, and self-host bundle template. |
+| [`scripts/`](../scripts/README.md) | Portable product build, packaging, verification, and CI entrypoints. |
+| [`tools/maintainer/`](../tools/maintainer/README.md) | Project-maintainer-only Runtime/release/bundle adapters and live infrastructure probes; not a self-host API. |
 | `tests/` | Repository and workspace tests. New dedicated Browser entrypoints/runners belong under `tests/browser/`; established explicit Browser lanes may remain at the test root until a coherent layout migration. Shared fixtures/helpers live under `tests/support/`. |
-| `deploy/` | Host Kit, release/deployment adapters, templates, and first-install server material. |
+| [`examples/deployment/`](../examples/deployment/README.md) | Non-authoritative Web-server examples for serving an already generated site. |
 | `config/` | Canonical workspace and build-policy registries. |
 
 The root `host-manifest.mjs`, `product-catalog.mjs`, `release-catalog.mjs`,
@@ -67,7 +68,7 @@ Generated or machine-local content must not become a second source tree:
 
 - `.cache/build/browser/` - compiled Launcher/browser modules;
 - `.cache/` - other reproducible build caches;
-- `.npm-cache/`, `node_modules/`, `.deploy-python/` - local dependency state;
+- `node_modules/` - local Node dependency state;
 - `dist/` - generated Host/Import output;
 - `artifacts/` - release candidates, validation evidence, and temporary
   operational outputs.

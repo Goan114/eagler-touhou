@@ -430,7 +430,7 @@ WebRTC peer connection
         +-- WebSocket Relay fallback when configured
 ```
 
-Relay services are operational/server infrastructure, not static Host Kit
+Relay services are operational/server infrastructure, not static self-host bundle
 content. Host configuration may point at a WebSocket Relay; TURN remains
 server-managed rather than pretending to be a static-site setting.
 
@@ -451,18 +451,20 @@ Runtime Release is the normal deployer-facing Runtime input. It contains
 project-distributable Runtime HTML/JS/WASM and layout metadata, but no original
 game DATA/music/artwork.
 
-### Quick Host / Host Kit
+### Self-host workflow / bundle
 
-Host Kit is a distributable product boundary, not a source checkout snapshot.
-`lib/host-kit-manifest.mjs` explicitly owns the files and npm dependencies that
-may cross that boundary.
+The self-host bundle is a distributable product boundary, not a source checkout
+snapshot. `lib/self-host-bundle.mjs` explicitly owns the files and npm
+dependencies that may cross that boundary. Ordinary self-host commands are
+Node entrypoints under `host/`; the bundle must not require PowerShell or ship
+`tools/maintainer/`.
 
 Persistent user/deployer inputs are principally:
 
 ```text
 games/
 eagler-touhou.config.json
-runtime-release/        # shipped with the Host Kit release
+runtime-release/        # shipped with the self-host bundle release
 ```
 
 Disposable/generated state is principally:
@@ -470,7 +472,7 @@ Disposable/generated state is principally:
 ```text
 dist/
 node_modules/
-.deploy-python/
+.cache/python/
 ```
 
 `.cache/` is intentionally persistent reusable build cache, not disposable
@@ -483,8 +485,8 @@ music/language resources and repository-owned frontend files into a verified
 static site. The verifier checks metadata/profile consistency and offline
 Runtime/App Shell completeness.
 
-See `ARTIFACTS.md`, `HOST_QUICKSTART.md`, `HOST_DEPLOYMENT.md` and
-`SERVER_DEPLOYMENT.md` for artifact/deployment details.
+See `ARTIFACTS.md`, `SELF_HOSTING.md`, `SELF_HOSTING_REFERENCE.md` and
+`RELEASE.md` for artifact/self-host/release details.
 
 ## 9. Build-policy ownership
 
@@ -531,8 +533,8 @@ src/launcher/**/*.mts
 
 `lib/launcher-build.mjs` owns freshness/build verification and maps generated
 modules from the local build cache onto their stable public `assets/` paths. Source checkout
-development, App Shell generation and site/Host Kit assembly reach that owner
-through `lib/frontend-manifest.mjs`. A packaged Host Kit receives those compiled
+development, App Shell generation and site/self-host bundle assembly reach that owner
+through `lib/frontend-manifest.mjs`. A packaged self-host bundle receives those compiled
 modules at their stable public `assets/` paths; unlike the source checkout, it is
 a distributable product rather than a compiler workspace. It carries no Launcher TypeScript source or compiler;
 the only `src/` input is the App Shell worker template required for Host assembly.
@@ -703,7 +705,7 @@ Keep documentation split by purpose:
 | `ARCHITECTURE.md` | current subsystem/data-flow/ownership architecture |
 | `DEVELOPMENT.md` | maintainer setup and development commands |
 | `ARTIFACTS.md` | generated artifact classes and consumption rules |
-| `HOST_*.md`, `SERVER_DEPLOYMENT.md` | deployment procedures |
+| `SELF_HOSTING*.md`, `RELEASE.md` | self-host and release procedures |
 
 Do not copy the same contract into several documents. Link to the authoritative
 document instead.

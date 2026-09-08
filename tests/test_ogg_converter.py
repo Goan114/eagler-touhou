@@ -22,7 +22,7 @@ SPEC.loader.exec_module(module)
 
 
 for game, minimum_tracks in (("th06", 17), ("th07", 20), ("th08", 21)):
-    baseline = module._load_baseline(ROOT / "deploy" / "ogg-baselines" / f"{game}.json", game)
+    baseline = module._load_baseline(ROOT / "host" / "ogg-baselines" / f"{game}.json", game)
     assert baseline["quality"] == 0.55
     assert len(baseline["files"]) >= minimum_tracks
     for name, identity in baseline["files"].items():

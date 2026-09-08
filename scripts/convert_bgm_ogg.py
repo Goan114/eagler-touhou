@@ -41,7 +41,7 @@ def _soundfile():
     except ImportError as error:
         raise RuntimeError(
             "OGG conversion requires the deployment Python dependencies; "
-            "install deploy/requirements.txt"
+            "install host/requirements.txt"
         ) from error
     return sf
 
@@ -271,7 +271,7 @@ def main() -> None:
     parser.add_argument("--baseline", type=Path)
     args = parser.parse_args()
 
-    baseline_path = args.baseline or Path(__file__).resolve().parents[1] / "deploy" / "ogg-baselines" / f"{args.game}.json"
+    baseline_path = args.baseline or Path(__file__).resolve().parents[1] / "host" / "ogg-baselines" / f"{args.game}.json"
     baseline = _load_baseline(baseline_path, args.game)
     if args.quality != float(baseline.get("quality")):
         parser.error(f"--quality must remain {baseline['quality']} to preserve the production OGG baseline")

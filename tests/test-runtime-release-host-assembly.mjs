@@ -11,7 +11,7 @@
  * language packs, thprac, device behavior, or publication.
  */
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
@@ -25,6 +25,18 @@ function run(args, env = process.env) {
       ? resolveRun()
       : reject(new Error(`${args.join(" ")} failed (${signal || code})`)));
   });
+}
+
+function runExpectFailure(args, env = process.env) {
+  const child = spawnSync(process.execPath, args, {
+    cwd: resolve(new URL("..", import.meta.url).pathname.replace(/^\/(?:([A-Za-z]:))/, "$1")),
+    env,
+    encoding: "utf8",
+    shell: false,
+  });
+  assert.equal(child.error, undefined, `${args.join(" ")} could not start`);
+  assert.notEqual(child.status, 0, `${args.join(" ")} unexpectedly succeeded`);
+  return `${child.stdout || ""}\n${child.stderr || ""}`;
 }
 
 const scratch = await mkdtemp(resolve(tmpdir(), "eagler-runtime-release-host-"));
@@ -74,6 +86,24 @@ try {
     `--th06-data-assets=${workspacePath("th06", "assets")}`,
     `--th07-assets=${workspacePath("th07", "assets")}`,
   ], { ...process.env, EAGLER_WORKSPACE_ROOT: fakeWorkspace });
+
+  const releaseFailure = runExpectFailure([
+    "scripts/package-server.mjs",
+    `--output=${resolve(scratch, "release-host")}`,
+    `--runtime-release=${runtimeRelease}`,
+    "--games=th06,th07",
+    "--music=midi",
+    "--profile=web-release-hosted",
+    `--feature-config=${features}`,
+    `--artwork-dir=${artwork}`,
+    `--font=${workspacePath("dependencies", "unifont-15.1.05", "unifont-15.1.05.otf")}`,
+    `--vanilla-font=${workspacePath("th06", "assets", "msgothic.ttc")}`,
+    `--th06-assets=${workspacePath("th06", "assets")}`,
+    `--th06-data-assets=${workspacePath("th06", "assets")}`,
+    `--th07-assets=${workspacePath("th07", "assets")}`,
+  ], { ...process.env, EAGLER_WORKSPACE_ROOT: fakeWorkspace });
+  assert.match(releaseFailure, /required host UI asset is missing/,
+    "web-release packaging must fail explicitly when selected host artwork is absent");
 
   await run(["scripts/verify-server-build.mjs", host], { ...process.env, EAGLER_WORKSPACE_ROOT: fakeWorkspace });
   const manifest = JSON.parse(await readFile(resolve(host, "release-manifest.json"), "utf8"));

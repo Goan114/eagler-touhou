@@ -6,7 +6,7 @@ browser utility directory and it is not a home for CLI entrypoints.
 Typical owners here include:
 
 - Launcher/App Shell build and manifest assembly;
-- Host Kit, Runtime Release, release-plan, provenance, and artifact policy;
+- self-host bundle, Runtime Release, release-plan, provenance, and artifact policy;
 - workspace/build-profile resolution;
 - publication and public-tree policy;
 - reusable verifiers used by more than one command/test;

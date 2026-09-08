@@ -14,7 +14,7 @@ import { PRODUCT_GAMES, languagePriority } from "../lib/contracts/product-catalo
 import { assertProductEntriesRegistered, normalizeProductSelection, selectProductEntries } from "../lib/product-selection.mjs";
 import { createPublicationHostSeed } from "../lib/publication-host-seed.mjs";
 import { RESOURCE_MODE_HOSTED, RESOURCE_MODE_IMPORT } from "../lib/contracts/resource-mode.mjs";
-import { classifyBuildProfile } from "../lib/build-profile.mjs";
+import { BUILD_AUTHORITY_PUBLICATION, classifyBuildProfile } from "../lib/build-profile.mjs";
 import { extractGameDataLayout } from "../lib/runtime-data-layout.mjs";
 import { assemblePreloadData } from "../lib/preload-data-assembler.mjs";
 import { assertRuntimeDataShell } from "../lib/runtime-data-provider.mjs";
@@ -57,6 +57,7 @@ const hostedResources = serverResourceMode === RESOURCE_MODE_HOSTED;
 const buildProfile = args.profile;
 const buildAuthority = classifyBuildProfile(buildProfile);
 if (!buildAuthority || buildProfile === "web-development") throw new Error("packaging requires an explicit web-validation-* or web-release-* --profile=NAME");
+const publicationBuild = buildAuthority === BUILD_AUTHORITY_PUBLICATION;
 const gameIds = normalizeProductSelection(args.games);
 const languageGames = gameIds.filter(game => PRODUCT_GAMES[game].features.languages);
 const preloadGames = gameIds.filter(game => PRODUCT_GAMES[game].dataProvider === "emscripten-preload");
@@ -85,8 +86,8 @@ const dataAssets = hostedResources
     ? resolve(args[`${game}-data-assets`]) : assets[game]]))
   : Object.fromEntries(gameIds.map(game => [game, null]));
 const artworkDir = args["artwork-dir"] ? resolve(args["artwork-dir"]) : null;
-if (hostedResources && !artworkDir) {
-  throw new Error("hosted packaging requires --artwork-dir=PATH for the normalized Launcher UI resources");
+if ((hostedResources || publicationBuild) && !artworkDir) {
+  throw new Error(`${publicationBuild ? "web-release" : "hosted"} packaging requires --artwork-dir=PATH for the normalized Launcher UI resources`);
 }
 const font = hostedResources ? required("font") : null;
 const vanillaFont = hostedResources ? required("vanilla-font") : null;
@@ -217,11 +218,16 @@ async function copyFrontend() {
     await cp(resolveFrontendPackageSource(name), target);
   }
   const copiedHostAssets = [];
+  const artworkNames = hostArtworkFiles(gameIds);
+  const requiredArtwork = publicationBuild ? new Set(artworkNames) : new Set();
   if (artworkDir) {
-    for (const name of hostArtworkFiles(gameIds)) {
+    for (const name of artworkNames) {
       const source = resolve(artworkDir, name);
       let info;
-      try { info = await stat(source); } catch { continue; }
+      try { info = await stat(source); } catch {
+        if (requiredArtwork.has(name)) throw new Error(`required host UI asset is missing: ${source}`);
+        continue;
+      }
       if (!info.isFile() || !info.size) throw new Error(`invalid host UI asset: ${source}`);
       const target = resolve(frontend, "assets", name);
       await mkdir(resolve(target, ".."), { recursive: true });
@@ -740,11 +746,11 @@ if (!runtimeRelease && languageGames.some(game => serverFeatures[game]?.thprac))
 let packagedLauncherSource = null;
 if (runtimeRelease) {
   try {
-    const packaged = JSON.parse(await readFile(resolve(project, "host-kit-provenance.json"), "utf8"));
-    if (packaged.schema !== "eagler-touhou/host-kit-provenance/1" ||
+    const packaged = JSON.parse(await readFile(resolve(project, "self-host-provenance.json"), "utf8"));
+    if (packaged.schema !== "eagler-touhou/self-host-bundle-provenance/1" ||
         packaged.launcherRepository !== WORKSPACE_REPOSITORIES.launcher ||
         !packaged.launcherSource || typeof packaged.launcherSource !== "object") {
-      throw new Error("invalid Host Kit provenance");
+      throw new Error("invalid self-host bundle provenance");
     }
     packagedLauncherSource = packaged.launcherSource;
   } catch (error) {

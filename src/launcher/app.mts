@@ -970,6 +970,10 @@ function restoreMpProductPreferences(product: ProductId = state.product) {
   if (restored.preferredLoadout != null) mpUiState.preferredLoadout = restored.preferredLoadout;
 }
 let activeInstalledPackageGeneration: InstalledPackageGeneration | null = null;
+// A failed local OGG startup is a launch-scoped fallback. Keep the durable
+// preference so the user can retry after repairing the Package, but do not let
+// an unrelated render promote the already-running Runtime back to OGG.
+let launchMusicFallback: MusicMode | null = null;
 const touchControls = { fireEnabled: true, focusEnabled: false, bombSerial: 0, escapeSerial: 0, joystickX: 0, joystickY: 0 };
 const isOggMusicMode = (mode: MusicMode): mode is "ogg-stream" | "ogg-full" => mode === "ogg-stream" || mode === "ogg-full";
 const musicTransportMode = (mode: MusicMode) => isOggMusicMode(mode) ? "ogg" : mode === "midi" ? "midi" : mode === "none" ? "none" : null;
@@ -2399,7 +2403,10 @@ function isLocalMusicResource(resource: MusicResource): resource is LocalMusicRe
   return "packageFileId" in resource && typeof resource.packageFileId === "string";
 }
 
-function createLocalMusicInstall(resources: readonly LocalMusicResource[]) {
+function createLocalMusicInstall(
+  resources: readonly LocalMusicResource[],
+  generation: InstalledPackageGeneration,
+) {
   const runtimeWindow = currentRuntimeWindow();
   let runtimeDocument = null;
   try { runtimeDocument = runtimeWindow?.document || null; } catch {}
@@ -2407,12 +2414,11 @@ function createLocalMusicInstall(resources: readonly LocalMusicResource[]) {
   if (!runtimeDocument || !runtimeWindow || !fs?.writeFile || !fs?.mkdirTree) {
     throw new Error("离线运行组件的文件系统不可访问");
   }
-  const pack = musicPackage();
-  const mount = typeof pack?.mount === "string" ? pack.mount.replace(/\/$/, "") : "";
-  const allowedPaths = new Set<string>(Array.isArray(pack?.files)
-    ? pack.files.filter((name): name is string => typeof name === "string" && !!name && !name.includes("/") && !name.includes("\\"))
-      .map((name: string) => `${mount}/${name}`)
-    : []);
+  const allowedTargets = new Map<string, string>();
+  for (const fileId of componentFileIds(generation.descriptor, "ogg")) {
+    const target = generation.descriptor.files[fileId]?.target;
+    if (typeof target === "string" && target) allowedTargets.set(fileId, target);
+  }
   const total = resources.reduce((sum, resource) => sum + (Number(resource.size) || 0), 0);
   const startedAt = performance.now();
   let loaded = 0;
@@ -2434,13 +2440,13 @@ function createLocalMusicInstall(resources: readonly LocalMusicResource[]) {
   const installOne = async (resource: LocalMusicResource) => {
     checkRuntime();
     if (typeof resource.packageFileId !== "string" || typeof resource.path !== "string" ||
-        !allowedPaths.has(resource.path)) throw new Error("本地 OGG 资源描述无效");
-    const generation = activeInstalledPackageGeneration;
-    if (!generation) throw new Error("本地 Package generation 不可用");
+        allowedTargets.get(resource.packageFileId) !== resource.path) throw new Error("本地 OGG 资源描述无效");
     const packaged = await readManagedRuntimeResource(generation, resource.packageFileId);
     const blob = packaged ? new Blob([packaged.buffer], { type: "audio/ogg" }) : null;
     checkRuntime();
-    if (!blob || (resource.size && blob.size !== resource.size)) throw new Error(`${resource.path} 已丢失或损坏`);
+    if (!blob || blob.size <= 0 || (resource.size > 0 && blob.size !== resource.size)) {
+      throw new Error(`${resource.path} 已丢失或损坏`);
+    }
     const buffer = await blob.arrayBuffer();
     checkRuntime();
     const slash = resource.path.lastIndexOf("/");
@@ -2801,6 +2807,7 @@ const selectedLanguagePack = () => resolveLanguagePackSource(languageEntry(), lo
 async function launchConfiguredRuntime() {
   clearStartupError();
   await ensureRuntime(true);
+  launchMusicFallback = null;
   chooseDefaultMusic();
   await ensureManagedOggStartupBarrier();
   prepareMidi();
@@ -2808,6 +2815,7 @@ async function launchConfiguredRuntime() {
   const musicResources = await selectedMusicResources();
   const localMusicResources = isOggMusicMode(state.music) && musicResources.length > 0 &&
     musicResources.every(isLocalMusicResource) ? musicResources : null;
+  const localMusicGeneration = localMusicResources ? activeInstalledPackageGeneration : null;
   const shared = await selectedSharedResources();
   const packageResources = await installedPackageRuntimeResources();
   setPlayerStatus(runtimePack ? `准备 ${entryTitle(languageEntry())} 语言包…` : `准备 ${musicModeLabel(state.music)} 音乐资源…`);
@@ -2839,7 +2847,8 @@ async function launchConfiguredRuntime() {
   let localMusicInstall = null;
   if (localMusicResources) {
     try {
-      localMusicInstall = createLocalMusicInstall(localMusicResources);
+      if (!localMusicGeneration) throw new Error("本地 OGG 对应的 Package generation 不可用");
+      localMusicInstall = createLocalMusicInstall(localMusicResources, localMusicGeneration);
       await localMusicInstall.installInitial();
       const runtimeWindow = currentRuntimeWindow();
       if (!runtimeWindow?.Module) throw new Error("游戏运行时不可访问");
@@ -2847,6 +2856,9 @@ async function launchConfiguredRuntime() {
     } catch (error) {
       localMusicInstall?.cancel();
       localMusicInstall = null;
+      // Keep the durable preference intact, but make this launch's effective
+      // state match the Runtime after a corrupt or unavailable local object.
+      activateLaunchMusicFallback();
       const runtimeWindow = currentRuntimeWindow();
       if (runtimeWindow?.Module) runtimeWindow.Module.touhouMusicMode = "midi";
       hideTransfer();
@@ -2900,6 +2912,10 @@ function musicAvailabilityContext() {
   };
 }
 function chooseDefaultMusic() {
+  if (launchMusicFallback) {
+    state.music = launchMusicFallback;
+    return;
+  }
   const availabilityContext = musicAvailabilityContext();
   // Effective fallback is transient. Keep explicit preference separate so a
   // later completed install (or saving an unrelated option) cannot erase it.
@@ -2908,6 +2924,12 @@ function chooseDefaultMusic() {
     explicit: state.musicPreferenceExplicit,
     ...availabilityContext,
   });
+}
+
+function activateLaunchMusicFallback() {
+  launchMusicFallback = "midi";
+  state.music = launchMusicFallback;
+  render();
 }
 
 function syncMusicSelectAvailability(select: HTMLSelectElement, availability = resolveMusicAvailability(musicAvailabilityContext())) {
@@ -3404,6 +3426,7 @@ function resetRuntime() {
   hideTransfer();
   for (const pending of state.pending.values()) pending.reject(new Error("游戏运行时已切换"));
   state.pending.clear(); state.ready = false; state.launched = false; state.source = ""; state.sourceIdentity = "";
+  launchMusicFallback = null;
   deferredBackgroundPackageUpdate = null;
   activeInstalledPackageGeneration = null;
   resetRuntimeDiagnostics();
@@ -3979,14 +4002,14 @@ async function ensureManagedOggStartupBarrier() {
   const oggIds = componentFileIds(generation.descriptor, "ogg");
   const initialIds = oggIds.slice(0, 2);
   if (initialIds.length < 2) {
-    state.music = "midi";
+    activateLaunchMusicFallback();
     return;
   }
   const missing = initialIds.filter(fileId => !generation.files?.[fileId]?.objectId);
   if (!missing.length) return;
   const publication = releaseCatalog?.games?.[state.game];
   if (importServer || !publication || publication.revision !== generation.descriptor.revision) {
-    state.music = "midi";
+    activateLaunchMusicFallback();
     showToast("前两首 OGG 尚未完整准备，本次使用 MIDI。游戏内容不会被覆盖。");
     return;
   }
@@ -4012,7 +4035,7 @@ async function ensureManagedOggStartupBarrier() {
     installedPackageSnapshots.set(state.game, generation);
   } catch (error) {
     if (!isCancelledDownload(error)) showToast(`前两首 OGG 准备失败，本次使用 MIDI：${errorMessage(error)}`);
-    state.music = "midi";
+    activateLaunchMusicFallback();
   } finally {
     finishBlockingNetworkOperation(operation);
   }

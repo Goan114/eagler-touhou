@@ -22,7 +22,7 @@ function usage() {
   console.log([
     "node scripts/release.mjs --input=release-input.json --output=NEW_DIRECTORY",
     "Input schema: eagler-touhou/release-input/1",
-    "The prepare object uses Prepare-eagler-touhou-server.ps1 parameter names.",
+    "The prepare object uses tools/maintainer/assemble-site.ps1 parameter names.",
     "Full hosted inputs are required. This command performs no upload.",
   ].join("\n"));
 }
@@ -164,7 +164,7 @@ const report = [];
 const sourcesBefore = await identifySources();
 const inputsBefore = await identifyInputs(inputPath, prepare);
 prepare.OutputDirectory = resolve(scratch, "hosted-site");
-prepare.DeploymentPythonDirectory = resolve(scratch, "deploy-python");
+prepare.PythonEnvironmentDirectory = resolve(scratch, "python-environment");
 const parameterFile = resolve(scratch, "prepare.json");
 const wrapper = resolve(scratch, "prepare.ps1");
 await writeFile(parameterFile, JSON.stringify(prepare, null, 2));
@@ -176,7 +176,7 @@ await writeFile(wrapper, [
 ].join("\n"));
 await runStep(report, "hosted-build", "pwsh", [
   "-NoProfile", "-File", wrapper, parameterFile,
-  resolve(project, "deploy/Prepare-eagler-touhou-server.ps1"),
+  resolve(project, "tools/maintainer/assemble-site.ps1"),
 ]);
 
 const hosted = prepare.OutputDirectory;

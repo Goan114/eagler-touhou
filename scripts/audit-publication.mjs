@@ -40,7 +40,7 @@ const hostGeneratedOriginalAssets = new Set([
 ]);
 const failures = [];
 let workspaceChecked = null;
-const runtimeBuildScript = await readFile(resolve(project, "scripts/Build-eagler-runtimes.ps1"), "utf8");
+const runtimeBuildScript = await readFile(resolve(project, "tools/maintainer/build-workspace-runtimes.ps1"), "utf8");
 const readme = await readFile(resolve(project, "README.md"), "utf8");
 if (!runtimeBuildScript.includes("build-web-eagler-external") ||
     !runtimeBuildScript.includes("build-web-eagler-default") ||
@@ -82,7 +82,7 @@ async function inspect(path) {
 }
 async function walk(directory) {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
-    if (["node_modules", ".cache", ".npm-cache", ".deploy-python", "design", "screenshots"].includes(entry.name)) continue;
+    if (["node_modules", ".cache", "design", "screenshots"].includes(entry.name)) continue;
     const path = resolve(directory, entry.name);
     if (entry.isDirectory()) await walk(path);
     else await inspect(path);

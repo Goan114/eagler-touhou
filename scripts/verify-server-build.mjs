@@ -9,7 +9,7 @@ import { HOST_MANIFEST_FILE, validateHostManifest } from "../lib/contracts/host-
 import { extractGameDataLayout } from "../lib/runtime-data-layout.mjs";
 import { verifyReleaseManifest } from "../lib/release-manifest.mjs";
 import { normalizeResourceMode } from "../lib/contracts/resource-mode.mjs";
-import { classifyBuildProfile } from "../lib/build-profile.mjs";
+import { BUILD_AUTHORITY_PUBLICATION, classifyBuildProfile } from "../lib/build-profile.mjs";
 import { hostArtworkFiles } from "../lib/frontend-manifest.mjs";
 import { assertAppShellContract } from "../lib/app-shell-policy.mjs";
 
@@ -56,7 +56,7 @@ if (!appShellWorker.includes(deployment.appShell.buildId)) {
   throw new Error("App Shell Service Worker does not match deployment App Shell contract");
 }
 
-const optionalHostUiPaths = new Set(hostArtworkFiles(Object.keys(PRODUCT_GAMES)).map(name => `assets/${name}`));
+const knownHostUiPaths = new Set(hostArtworkFiles(Object.keys(PRODUCT_GAMES)).map(name => `assets/${name}`));
 const inventoryPaths = new Set();
 for (const item of deployment.files) {
   if (item.path.includes("..") || item.path.startsWith("/")) throw new Error(`unsafe inventory path: ${item.path}`);
@@ -67,13 +67,19 @@ for (const item of deployment.files) {
   const bytes = await readFile(path);
   const hash = createHash("sha256").update(bytes).digest("hex");
   if (!info.isFile() || info.size !== item.bytes || hash !== item.sha256) throw new Error(`inventory mismatch: ${item.path}`);
-  if (optionalHostUiPaths.has(item.path)) {
+  if (knownHostUiPaths.has(item.path)) {
     if (item.path.endsWith(".webp") && (bytes.length < 16 || bytes.subarray(0, 4).toString("ascii") !== "RIFF" || bytes.subarray(8, 12).toString("ascii") !== "WEBP")) {
-      throw new Error(`invalid optional WebP host artwork: ${item.path}`);
+      throw new Error(`invalid WebP host artwork: ${item.path}`);
     }
     if (item.path.endsWith(".ico") && (bytes.length < 22 || !bytes.subarray(0, 4).equals(Buffer.from([0, 0, 1, 0])))) {
-      throw new Error(`invalid optional ICO host artwork: ${item.path}`);
+      throw new Error(`invalid ICO host artwork: ${item.path}`);
     }
+  }
+}
+if (inferredAuthority === BUILD_AUTHORITY_PUBLICATION) {
+  for (const name of hostArtworkFiles(gameIds)) {
+    const path = `assets/${name}`;
+    if (!inventoryPaths.has(path)) throw new Error(`required host artwork missing from deployment: ${path}`);
   }
 }
 for (const path of deployment.appShell.entries) {
@@ -124,7 +130,7 @@ async function verifyHtmlReferences(relativeHtmlPath) {
       let info;
       try { info = await stat(target); } catch {
         const targetRelative = relative(root, target).replaceAll("\\", "/");
-        if (optionalHostUiPaths.has(targetRelative)) continue;
+        if (knownHostUiPaths.has(targetRelative)) continue;
         throw new Error(`missing HTML resource: ${relativeHtmlPath} -> ${value}`);
       }
       if (!info.isFile() && !info.isDirectory()) throw new Error(`invalid HTML resource: ${relativeHtmlPath} -> ${value}`);
