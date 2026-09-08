@@ -14,6 +14,9 @@ import {
 } from "./package-store.mjs";
 import { parsePackageZip } from "./package-zip.mjs";
 import { validatePackageDescriptor } from "./package-descriptor.mjs";
+import { createPackageMutationQueue } from "./package-mutation-queue.mjs";
+
+const packageMutations = createPackageMutationQueue();
 
 function generationId() {
   const time = Date.now().toString(36);
@@ -28,7 +31,7 @@ function abortedDownloadError() {
   return error;
 }
 
-export async function installPackageFromAcquisition({
+async function installPackageFromAcquisitionExclusive({
   descriptor,
   desiredFileIds,
   source,
@@ -36,24 +39,29 @@ export async function installPackageFromAcquisition({
   reuseCurrent = source === "remote",
   onProgress = null,
 }) {
-  validatePackageDescriptor(descriptor);
-  if (!new Set(["local", "remote"]).has(source)) throw new Error("invalid Package installation source");
-  if (!Array.isArray(desiredFileIds) || typeof acquire !== "function") {
+  const currentResult = reuseCurrent
+    ? await readCurrentPackageGeneration(descriptor.game)
+    : { installation: null, generation: null };
+  const resolvedSource = typeof source === "function" ? await source(currentResult) : source;
+  const resolvedDesiredFileIds = typeof desiredFileIds === "function"
+    ? await desiredFileIds(currentResult)
+    : desiredFileIds;
+  if (!new Set(["local", "remote"]).has(resolvedSource)) throw new Error("invalid Package installation source");
+  if (!Array.isArray(resolvedDesiredFileIds) || typeof acquire !== "function") {
     throw new Error("invalid Package acquisition request");
   }
 
-  const current = reuseCurrent ? (await readCurrentPackageGeneration(descriptor.game)).generation : null;
   const plan = planPackageGeneration({
-    current,
+    current: currentResult.generation,
     descriptor,
-    desiredFileIds,
+    desiredFileIds: resolvedDesiredFileIds,
     generationId: generationId(),
   });
   await cancelPendingPackageGeneration(descriptor.game);
-  await stagePendingPackageGeneration(plan.generation, { source });
+  await stagePendingPackageGeneration(plan.generation, { source: resolvedSource });
 
   let generation = plan.generation;
-  let completed = desiredFileIds.length - plan.needs.length;
+  let completed = resolvedDesiredFileIds.length - plan.needs.length;
   try {
     for (const fileId of plan.needs) {
       const declaration = descriptor.files[fileId];
@@ -82,15 +90,20 @@ export async function installPackageFromAcquisition({
         throw new Error(`${fileId}: desired Package file is unavailable`);
       }
       completed++;
-      onProgress?.({ completed, total: desiredFileIds.length, fileId, found: acquiredBytes >= 0 });
+      onProgress?.({ completed, total: resolvedDesiredFileIds.length, fileId, found: acquiredBytes >= 0 });
     }
-    const installation = await commitPendingPackageGeneration(descriptor.game, generation.id, { source });
+    const installation = await commitPendingPackageGeneration(descriptor.game, generation.id, { source: resolvedSource });
     return { installation, generation: (await readCurrentPackageGeneration(descriptor.game)).generation };
   } catch (error) {
     try { await cancelPendingPackageGeneration(descriptor.game); } catch {}
     try { await garbageCollectPackageStore(); } catch {}
     throw error;
   }
+}
+
+export async function installPackageFromAcquisition(options) {
+  validatePackageDescriptor(options?.descriptor);
+  return packageMutations.run(options.descriptor.game, () => installPackageFromAcquisitionExclusive(options));
 }
 
 export async function installPackageFromZip(blob, { onProgress = null } = {}) {

@@ -65,6 +65,15 @@ export function desiredFilesForPublishedPackage(descriptor, {
       ids.push(...componentFileIds(descriptor, componentId, installedEntryIds));
       continue;
     }
+    if (nextComponent.type === "ogg" && previousComponent.type === "ogg") {
+      // OGG is intentionally progressive: retain exactly the tracks already
+      // installed, then let addFileIds advance the set one track at a time.
+      // Treating it like an all-or-nothing component makes the first
+      // background step reacquire the complete soundtrack.
+      ids.push(...componentFileIds(current.descriptor, componentId)
+        .filter(fileId => !!current.files?.[fileId]?.objectId && Object.hasOwn(descriptor.files, fileId)));
+      continue;
+    }
     if (componentFileIds(current.descriptor, componentId).some(fileId => !!current.files?.[fileId]?.objectId)) {
       ids.push(...componentFileIds(descriptor, componentId));
     }
@@ -84,14 +93,17 @@ export async function installPublishedPackage(game, {
 } = {}) {
   const published = await fetchPublishedPackage(game, { catalog, catalogUrl, fetchImpl, signal });
   if (!published) throw new Error(`${game}: no published Package`);
-  const currentResult = await readCurrentPackageGeneration(game);
-  const current = currentResult.generation;
-  const source = preserveLocalSource && currentResult.installation?.source === "local" ? "local" : "remote";
-  const desiredFileIds = desiredFilesForPublishedPackage(published.descriptor, { current, addComponents, addFileIds });
   const installed = await installPackageFromRemote(published.descriptor, {
     descriptorUrl: published.descriptorUrl,
-    desiredFileIds,
-    source,
+    // Resolve preservation policy inside the installer's per-game mutation
+    // queue. Otherwise a queued import/update can advance current after these
+    // decisions were calculated and then be silently dropped.
+    desiredFileIds: currentResult => desiredFilesForPublishedPackage(published.descriptor, {
+      current: currentResult.generation,
+      addComponents,
+      addFileIds,
+    }),
+    source: currentResult => preserveLocalSource && currentResult.installation?.source === "local" ? "local" : "remote",
     fetchImpl,
     onProgress,
     signal,

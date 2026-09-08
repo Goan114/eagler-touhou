@@ -14,6 +14,7 @@ import {
   readManagedRuntimeData,
   readManagedRuntimeResource,
 } from "./runtime-preparation.mjs";
+import { createManagedRuntimeGenerationLease } from "./runtime-generation-lease.mjs";
 import { validateStaticLanguagePackEntries } from "./language-pack-validation.mjs";
 import { sha256Hex } from "./sha256.mjs";
 import {
@@ -971,6 +972,11 @@ function restoreMpProductPreferences(product: ProductId = state.product) {
   if (restored.preferredLoadout != null) mpUiState.preferredLoadout = restored.preferredLoadout;
 }
 let activeInstalledPackageGeneration: InstalledPackageGeneration | null = null;
+// Package installs may atomically advance the current generation while an
+// already-loaded Runtime still owns the generation encoded in its URL. Keep
+// that Runtime lease stable until reset instead of making late DATA requests
+// depend on whichever optional-resource generation happens to be current.
+const managedRuntimeGenerationLease = createManagedRuntimeGenerationLease();
 // A failed local OGG startup is a launch-scoped fallback. Keep the durable
 // preference so the user can retry after repairing the Package, but do not let
 // an unrelated render promote the already-running Runtime back to OGG.
@@ -2810,9 +2816,9 @@ async function launchConfiguredRuntime() {
   await ensureRuntime(true);
   launchMusicFallback = null;
   chooseDefaultMusic();
+  const runtimePack = await prepareLanguagePack();
   await ensureManagedOggStartupBarrier();
   prepareMidi();
-  const runtimePack = await prepareLanguagePack();
   const musicResources = await selectedMusicResources();
   const localMusicResources = isOggMusicMode(state.music) && musicResources.length > 0 &&
     musicResources.every(isLocalMusicResource) ? musicResources : null;
@@ -3430,6 +3436,7 @@ function resetRuntime() {
   launchMusicFallback = null;
   deferredBackgroundPackageUpdate = null;
   activeInstalledPackageGeneration = null;
+  managedRuntimeGenerationLease.clear();
   resetRuntimeDiagnostics();
   touchControls.focusEnabled = false;
   touchControls.bombSerial = 0;
@@ -3774,10 +3781,7 @@ function send(command: RuntimeProtocolCommand, payload: UnknownRecord = {}, time
 }
 
 launcherWindow.__eaglerPrepareManagedRuntimeDataV1 = async request => {
-  const generation = activeInstalledPackageGeneration;
-  if (request?.game !== state.game || !generation?.id || request.generation !== generation.id) {
-    throw new Error("Managed Runtime requested an inactive game generation");
-  }
+  const generation = managedRuntimeGenerationLease.resolve(request);
   setPlayerStatus("正在把本地 DATA 交给游戏 Runtime…");
   return readManagedRuntimeData(generation);
 };
@@ -3883,6 +3887,7 @@ async function ensureInstalledPackageRuntime(show = true) {
   // lifecycle even though the same Runtime worked in the historical
   // single-iframe topology.
   activeInstalledPackageGeneration = generation;
+  managedRuntimeGenerationLease.bind(state.game, generation);
   state.sourceIdentity = requestedIdentity;
   clearGameDataAttempt();
   setPlayerStatus("正在准备本地 Runtime…");
@@ -4051,7 +4056,20 @@ function startManagedOggProgressiveInstall() {
   const gameId = state.game;
   const launchWindow = currentRuntimeWindow();
   const generation = activeInstalledPackageGeneration;
-  if (!isOggMusicMode(state.music) || !state.launched || !generation || backgroundOggInstalls.has(gameId)) return;
+  if (!isOggMusicMode(state.music) || !state.launched || !generation) return;
+  const existing = backgroundOggInstalls.get(gameId);
+  if (existing) {
+    // A closing Runtime may still be finishing one persisted track. Once its
+    // worker releases the per-game slot, resume for this exact newer Runtime
+    // instead of silently waiting for another full launch cycle.
+    const resume = () => {
+      if (state.launched && state.game === gameId && currentRuntimeWindow() === launchWindow) {
+        startManagedOggProgressiveInstall();
+      }
+    };
+    void existing.then(resume, resume);
+    return;
+  }
   const publication = releaseCatalog?.games?.[gameId];
   if (!publication || publication.revision !== generation.descriptor.revision) return;
   const remaining = componentFileIds(generation.descriptor, "ogg")
@@ -4067,11 +4085,15 @@ function startManagedOggProgressiveInstall() {
           catalogUrl: releaseCatalogUrl,
           addFileIds: [fileId],
           preserveLocalSource: true,
-          fetchImpl: globalThis.fetch,
+          fetchImpl: packageTrackedFetch(gameId),
         });
         if (!updated.generation?.files?.[fileId]?.objectId) throw new Error("下载完成后没有持久化对象");
-        activeInstalledPackageGeneration = updated.generation;
         installedPackageSnapshots.set(gameId, updated.generation);
+        // The in-flight fetch may outlive a close or game switch. Preserve the
+        // completed Package bytes, but never attach them to a different live
+        // Runtime or write into its filesystem.
+        if (!state.launched || state.game !== gameId || currentRuntimeWindow() !== launchWindow) return;
+        activeInstalledPackageGeneration = updated.generation;
         const declaration = updated.generation.descriptor.files[fileId];
         await installManagedPackageResources([{
           fileId,
@@ -4081,6 +4103,10 @@ function startManagedOggProgressiveInstall() {
         console.info(`${gameId}: OGG ready ${fileId}`);
       } catch (error) {
         console.warn(`${gameId}: OGG progressive install failed ${fileId}`, error);
+        if (state.launched && state.game === gameId && currentRuntimeWindow() === launchWindow) {
+          showToast(`后台音乐下载暂时中断，下次启动会继续：${errorMessage(error)}`);
+        }
+        return;
       }
     }
   })().finally(() => {

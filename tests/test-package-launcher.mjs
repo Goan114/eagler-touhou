@@ -31,8 +31,10 @@ const current = {
   files: { html: { objectId: "x" }, js: { objectId: "y" }, wasm: { objectId: "z" }, data: { objectId: "q" }, o1: { objectId: "ogg" }, zh: { objectId: "lang" } },
 };
 assert.deepEqual(installedComponentIds(current), ["ogg", "language"], "present optional resources are discoverable as installed components");
-assert.deepEqual(desiredFilesForPublishedPackage(descriptor, { current }), ["html", "js", "wasm", "data", "o1", "o2", "zh"],
-  "updates must carry whole-file components forward but only preserve actually installed language entries");
+assert.deepEqual(desiredFilesForPublishedPackage(descriptor, { current }), ["html", "js", "wasm", "data", "o1", "zh"],
+  "updates must preserve only installed progressive OGG files and installed language entries");
+assert.deepEqual(desiredFilesForPublishedPackage(descriptor, { current, addFileIds: ["o2"] }), ["html", "js", "wasm", "data", "o2", "o1", "zh"],
+  "a progressive OGG step adds one requested track without expanding to the complete component");
 assert.deepEqual(desiredFilesForPublishedPackage(descriptor, { current: null }), ["html", "js", "wasm", "data"],
   "first install must not force optional components");
 assert.deepEqual(desiredFilesForPublishedPackage(descriptor, { current: null, addComponents: ["ogg"] }), ["html", "js", "wasm", "data", "o1", "o2"],

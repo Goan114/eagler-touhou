@@ -257,6 +257,45 @@ def main() -> int:
           const orphanAfterGc = await store.readPackageObject(gcOrphanId);
           const cacheNames = await caches.keys();
 
+          const concurrentEvents = [];
+          let releaseFirstMutation;
+          let noteFirstMutationStarted;
+          const firstMutationGate = new Promise(resolve => { releaseFirstMutation = resolve; });
+          const firstMutationStarted = new Promise(resolve => { noteFirstMutationStarted = resolve; });
+          const concurrentFirst = makeDescriptor('r7-concurrent-first', null);
+          concurrentFirst.files.data.revision = 'data-r7-first';
+          const concurrentSecond = makeDescriptor('r8-concurrent-second', null);
+          concurrentSecond.files.data.revision = 'data-r8-second';
+          const firstMutation = installer.installPackageFromAcquisition({
+            descriptor: concurrentFirst,
+            desiredFileIds: ['data'],
+            source: 'local',
+            reuseCurrent: false,
+            acquire: async () => {
+              concurrentEvents.push('first:start');
+              noteFirstMutationStarted();
+              await firstMutationGate;
+              concurrentEvents.push('first:end');
+              return new Uint8Array([41, 42, 43, 44]).buffer;
+            },
+          });
+          await firstMutationStarted;
+          const secondMutation = installer.installPackageFromAcquisition({
+            descriptor: concurrentSecond,
+            desiredFileIds: ['data'],
+            source: 'local',
+            reuseCurrent: false,
+            acquire: async () => {
+              concurrentEvents.push('second:start');
+              return new Uint8Array([51, 52, 53, 54]).buffer;
+            },
+          });
+          await Promise.resolve();
+          const eventsBeforeRelease = [...concurrentEvents];
+          releaseFirstMutation();
+          await Promise.all([firstMutation, secondMutation]);
+          const afterConcurrentMutations = await store.readCurrentPackageGeneration('th06');
+
           return {
             packageDb: store.PACKAGE_STORE_DB,
             wasmMime: store.packageMimeType('games/th08/th08.wasm'),
@@ -304,6 +343,10 @@ def main() -> int:
             afterPublishedAbortRevision: afterPublishedAbort.generation.descriptor.revision,
             afterPublishedAbortPending: afterPublishedAbort.installation.pendingGeneration,
             failureCollectedDeferredOrphan: successOrphanAfterFailure === null,
+            eventsBeforeRelease,
+            concurrentEvents,
+            concurrentRevision: afterConcurrentMutations.generation.descriptor.revision,
+            concurrentPending: afterConcurrentMutations.installation.pendingGeneration,
           };
         }""")
             browser.close()
@@ -353,6 +396,10 @@ def main() -> int:
         assert result["afterPublishedAbortRevision"] == "r5-local", result
         assert result["afterPublishedAbortPending"] is None, result
         assert result["failureCollectedDeferredOrphan"] is True, result
+        assert result["eventsBeforeRelease"] == ["first:start"], result
+        assert result["concurrentEvents"] == ["first:start", "first:end", "second:start"], result
+        assert result["concurrentRevision"] == "r8-concurrent-second", result
+        assert result["concurrentPending"] is None, result
         print(json.dumps({"pass": True, **result}, ensure_ascii=False))
         return 0
     finally:

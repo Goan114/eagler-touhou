@@ -19,9 +19,8 @@ for (const [game, path] of Object.entries(shells)) {
     assert.ok(source.includes(`case "${command}"`), `${game}: shared command missing: ${command}`);
   }
   for (const event of RUNTIME_PROTOCOL_EVENTS) {
-    const present = event === "ready"
-      ? /event:\s*"ready"/.test(source)
-      : source.includes(`emit("${event}"`);
+    const present = source.includes(`emit("${event}"`) ||
+      (event === "ready" && /event:\s*"ready"/.test(source));
     assert.ok(present, `${game}: shared event missing: ${event}`);
   }
 }
