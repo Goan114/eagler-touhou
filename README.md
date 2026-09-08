@@ -1,13 +1,16 @@
-<img src="docs/assets/eagler-touhou-wordmark.svg" alt="EAGLER TOUHOU" width="312">
-
-一个在 Web 上运行东方 Project 原作的**游戏启动器**和**联机平台**。
-
-[![QQ Group 1121412929](https://img.shields.io/badge/QQ%20Group-1121412929-12B7F5?logo=tencentqq)](https://qm.qq.com/q/lNOiECzKFi?from=tim) ![Node.js >=22](https://img.shields.io/badge/Node.js-%3E%3D22-43853d) ![Python 3](https://img.shields.io/badge/Python-3-3776ab) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-
-[开发文档 📄](docs/README.md) | [立刻体验 🎮](https://touhou.vip/)
-
-在保证原作体验的基础上，提供 触控适配 + 个性化布局、thprac 适配、多语言（基于 thcrap）、存档和 Replay 管理、多人联机大厅。
-在安全上下文条件下，启动器网页**可以被离线运行**。在玩家离线或服务器宕机时，玩家即使刷新了页面也可以使用 Service Worker 提供的缓存文件正常进行游戏。
+<div align="center">
+  <img src="docs/assets/eagler-touhou-wordmark.svg" alt="EAGLER TOUHOU" width="312">
+  <p>一个在 Web 上运行东方 Project 原作的<strong>游戏启动器</strong>和<strong>联机平台</strong>。</p>
+  <p>
+    <a href="https://qm.qq.com/q/lNOiECzKFi?from=tim"><img src="https://img.shields.io/badge/QQ%20Group-1121412929-12B7F5?logo=tencentqq" alt="QQ Group 1121412929"></a>
+    <img src="https://img.shields.io/badge/Node.js-%3E%3D22-43853d" alt="Node.js >=22">
+    <img src="https://img.shields.io/badge/Python-3-3776ab" alt="Python 3">
+    <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
+  </p>
+  <p><a href="https://github.com/YomotsuHisami/eagler-touhou/blob/main/docs/README.md">开发文档 📄</a>&nbsp;|&nbsp;<a href="https://touhou.vip/">立刻体验 🎮</a></p>
+  <p>在保证原作体验的基础上，提供 触控适配 + 个性化布局、thprac 适配、多语言（基于 thcrap）、存档和 Replay 管理、多人联机大厅。<br>
+  在安全上下文条件下，启动器网页<strong>可以被离线运行</strong>。在玩家离线或服务器宕机时，玩家即使刷新了页面也可以使用 Service Worker 提供的缓存文件正常进行游戏。</p>
+</div>
 
 ## 详细功能
 
