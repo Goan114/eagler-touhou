@@ -1,6 +1,6 @@
 # Eagler Touhou Operator Delivery
 
-This is a private hosting handoff generated from one verified formal Release.
+This is an operator deployment bundle generated from one verified formal Release.
 Automated operators and coding agents must read `AGENTS.md` before acting.
 
 - Deploy `site/` as the static web root.

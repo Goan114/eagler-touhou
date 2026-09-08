@@ -45,7 +45,7 @@
 
 ### 多人联机大厅
 
-- 提供 TH06MP 和 TH07MP，均基于 [TH07MP 的规则](https://github.com/sbrik1111/th07_multi_player)。\[感谢 [th07mp](https://github.com/sbrik1111/th07_multi_player)\]
+- 提供 TH06MP 和 TH07MP，均基于 [TH07MP 的规则](https://github.com/sbrik1111/th07_multi_player)。
 - 提供了一个大厅，支持创建房间后输入房间号加入、选择角色和难度（包括 Extra 和 Phantasm）、玩家都准备后再开始、旁观者。
 - 支持暂停后按 R 或者手动重开本局。
 - 可以保存多人 Replay。

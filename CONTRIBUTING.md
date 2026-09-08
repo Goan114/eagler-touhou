@@ -96,15 +96,3 @@ and should not silently rebuild game Runtimes from source.
 - Run `git diff --check` before submitting.
 - Update the owning documentation when a public contract, supported behavior,
   deployment procedure, or compatibility boundary changes.
-
-## Licensing and security
-
-Project-authored code and documentation are licensed under the repository's
-MIT License. Third-party code, fonts, icons and assets identified in
-`THIRD_PARTY.md`, `ASSETS.md`, vendored files or their adjacent notices remain
-under their respective licenses. Separate Runtime repositories are governed by
-their own license notices.
-
-A dedicated private vulnerability-reporting channel has not yet been
-published. Do not include sensitive exploit details, credentials, private game
-content, or user data in a public issue or pull request.

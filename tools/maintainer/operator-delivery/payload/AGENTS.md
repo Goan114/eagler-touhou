@@ -1,6 +1,6 @@
 # Eagler Touhou Operator Agent Entry
 
-This is a private operator handoff, not a source checkout. Read `README.md` and
+This is a generated operator deployment bundle, not a source checkout. Read `README.md` and
 `services/README.md` before changing a host.
 
 Do not invent the SSH target, web root, hostname, certificate ownership,
