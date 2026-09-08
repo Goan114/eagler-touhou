@@ -8,9 +8,13 @@
     <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
   </p>
   <p><a href="https://github.com/YomotsuHisami/eagler-touhou/blob/main/docs/README.md">开发文档 📄</a>&nbsp;|&nbsp;<a href="https://touhou.vip/">立刻体验 🎮</a></p>
-  <p>在保证原作体验的基础上，提供 触控适配 + 个性化布局、thprac 适配、多语言（基于 thcrap）、存档和 Replay 管理、多人联机大厅。<br>
-  在安全上下文条件下，启动器网页<strong>可以被离线运行</strong>。在玩家离线或服务器宕机时，玩家即使刷新了页面也可以使用 Service Worker 提供的缓存文件正常进行游戏。</p>
 </div>
+
+## 概要
+
+在保证原作体验的基础上，提供 触控适配 + 个性化布局、thprac 适配、多语言（基于 thcrap）、存档和 Replay 管理、多人联机大厅。
+
+在安全上下文条件下，启动器网页**可以被离线运行**。在玩家离线或服务器宕机时，玩家即使刷新了页面也可以使用 Service Worker 提供的缓存文件正常进行游戏。
 
 ## 详细功能
 
