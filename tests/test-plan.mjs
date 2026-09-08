@@ -86,6 +86,7 @@ export const REPOSITORY_PYTHON_TESTS = Object.freeze([
 export const WORKSPACE_PRECHECKS = Object.freeze([]);
 
 export const WORKSPACE_NODE_TESTS = Object.freeze([
+  "tests/test-development-host-manifest-workspace.mjs",
   "tests/test-runtime-protocol-contract.mjs",
   "tests/test-preload-data-assembler.mjs",
   "tests/test-runtime-storage-contract.mjs",
