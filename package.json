@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Browser Launcher and self-host site builder for Touhou Project 6-8 ports, with local packages, offline support, touch controls, and multiplayer.",
   "private": true,
-  "license": "MIT",
+  "license": "GPL-3.0-or-later",
   "type": "module",
   "repository": {
     "type": "git",

@@ -1,11 +1,12 @@
 <div align="center">
   <img src="docs/assets/eagler-touhou-wordmark.svg" alt="EAGLER TOUHOU" width="312">
+  <p>简体中文 | <a href="README.en.md">English</a></p>
   <p>一个在 Web 上运行东方 Project 原作的<strong>游戏启动器</strong>和<strong>联机平台</strong>。</p>
   <p>
     <a href="https://qm.qq.com/q/lNOiECzKFi?from=tim"><img src="https://img.shields.io/badge/QQ%20Group-1121412929-12B7F5?logo=tencentqq" alt="QQ Group 1121412929"></a>
     <img src="https://img.shields.io/badge/Node.js-%3E%3D22-43853d" alt="Node.js >=22">
     <img src="https://img.shields.io/badge/Python-3-3776ab" alt="Python 3">
-    <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/License-GPL--3.0--or--later-blue.svg" alt="License: GPL-3.0-or-later"></a>
   </p>
   <p><a href="https://github.com/YomotsuHisami/eagler-touhou/blob/main/docs/README.md">开发文档 📄</a>&nbsp;|&nbsp;<a href="https://touhou.vip/">立刻体验 🎮</a></p>
 </div>
@@ -66,6 +67,6 @@
 
 ## 许可证
 
-使用 [MIT License](LICENSE)。
+本项目采用 [GNU General Public License v3.0 or later](LICENSE)。
 
 完整的第三方来源、素材归属和许可信息见 [THIRD_PARTY.md](THIRD_PARTY.md) 与 [ASSETS.md](ASSETS.md)。
