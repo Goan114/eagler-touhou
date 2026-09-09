@@ -3928,6 +3928,11 @@ async function ensureInstalledPackageRuntime(show = true) {
   return true;
 }
 
+function selectedLanguageEntriesForPackageUpdate(): Readonly<Record<string, readonly string[]>> {
+  if (!gameFeatureAvailable(state.game, "languages")) return {};
+  return { language: state.language === "ja" ? [] : [state.language] };
+}
+
 async function maybeUpdateInstalledPackageBeforeLaunch(installed: CurrentPackageGeneration) {
   const generation = installed?.generation;
   const publication = releaseCatalog?.games?.[state.game];
@@ -3952,6 +3957,7 @@ async function maybeUpdateInstalledPackageBeforeLaunch(installed: CurrentPackage
       catalog: releaseCatalog,
       catalogUrl: releaseCatalogUrl,
       addComponents: [],
+      selectedComponentEntries: selectedLanguageEntriesForPackageUpdate(),
       preserveLocalSource: true,
       fetchImpl: packageTrackedFetch(state.game),
       signal: operation.controller.signal,
@@ -3982,11 +3988,13 @@ function startBackgroundPackageUpdate(installed: CurrentPackageGeneration) {
   const catalog = releaseCatalog;
   const catalogUrl = releaseCatalogUrl;
   const addComponents: string[] = [];
+  const selectedComponentEntries = selectedLanguageEntriesForPackageUpdate();
   const localInstall = installed?.installation?.source === "local";
   const task = installPublishedPackage(game, {
     catalog,
     catalogUrl,
     addComponents,
+    selectedComponentEntries,
     preserveLocalSource: true,
     // Background updates deliberately stay out of the blocking transfer UI.
     fetchImpl: globalThis.fetch,

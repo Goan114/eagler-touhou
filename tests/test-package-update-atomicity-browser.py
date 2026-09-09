@@ -296,6 +296,62 @@ def main() -> int:
           await Promise.all([firstMutation, secondMutation]);
           const afterConcurrentMutations = await store.readCurrentPackageGeneration('th06');
 
+          const makeLanguageDescriptor = (revision, languageRevision) => ({
+            schema: 'eagler-touhou/package/1',
+            game: 'th06',
+            revision,
+            runtimeRequirement: {
+              protocol: 'eagler-touhou/1',
+              target: 'th06',
+              dataFile: 'data',
+              dataLayout: 'layout-test',
+            },
+            files: {
+              data: { source: 'game/data.bin', target: '/game/data.bin', revision: 'language-data-r1', bytes: 4 },
+              zh: { source: 'language/zh.zip', target: '/__eagler/language/lang_zh-hans.zip', revision: `zh-${languageRevision}`, bytes: 2 },
+              en: { source: 'language/en.zip', target: '/__eagler/language/lang_en.zip', revision: `en-${languageRevision}`, bytes: 3 },
+            },
+            base: { files: ['data'] },
+            components: { language: { type: 'language', entries: [
+              { id: 'lang_zh-hans', file: 'zh' },
+              { id: 'lang_en', file: 'en' },
+            ] } },
+          });
+          const importedAllLanguages = makeLanguageDescriptor('r9-import-all-languages', 'r1');
+          await installer.installPackageFromAcquisition({
+            descriptor: importedAllLanguages,
+            desiredFileIds: ['data', 'zh', 'en'],
+            source: 'local',
+            reuseCurrent: false,
+            acquire: async fileId => new Blob([fileId === 'data'
+              ? new Uint8Array([61, 62, 63, 64])
+              : fileId === 'zh' ? new Uint8Array([65, 66]) : new Uint8Array([67, 68, 69])]),
+          });
+          const selectedLanguageRequests = [];
+          const selectedLanguageUpdate = makeLanguageDescriptor('r10-selected-language', 'r2');
+          const selectedLanguageCatalog = {
+            schema: 'eagler-touhou/release-catalog/1',
+            games: { th06: { revision: selectedLanguageUpdate.revision, descriptor: './th06.package.json' } },
+          };
+          await launcher.installPublishedPackage('th06', {
+            catalog: selectedLanguageCatalog,
+            catalogUrl: new URL('./release-catalog.json', location.href).href,
+            selectedComponentEntries: { language: ['lang_zh-hans'] },
+            fetchImpl: async requestUrl => {
+              const request = String(requestUrl);
+              selectedLanguageRequests.push(new URL(request).pathname);
+              if (request.endsWith('/th06.package.json')) {
+                return new Response(JSON.stringify(selectedLanguageUpdate), {
+                  status: 200,
+                  headers: { 'content-type': 'application/json' },
+                });
+              }
+              if (request.endsWith('/language/zh.zip')) return new Response(new Uint8Array([70, 71]));
+              throw new Error(`unexpected selected-language update fetch: ${request}`);
+            },
+          });
+          const afterSelectedLanguageUpdate = await store.readCurrentPackageGeneration('th06');
+
           return {
             packageDb: store.PACKAGE_STORE_DB,
             wasmMime: store.packageMimeType('games/th08/th08.wasm'),
@@ -347,6 +403,9 @@ def main() -> int:
             concurrentEvents,
             concurrentRevision: afterConcurrentMutations.generation.descriptor.revision,
             concurrentPending: afterConcurrentMutations.installation.pendingGeneration,
+            selectedLanguageRequests,
+            selectedLanguageFiles: Object.keys(afterSelectedLanguageUpdate.generation.files).sort(),
+            selectedLanguageSource: afterSelectedLanguageUpdate.installation.source,
           };
         }""")
             browser.close()
@@ -400,6 +459,9 @@ def main() -> int:
         assert result["concurrentEvents"] == ["first:start", "first:end", "second:start"], result
         assert result["concurrentRevision"] == "r8-concurrent-second", result
         assert result["concurrentPending"] is None, result
+        assert result["selectedLanguageRequests"] == ["/th06.package.json", "/language/zh.zip"], result
+        assert result["selectedLanguageFiles"] == ["data", "zh"], result
+        assert result["selectedLanguageSource"] == "local", result
         print(json.dumps({"pass": True, **result}, ensure_ascii=False))
         return 0
     finally:

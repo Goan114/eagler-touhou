@@ -41,8 +41,18 @@ export function desiredFilesForPublishedPackage(descriptor, {
   current = null,
   addComponents = [],
   addFileIds = [],
+  selectedComponentEntries = {},
 } = {}) {
   validatePackageDescriptor(descriptor);
+  if (!selectedComponentEntries || typeof selectedComponentEntries !== "object" || Array.isArray(selectedComponentEntries)) {
+    throw new Error("selected Package component entries must be an object");
+  }
+  for (const [componentId, selected] of Object.entries(selectedComponentEntries)) {
+    if (!Array.isArray(selected)) throw new Error(`Package component ${componentId} selection must be an array`);
+    if (!Object.hasOwn(descriptor.components, componentId) && selected.length) {
+      throw new Error(`unknown requested Package component: ${componentId}`);
+    }
+  }
   const ids = [...descriptor.base.files];
   for (const fileId of addFileIds) {
     if (typeof fileId !== "string" || !Object.hasOwn(descriptor.files, fileId)) {
@@ -52,6 +62,24 @@ export function desiredFilesForPublishedPackage(descriptor, {
   }
   const explicitlyAdded = new Set(addComponents);
   for (const [componentId, nextComponent] of Object.entries(descriptor.components)) {
+    const hasSelection = Object.hasOwn(selectedComponentEntries, componentId);
+    if (hasSelection && explicitlyAdded.has(componentId)) {
+      throw new Error(`Package component ${componentId} cannot request both all files and selected entries`);
+    }
+    if (hasSelection) {
+      if (!Array.isArray(nextComponent.entries)) {
+        throw new Error(`Package component ${componentId} does not support entry selection`);
+      }
+      const selected = selectedComponentEntries[componentId];
+      const available = new Set(nextComponent.entries.map(entry => entry.id));
+      for (const entryId of selected) {
+        if (typeof entryId !== "string" || !available.has(entryId)) {
+          throw new Error(`unknown requested Package component entry: ${componentId}/${String(entryId)}`);
+        }
+      }
+      ids.push(...componentFileIds(descriptor, componentId, unique(selected)));
+      continue;
+    }
     if (explicitlyAdded.has(componentId)) {
       ids.push(...componentFileIds(descriptor, componentId));
       continue;
@@ -86,6 +114,7 @@ export async function installPublishedPackage(game, {
   catalogUrl,
   addComponents = [],
   addFileIds = [],
+  selectedComponentEntries = {},
   preserveLocalSource = true,
   fetchImpl = globalThis.fetch,
   onProgress = null,
@@ -102,6 +131,7 @@ export async function installPublishedPackage(game, {
       current: currentResult.generation,
       addComponents,
       addFileIds,
+      selectedComponentEntries,
     }),
     source: currentResult => preserveLocalSource && currentResult.installation?.source === "local" ? "local" : "remote",
     fetchImpl,

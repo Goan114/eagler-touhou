@@ -40,6 +40,26 @@ assert.deepEqual(desiredFilesForPublishedPackage(descriptor, { current: null }),
 assert.deepEqual(desiredFilesForPublishedPackage(descriptor, { current: null, addComponents: ["ogg"] }), ["html", "js", "wasm", "data", "o1", "o2"],
   "explicitly requested optional components must be added to the generation");
 
+const currentWithAllLanguages = {
+  ...current,
+  files: { ...current.files, en: { objectId: "english" } },
+};
+assert.deepEqual(desiredFilesForPublishedPackage(descriptor, {
+  current: currentWithAllLanguages,
+  selectedComponentEntries: { language: ["lang_zh-hans"] },
+}), ["html", "js", "wasm", "data", "o1", "zh"],
+  "an update after a full local import must retain only the language selected by the player");
+assert.deepEqual(desiredFilesForPublishedPackage(descriptor, {
+  current: currentWithAllLanguages,
+  selectedComponentEntries: { language: [] },
+}), ["html", "js", "wasm", "data", "o1"],
+  "selecting the built-in Japanese resources must not retain translated language packs");
+assert.throws(() => desiredFilesForPublishedPackage(descriptor, {
+  current: currentWithAllLanguages,
+  selectedComponentEntries: { language: ["lang_missing"] },
+}), /unknown requested Package component entry/,
+  "an unavailable selected entry must fail instead of silently widening the component download");
+
 const descriptorWithoutO2 = structuredClone(descriptor);
 descriptorWithoutO2.revision = "r3";
 descriptorWithoutO2.components.ogg.files = ["o1"];
