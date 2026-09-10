@@ -10,6 +10,7 @@ import {
   multiplayerConfigForProduct,
   multiplayerProductIdForGame,
   productFeatureAvailable,
+  productEnabledForBuild,
 } from "../lib/contracts/product-catalog.mjs";
 
 assert.deepEqual(
@@ -18,7 +19,7 @@ assert.deepEqual(
   ["ja", "lang_zh-hans", "lang_zh-hant", "lang_en", "lang_de", "lang_ru"],
 );
 
-assert.deepEqual(PRODUCT_IDS, ["th06", "th07", "th08", "th06mp", "th07mp"]);
+assert.deepEqual(PRODUCT_IDS, ["th06", "th07", "th08", "th10", "th06mp", "th07mp"]);
 assert.equal(isMultiplayerProductId("th06mp"), true);
 assert.equal(isMultiplayerProductId("th07mp"), true);
 assert.equal(isMultiplayerProductId("th06"), false);
@@ -83,3 +84,12 @@ for (const [game, product] of Object.entries(PRODUCT_GAMES)) {
   }
 }
 console.log("Product catalog policy: PASS");
+
+for (const id of ["th10"]) {
+  assert.equal(productEnabledForBuild(id), false);
+  assert.equal(productEnabledForBuild(id, false), false);
+  assert.equal(productEnabledForBuild(id, true), true);
+  assert.equal(productEnabledForBuild(id, "true"), false);
+}
+for (const id of ["th06", "th07", "th08", "th06mp", "th07mp"]) assert.equal(productEnabledForBuild(id), true);
+assert.equal(productEnabledForBuild("th99", true), false);

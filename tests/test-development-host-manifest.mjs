@@ -19,7 +19,7 @@ const fixtureContent = {
   games: Object.fromEntries(Object.entries(DEVELOPMENT_CONTENT.games).map(([game, declaration]) => [game, {
     runtime: declaration.runtime,
     ...(declaration.multiplayerRuntime ? { multiplayerRuntime: declaration.multiplayerRuntime } : {}),
-    data: game === "th08" ? declaration.data : {
+    data: PRODUCT_GAMES[game].dataProvider === "retail-memory" ? { identity: { bytes:4, sha256:"a".repeat(64), layout:declaration.data.identity?.layout || declaration.data.layout } } : {
       source: `${game}.data`,
       runtimeScript: `${game}.js`,
     },
@@ -29,6 +29,7 @@ const createManifest = options => createDevelopmentHostManifestFromContent(fixtu
 const manifest = await createManifest();
 assert.equal(manifest.schema, HOST_MANIFEST_SCHEMA);
 assert.equal(manifest.profile, "web-development");
+assert.equal(manifest.shared.testBuild, true);
 assert.equal(manifest.shared.resourceMode, "hosted");
 assert.deepEqual(Object.keys(manifest.games), Object.keys(PRODUCT_GAMES));
 assert.doesNotThrow(() => validateHostManifest(manifest));

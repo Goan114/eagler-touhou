@@ -270,6 +270,7 @@ export async function buildImportArtifacts({
   music = "midi,ogg",
   python = "python",
   rebuildHostedBase = false,
+  testBuild = false,
 }) {
   let layout = await inspectHostWorkspace(hostRoot, { music });
   if (!rebuildHostedBase && await reusableHostedBase(projectRoot, layout)) {
@@ -291,6 +292,7 @@ export async function buildImportArtifacts({
       `--artwork-dir=${resolve(layout.site, "assets")}`,
       "--games=th06,th07,th08",
       "--profile=web-validation-self-host-import",
+      `--test-build=${testBuild ? "1" : "0"}`,
     ], { cwd: projectRoot });
     await run(process.execPath, [script(projectRoot, "scripts/verify-server-build.mjs"), layout.importSite], { cwd: projectRoot });
 

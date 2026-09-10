@@ -1,0 +1,64 @@
+// Browser acceptance for build-gated cards using real compiled Launcher modules.
+import assert from 'node:assert/strict';
+import {createServer} from 'node:http';
+import {readFile,stat,writeFile,mkdir} from 'node:fs/promises';
+const {chromium}=await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
+import {FRONTEND_PACKAGE_FILES,resolveFrontendPackageSource} from '../lib/frontend-manifest.mjs';
+import {PRODUCT_GAMES} from '../lib/contracts/product-catalog.mjs';
+const files=new Map(FRONTEND_PACKAGE_FILES.map(name=>['/'+name,resolveFrontendPackageSource(name)]));
+const games=Object.fromEntries(Object.entries(PRODUCT_GAMES).map(([id,p])=>[id,{
+  runtime:p.runtime,...(p.multiplayerRuntime?{multiplayerRuntime:p.multiplayerRuntime}:{}),
+  gameData:{path:id+'.data',bytes:1,sha256:'a'.repeat(64),version:'sha256-'+'a'.repeat(64),layout:'sha256-'+'b'.repeat(64)},
+  music:{midi:{files:[]}},offlineCompatibility:{schema:'eagler-touhou/offline-game-pack/1',runtimeCompatibility:{protocol:'eagler-touhou/1',dataLayout:'sha256-'+'b'.repeat(64),versionSource:'offline-pack'},requiredShared:p.requiredShared??['/msgothic.ttc','/unifont.otf'],languages:{source:'offline-pack',baseline:['ja']}}
+}]));
+let flag,metadataFailure=false;
+const server=createServer(async(req,res)=>{
+  try{
+    const path=new URL(req.url,'http://localhost').pathname;
+    if(path==='/host-manifest.json'){
+      if(metadataFailure){res.writeHead(503).end();return;}
+      res.setHeader('Content-Type','application/json');res.end(JSON.stringify({schema:'eagler-touhou/host-manifest/1',protocol:'eagler-touhou/1',profile:'web-release-import',shared:{resourceMode:'import',...(flag===undefined?{}:{testBuild:flag})},games}));return;
+    }
+    if(path==='/release-catalog.json'){res.setHeader('Content-Type','application/json');res.end(JSON.stringify({schema:'eagler-touhou/release-catalog/1',games:{}}));return;}
+    const file=files.get(path==='/'?'/index.html':path);if(!file){res.writeHead(404).end();return;}
+    assert((await stat(file)).size<16*1024*1024);
+    res.setHeader('Content-Type',/\.m?js$/.test(path)?'text/javascript':/\.css$/.test(path)?'text/css':path==='/'?'text/html':'application/octet-stream');
+    res.end(await readFile(file));
+  }catch{res.writeHead(500).end();}
+});
+await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+const url=`http://127.0.0.1:${server.address().port}/`,checks=[],errors=[];let browser;
+try{
+  browser=await chromium.launch({channel:'msedge',headless:true});
+  for(const scenario of [{name:'production',flag:false},{name:'test',flag:true},{name:'missing',flag:undefined},{name:'invalid-string',flag:'true'},{name:'metadata-failure',failure:true}]){
+    flag=scenario.flag;metadataFailure=!!scenario.failure;
+    const context=await browser.newContext({serviceWorkers:'block',reducedMotion:'reduce'}),page=await context.newPage();
+    page.on('pageerror',error=>errors.push(String(error)));
+    await page.goto(url+'?debug=card-gate&game=th10');
+    await page.waitForFunction(()=>document.querySelector('.game[data-game=th06]').hasAttribute('aria-pressed'));
+    if(flag===true)await page.waitForFunction(()=>!document.querySelector('.game[data-game=th10]').hidden);
+    const expected=flag===true?['th06','th06mp','th07','th07mp','th08','th10']:['th06','th06mp','th07','th07mp','th08'];
+    const visible=()=>page.locator('.game:not([hidden])').evaluateAll(cards=>cards.map(c=>c.dataset.product||c.dataset.game).sort());
+    assert.deepEqual(await visible(),expected);
+    for(const game of ['th10']){
+      await page.locator(`.game[data-game=${game}]`).evaluate(card=>card.click());
+      assert.equal(await page.locator('.tools').getAttribute('aria-hidden'),String(flag!==true));
+    }
+    await page.locator('.game[data-game=th08]').evaluate(card=>card.click());
+    assert.equal(await page.locator('.tools').getAttribute('aria-hidden'),'false');
+    assert.equal(await page.locator('#gameId').textContent(),'TH08');
+    await page.locator('[data-card-filter=original]').evaluate(button=>button.click());
+    await page.waitForFunction(()=>!document.querySelector('#main').classList.contains('card-filter-motion'));
+    assert.deepEqual(await visible(),expected.filter(p=>!p.endsWith('mp')));
+    await page.reload();await page.waitForFunction(()=>document.querySelector('.game[data-game=th06]').hasAttribute('aria-pressed'));
+    if(flag===true)await page.waitForFunction(()=>!document.querySelector('.game[data-game=th10]').hidden);
+    assert.deepEqual(await visible(),expected.filter(p=>!p.endsWith('mp')));
+    checks.push(scenario.name+': ordinary TH08 selection, TH10 visibility, direct route, hidden click, category and reload');await context.close();
+  }
+  const context=await browser.newContext({javaScriptEnabled:false}),page=await context.newPage();await page.goto(url);
+  assert.equal(await page.locator('.game[data-game=th08]').isVisible(),true);assert.equal(await page.locator('.game[data-game=th10]').isVisible(),false);
+  checks.push('static HTML keeps ordinary TH08 visible and hides TH10 before JavaScript');await context.close();
+  assert.deepEqual(errors,[]);
+  await mkdir('.cache/validation/test-build-cards-20260910',{recursive:true});
+  await writeFile('.cache/validation/test-build-cards-20260910/browser.json',JSON.stringify({ok:true,checks,errors},null,2));console.log(JSON.stringify({ok:true,checks,errors},null,2));
+}finally{await browser?.close();await new Promise(resolve=>{server.close(resolve);server.closeAllConnections();});}

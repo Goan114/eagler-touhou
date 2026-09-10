@@ -53,6 +53,7 @@ export interface HostGameManifest {
 }
 
 export interface HostManifestShared {
+  testBuild?: boolean;
   resourceMode: ResourceMode;
   vanillaFont?: string;
   unicodeFont?: string;
@@ -112,7 +113,7 @@ function validOggManifest(value: unknown): value is HostOggManifest | null | und
     sha256.every(hash => typeof hash === "string" && SHA256.test(hash));
 }
 
-function validOfflineCompatibility(item: UnknownRecord, resourceMode: ResourceMode): boolean {
+function validOfflineCompatibility(item: UnknownRecord, resourceMode: ResourceMode, gameId: GameId): boolean {
   if (resourceMode === RESOURCE_MODE_HOSTED) return true;
   const compatibility = item.offlineCompatibility;
   const gameData = item.gameData;
@@ -120,13 +121,15 @@ function validOfflineCompatibility(item: UnknownRecord, resourceMode: ResourceMo
   const runtimeCompatibility = compatibility.runtimeCompatibility;
   const languages = compatibility.languages;
   const requiredShared = compatibility.requiredShared;
+  const product = PRODUCT_GAMES[gameId];
+  const expectedShared = "requiredShared" in product ? product.requiredShared : ["/msgothic.ttc", "/unifont.otf"];
   return isRecord(runtimeCompatibility) && isRecord(languages) &&
     compatibility.schema === "eagler-touhou/offline-game-pack/1" &&
     runtimeCompatibility.protocol === HOST_PROTOCOL &&
     runtimeCompatibility.dataLayout === gameData.layout &&
     runtimeCompatibility.versionSource === "offline-pack" &&
     Array.isArray(requiredShared) &&
-    ["/msgothic.ttc", "/unifont.otf"].every(target => requiredShared.includes(target)) &&
+    expectedShared.every(target => requiredShared.includes(target)) &&
     languages.source === "offline-pack" &&
     Array.isArray(languages.baseline) && languages.baseline.includes("ja");
 }
@@ -153,7 +156,7 @@ function validGame(gameId: string, value: unknown, resourceMode: ResourceMode): 
     Number.isSafeInteger(gameData.bytes) && Number(gameData.bytes) > 0 &&
     typeof gameData.sha256 === "string" && SHA256.test(gameData.sha256) &&
     validHostRuntimeFeatures(value.features) && validOggManifest(music.ogg) &&
-    validOfflineCompatibility(value, resourceMode);
+    validOfflineCompatibility(value, resourceMode, gameId);
 }
 
 function validOptionalUrl(value: unknown, protocols: ReadonlySet<string>): value is string | null | undefined {
@@ -175,6 +178,9 @@ export function validateHostManifest(value: unknown): HostManifest {
   if (!isRecord(value) || value.schema !== HOST_MANIFEST_SCHEMA || value.protocol !== HOST_PROTOCOL ||
       typeof value.profile !== "string" || !value.profile || !isRecord(value.shared) || !isRecord(value.games)) {
     throw new Error("invalid Host Manifest");
+  }
+  if (value.shared.testBuild !== undefined && typeof value.shared.testBuild !== "boolean") {
+    throw new Error("invalid Host Manifest testBuild flag");
   }
   const resourceMode = normalizeResourceMode(value.shared.resourceMode);
   if (!resourceMode) throw new Error("invalid Host Manifest resource mode");

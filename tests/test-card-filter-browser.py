@@ -5,6 +5,9 @@ import json
 from playwright.sync_api import sync_playwright
 
 
+COUNTS = {"all": 5, "original": 3, "multiplayer": 2}
+
+
 def home(page, category):
     page.wait_for_function("!document.querySelector('#main').classList.contains('card-filter-motion')")
     state = page.evaluate("""() => ({
@@ -19,7 +22,7 @@ def home(page, category):
       overflow: document.documentElement.scrollWidth > innerWidth
     })""")
     assert state == dict(selected=0, expanded=False, inert=False, tools="true", category=category,
-                         count={"all": 5, "original": 3, "multiplayer": 2}[category], opacity="1",
+                         count=COUNTS[category], opacity="1",
                          route=False, overflow=False), state
 
 
@@ -31,7 +34,12 @@ def change(page, category):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("url", nargs="?", default="http://127.0.0.1:8130/")
+    parser.add_argument("--test-build", action="store_true", help="Expect translated TH10 test card")
     args = parser.parse_args()
+    products = ["th06", "th07", "th08", "th06mp", "th07mp"]
+    if args.test_build:
+        products += ["th10"]
+        COUNTS.update(all=6, original=4)
     with sync_playwright() as p:
         browser = p.chromium.launch()
         context = browser.new_context(viewport={"width": 1280, "height": 800}, service_workers="block")
@@ -43,7 +51,7 @@ def main():
         page.wait_for_function("document.querySelectorAll('.card-art-image').length === 10")
         page.wait_for_timeout(1000)
         # Includes same-category clicks and destinations containing the old game.
-        for product in ["th06", "th07", "th08", "th06mp", "th07mp"]:
+        for product in products:
             for category in ["all", "original", "multiplayer"]:
                 change(page, "all")
                 page.evaluate("p => [...document.querySelectorAll('.game')].find(c => (c.dataset.product || c.dataset.game) === p).click()", product)
@@ -66,13 +74,13 @@ def main():
         assert not page.evaluate("document.querySelector('#main').getAnimations().length")
         page.locator('#lessMotionToggle').click()
         page.set_viewport_size({"width": 390, "height": 844})
-        page.evaluate("document.querySelector('.game-th08').click()")
+        page.evaluate("document.querySelector('.game-th07').click()")
         page.wait_for_timeout(250)
         page.evaluate("window.scrollTo(0, document.documentElement.scrollHeight)")
         change(page, "original")
         assert page.evaluate("scrollY") == 0
         assert not errors, errors
-        print(json.dumps({"browser": browser.version, "product_category_cases": 15,
+        print(json.dumps({"browser": browser.version, "product_category_cases": len(products) * 3,
                           "rapid_switch_reload_mobile_reduced_motion": "PASS"}))
         browser.close()
 

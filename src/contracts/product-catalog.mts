@@ -14,6 +14,7 @@ export function languagePriority(id: string): number {
 
 export const PRODUCT_GAMES = Object.freeze({
   th06: Object.freeze({
+    cardArtwork: "th06-card.webp",
     number: "06",
     title: "東方紅魔郷",
     subtitle: "the Embodiment of Scarlet Devil",
@@ -41,6 +42,7 @@ export const PRODUCT_GAMES = Object.freeze({
     features: Object.freeze({ thprac: true, replayManagement: true, languages: true, focusHitbox: true }),
   }),
   th07: Object.freeze({
+    cardArtwork: "th07-card.webp",
     number: "07",
     title: "東方妖々夢",
     subtitle: "Perfect Cherry Blossom",
@@ -68,6 +70,7 @@ export const PRODUCT_GAMES = Object.freeze({
     features: Object.freeze({ thprac: true, replayManagement: true, languages: true, focusHitbox: false }),
   }),
   th08: Object.freeze({
+    cardArtwork: "th08-card.webp",
     number: "08",
     title: "東方永夜抄",
     subtitle: "Imperishable Night",
@@ -83,6 +86,24 @@ export const PRODUCT_GAMES = Object.freeze({
       dataTarget: "/th08.data",
       musicSourceDirectories: Object.freeze({ ogg: "bgm-ogg" }),
       musicMounts: Object.freeze({ ogg: "/bgm-ogg" }),
+    }),
+    features: Object.freeze({ thprac: false, replayManagement: false, languages: false, focusHitbox: false }),
+  }),
+  th10: Object.freeze({
+    cardArtwork: null,
+    testOnly: true,
+    number: "10",
+    title: "東方風神録",
+    subtitle: "Mountain of Faith",
+    storage: Object.freeze({ saveRoot: "/savesth10", scoreFile: "scoreth10.dat", configFiles: Object.freeze(["th10.cfg"]) }),
+    runtime: "./runtime/th10/th10.html",
+    runtimeFileLayout: "directory",
+    requiredShared: Object.freeze([]),
+    runtimeAssets: Object.freeze(["th10.html", "manifest.json", "runtime/hosted-main.mjs", "runtime/browser-worker.js", "vendor/v86.js", "vendor/v86.wasm"]),
+    dataProvider: "retail-memory",
+    package: Object.freeze({
+      dataFileId: "game-data", dataTarget: "/th10.data",
+      musicSourceDirectories: Object.freeze({}), musicMounts: Object.freeze({}),
     }),
     features: Object.freeze({ thprac: false, replayManagement: false, languages: false, focusHitbox: false }),
   }),
@@ -117,6 +138,12 @@ export const PRODUCT_IDS = Object.freeze([
 
 export function isGameId(value: string): value is GameId {
   return Object.hasOwn(PRODUCT_GAMES, value);
+}
+
+export function productEnabledForBuild(productId: string, testBuild = false): boolean {
+  if (!isProductId(productId)) return false;
+  const game = PRODUCT_GAMES[gameIdForProduct(productId as ProductId)];
+  return !("testOnly" in game && game.testOnly) || testBuild === true;
 }
 
 export function isProductId(value: string): value is ProductId {
@@ -168,7 +195,7 @@ export function productFeatureAvailable(
 export function createLocalProductManifest() {
   return {
     protocol: HOST_PROTOCOL,
-    shared: { resourceMode: "hosted" as const },
+    shared: { resourceMode: "hosted" as const, testBuild: false },
     games: Object.fromEntries(productGameEntries.map(([game, product]) => [game, {
       ...product,
       music: { midi: { files: [] } },

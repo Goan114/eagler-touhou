@@ -37,6 +37,7 @@ import {
   multiplayerConfigForProduct,
   multiplayerProductIdForGame,
   productFeatureAvailable,
+  productEnabledForBuild,
 } from "../contracts/product-catalog.mjs";
 import { resolveEffectiveMusicMode, resolveMusicAvailability } from "./music-availability.mjs";
 import {
@@ -729,7 +730,7 @@ async function refreshRemoteReleaseState() {
   }
   renderServerStatusNote();
   bootWatchdog?.mark(metadata.releaseCatalog.ok ? "catalog-ok" : "catalog-unavailable");
-  setTimeout(() => { try { render(); } catch {} }, 0);
+  setTimeout(() => { try { if (!state.launched && !state.hasSelection) syncSelectionFromPlayerRoute(); render(); } catch {} }, 0);
 }
 let remoteReleasePromise = refreshRemoteReleaseState();
 
@@ -1035,7 +1036,11 @@ try {
   const saved = localStorage.getItem(cardFilterStorageKey);
   if (saved && isCardFilter(saved)) cardFilter = saved;
 } catch {}
+function productEnabled(product: string) {
+  return productEnabledForBuild(product, manifest.shared.testBuild === true);
+}
 function matchesCardFilter(product: ProductId) {
+  if (!productEnabled(product)) return false;
   return cardFilter === "all" || isMultiplayerProduct(product) === (cardFilter === "multiplayer");
 }
 const currentPreferenceId = () => isMultiplayerProduct() && !mpShareSingleplayerSettings ? state.product : state.game;
@@ -2906,7 +2911,7 @@ function musicAvailabilityContext() {
   const installedGeneration = activeInstalledPackageGeneration || installedPackageSnapshots.get(state.game) || null;
   return {
     audio: webAudioAvailable,
-    midiAvailable: !!packages.midi,
+    midiAvailable: state.game !== "th10" && !!packages.midi,
     importServer: !!importServer,
     publishedOggCapable: !!(packages.ogg || packages.wav),
     remoteOggAdvertised: !!packages.ogg,
@@ -3172,6 +3177,7 @@ function renderTouchActionState() {
   renderTouchFireState();
 }
 function render() {
+  if (!productEnabled(state.product)) state.hasSelection = false;
   chooseDefaultMusic();
   const multiplayerProduct = isMultiplayerProduct();
   document.body.classList.toggle("less-motion", state.lessMotion);
@@ -3739,7 +3745,7 @@ async function closePlayerView(fromHistory = false, { skipSync = false, returnTo
 
 function syncSelectionFromPlayerRoute() {
   const routed = routedGameFromLocation();
-  if (!routed) return false;
+  if (!routed || !productEnabled(routed)) return false;
   const nextGame = gameIdForProduct(routed);
   if (state.game !== nextGame || state.product !== routed) {
     state.product = routed;
@@ -4124,6 +4130,7 @@ function startManagedOggProgressiveInstall() {
 }
 
 async function ensureRuntime(show = true) {
+  if (!productEnabled(state.product)) throw new Error("该游戏仅在测试版开启");
   let localInstalled = null;
   try { localInstalled = await readCurrentPackageGeneration(state.game); } catch {}
   if (localInstalled?.generation) {
@@ -6226,7 +6233,7 @@ document.querySelectorAll<HTMLElement>(".game").forEach(card => {
     const main = $("#main");
     const product = card.dataset.product || card.dataset.game;
     const gameId = card.dataset.game;
-    if (!product || !gameId || !isProductId(product) || !isGameId(gameId)) return;
+    if (!product || !gameId || !isProductId(product) || !isGameId(gameId) || !productEnabled(product)) return;
     if (isMultiplayerProduct(product) && !state.netplay.url) {
       showToast(hostManifestAvailable
         ? "联机服务未配置，请联系站点管理员。"

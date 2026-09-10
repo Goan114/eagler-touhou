@@ -22,6 +22,8 @@ const args = parseArgs(process.argv.slice(2));
 const hostRoot = resolve(String(args.root || projectRoot));
 const music = String(args.music || "midi,ogg");
 const python = String(args.python || process.env.PYTHON || "python");
+if (args["test-build"] !== undefined && !["0", "1"].includes(args["test-build"])) throw new Error("--test-build must be 0 or 1");
+const testBuild = args["test-build"] === "1";
 const rebuildHostedBase = !!args["rebuild-hosted-base"];
 
 assertSupportedNode();
@@ -29,7 +31,7 @@ console.log("[Import] Validating self-host inputs and configuration");
 await inspectHostWorkspace(hostRoot, { music });
 await ensureNodeDependencies(projectRoot);
 const { buildImportArtifacts } = await import("./lib/site-builder.mjs");
-await buildImportArtifacts({ projectRoot, hostRoot, music, python, rebuildHostedBase });
+await buildImportArtifacts({ projectRoot, hostRoot, music, python, rebuildHostedBase, testBuild });
 await run(process.execPath, [
   resolve(projectRoot, "scripts", "inspect-host.mjs"),
   `--root=${hostRoot}`, `--music=${music}`, "--post-import=1",

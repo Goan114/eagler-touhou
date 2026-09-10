@@ -4,6 +4,7 @@ import { basename, dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { canonicalPackagePayload, validatePackageDescriptor } from "../package/package-descriptor.mjs";
 import { PRODUCT_GAMES } from "../lib/contracts/product-catalog.mjs";
+import { runtimeFileNames } from "../lib/runtime-release.mjs";
 import { RELEASE_CATALOG_FILE, releaseCatalogEntryUrl, validateReleaseCatalog } from "../lib/contracts/release-catalog.mjs";
 import { HOST_MANIFEST_FILE, validateHostManifest } from "../lib/contracts/host-manifest.mjs";
 import { extractGameDataLayout } from "../lib/runtime-data-layout.mjs";
@@ -151,6 +152,29 @@ const releaseCatalog = validateReleaseCatalog(JSON.parse(await readFile(resolve(
 if (games.profile !== deployment.profile) throw new Error("Host Manifest profile does not match deployment");
 if (games.protocol !== "eagler-touhou/1") throw new Error("invalid host protocol");
 if (normalizeResourceMode(games.shared?.resourceMode || "hosted") !== resourceMode) throw new Error("host/deployment resourceMode mismatch");
+for (const game of gameIds.filter(id => PRODUCT_GAMES[id].runtimeFileLayout === "directory")) {
+  const entry = games.games[game], runtimeUrl = new URL(entry.runtime, "https://eagler.invalid/");
+  if (!runtimeUrl.searchParams.get("v")) throw new Error(`unversioned directory Runtime: ${game}`);
+  const runtimeRoot = resolve(root, "runtime", game);
+  const metadata = JSON.parse(await readFile(resolve(runtimeRoot, "runtime-files.json"), "utf8"));
+  if (metadata.schema !== "eagler-touhou/runtime-directory/1") throw new Error(`${game}: invalid Runtime directory manifest`);
+  for (const name of runtimeFileNames(game, metadata.files)) {
+    const bytes = await readFile(resolve(runtimeRoot, name)), expected = metadata.files[name];
+    if (bytes.length !== expected.bytes || createHash("sha256").update(bytes).digest("hex") !== expected.sha256) throw new Error(`${game}: stale Runtime asset: ${name}`);
+  }
+  const shell = await readFile(resolve(runtimeRoot, `${game}.html`), "utf8");
+  if (!shell.includes("window.parent.__eaglerPrepareManagedRuntimeDataV1")) throw new Error(`${game}: missing managed DATA contract`);
+  const identity = entry.gameData;
+  if (!Number.isSafeInteger(identity?.bytes) || identity.bytes <= 0 || !/^[a-f0-9]{64}$/.test(identity.sha256) ||
+      identity.path !== `${game}.data` || identity.version !== `sha256-${identity.sha256}`) throw new Error(`${game}: invalid DATA identity`);
+  if (resourceMode === "hosted") {
+    const bytes = await readFile(resolve(root, "games", game, `${game}.data`));
+    if (bytes.length !== identity.bytes || createHash("sha256").update(bytes).digest("hex") !== identity.sha256) throw new Error(`${game}: DATA identity mismatch`);
+  } else if (entry.offlineCompatibility?.runtimeCompatibility?.dataLayout !== identity.layout ||
+      !Array.isArray(entry.offlineCompatibility?.requiredShared) || entry.offlineCompatibility.requiredShared.length !== 0) {
+    throw new Error(`${game}: invalid import-only compatibility`);
+  }
+}
 if (resourceMode !== "hosted" && gameIds.includes("th08")) {
   const entry = games.games?.th08;
   if (!entry?.music?.midi || typeof entry.runtime !== "string" || !entry.runtime.includes("&v=")) {

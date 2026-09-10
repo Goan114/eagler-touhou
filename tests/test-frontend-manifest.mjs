@@ -95,3 +95,7 @@ const declaredPublicFiles = FRONTEND_PACKAGE_FILES.filter(path =>
 assert.deepEqual(publicFiles, declaredPublicFiles,
   "public/ must contain exactly the allowlisted authored browser source files");
 console.log(JSON.stringify({ frontendManifest: "PASS", packaged: FRONTEND_PACKAGE_FILES.length, appShell: APP_SHELL_FILES.length }));
+
+assert.deepEqual(hostArtworkFiles(["th10"]), ["th06.ico"], "gradient TH10 card has no external artwork dependency");
+assert.deepEqual(hostArtworkFiles(["th06", "th07", "th08", "th10"]), ["th06-card.webp", "th06.ico", "th07-card.webp", "th08-card.webp"]);
+assert.throws(()=>hostArtworkFiles(["unknown"]), /unknown artwork product/);

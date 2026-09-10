@@ -115,3 +115,6 @@ assert.doesNotThrow(() => validateHostManifest({
 }));
 
 console.log(JSON.stringify({ hostManifest: "PASS", subsetProducts: true }));
+
+for (const testBuild of [false, true]) assert.equal(validateHostManifest({...hosted, shared:{...hosted.shared,testBuild}}).shared.testBuild,testBuild);
+for (const testBuild of ["true", "false", 0, 1, null]) assert.throws(()=>validateHostManifest({...hosted,shared:{...hosted.shared,testBuild}}),/testBuild/);

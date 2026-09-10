@@ -21,7 +21,8 @@ import { assertRuntimeDataShell } from "../lib/runtime-data-provider.mjs";
 import { buildAppShell } from "../lib/app-shell-build.mjs";
 import { deploymentAppShellPatterns } from "../lib/app-shell-policy.mjs";
 import { sourceIdentity, writeReleaseManifest, fileSetIdentity } from "../lib/release-manifest.mjs";
-import { verifyRuntimeRelease } from "../lib/runtime-release.mjs";
+import { verifyRuntimeRelease, runtimeFileNames } from "../lib/runtime-release.mjs";
+import { PRODUCT_CONTENT } from "../lib/content-definition.mjs";
 import { WORKSPACE_REPOSITORIES, workspacePath, workspaceRoot } from "../lib/workspace-layout.mjs";
 import { FRONTEND_PACKAGE_FILES, hostArtworkFiles, resolveFrontendPackageSource } from "../lib/frontend-manifest.mjs";
 
@@ -54,6 +55,8 @@ if (![RESOURCE_MODE_HOSTED, RESOURCE_MODE_IMPORT].includes(configuredResourceMod
 }
 const serverResourceMode = configuredResourceMode;
 const hostedResources = serverResourceMode === RESOURCE_MODE_HOSTED;
+if (args["test-build"] !== undefined && !["0", "1"].includes(args["test-build"])) throw new Error("--test-build must be 0 or 1");
+const testBuild = args["test-build"] === "1";
 const buildProfile = args.profile;
 const buildAuthority = classifyBuildProfile(buildProfile);
 if (!buildAuthority || buildProfile === "web-development") throw new Error("packaging requires an explicit web-validation-* or web-release-* --profile=NAME");
@@ -339,6 +342,7 @@ manifest.schema = HOST_MANIFEST_SCHEMA;
 manifest.profile = buildProfile;
 manifest.shared = {
   resourceMode: serverResourceMode,
+  testBuild,
   ...(serverResourceMode === RESOURCE_MODE_HOSTED ? {
     vanillaFont: `shared/msgothic.ttc?v=${await versionFiles(dirname(vanillaFont), [basename(vanillaFont)])}`,
     unicodeFont: `shared/unifont.otf?v=${await versionFiles(dirname(font), [basename(font)])}`,
@@ -402,6 +406,43 @@ if (gameIds.includes("th08")) {
         ...(oggPack.sha256 ? { sha256: oggPack.sha256 } : {}),
       } } : {}),
     };
+  }
+}
+
+for (const game of gameIds.filter(id => PRODUCT_GAMES[id].runtimeFileLayout === "directory")) {
+  const entry = manifest.games[game], product = PRODUCT_GAMES[game];
+  const declared = runtimeRelease?.games[game]?.runtime.files ||
+    JSON.parse(await readFile(resolve(builds[game], "runtime-files.json"), "utf8")).files;
+  const names = runtimeFileNames(game, declared), appRuntimeRoot = resolve(staging, "runtime", game);
+  await assertAppManagedRuntimeShell(builds[game], game, "normal", game);
+  for (const name of names) {
+    const source = resolve(builds[game], name), identity = await fileIdentity(source), expected = declared[name];
+    if (identity.bytes !== expected.bytes || identity.sha256 !== expected.sha256) throw new Error(`${game}: Runtime identity mismatch: ${name}`);
+    await mkdir(dirname(resolve(appRuntimeRoot, name)), { recursive: true });
+    await cp(source, resolve(appRuntimeRoot, name));
+  }
+  await writeFile(resolve(appRuntimeRoot, "runtime-files.json"), JSON.stringify({ schema: "eagler-touhou/runtime-directory/1", files: declared }, null, 2));
+  entry.runtime = `runtime/${game}/${game}.html?hosted=1&v=${await versionFiles(appRuntimeRoot, names)}`;
+  entry.features = { thprac: false, focusHitbox: false };
+  entry.languages = []; entry.languageOptions = [{ id: "ja", title: languageDisplayName("ja"), pack: null }];
+  entry.music = { midi: { files: [], supported: false } };
+  if (!hostedResources) {
+    entry.offlineCompatibility = { schema: "eagler-touhou/offline-game-pack/1",
+      runtimeCompatibility: { protocol: manifest.protocol, dataLayout: entry.gameData.layout, versionSource: "offline-pack" },
+      requiredShared: [...product.requiredShared], languages: { source: "offline-pack", baseline: ["ja"] } };
+  } else {
+    const target = `games/${game}/${game}.data`;
+    await mkdir(dirname(resolve(staging, target)), { recursive: true });
+    await cp(resolve(dataAssets[game], `${game}.data`), resolve(staging, target));
+    const identity = await fileIdentity(resolve(staging, target));
+    entry.gameData = { path: `${game}.data`, ...identity, version: `sha256-${identity.sha256}`, layout: PRODUCT_CONTENT[game].dataLayout };
+    const descriptor = { schema: PACKAGE_DESCRIPTOR_SCHEMA, game, revision: "pending",
+      runtimeRequirement: { protocol: manifest.protocol, target: game, dataFile: "game-data", dataLayout: entry.gameData.layout },
+      files: { "game-data": await descriptorFile(target, `/${game}.data`) }, base: { files: ["game-data"] }, components: {} };
+    descriptor.revision = createHash("sha256").update(canonicalPackagePayload(descriptor)).digest("hex").slice(0, 16);
+    validatePackageDescriptor(descriptor);
+    const name = `${game}.package.json`; await writeFile(resolve(staging, name), JSON.stringify(descriptor, null, 2));
+    entry.package = { revision: descriptor.revision, descriptor: name };
   }
 }
 

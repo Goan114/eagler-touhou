@@ -3,7 +3,7 @@ import { cp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PRODUCT_GAMES } from "../lib/contracts/product-catalog.mjs";
-import { RUNTIME_RELEASE_SCHEMA, runtimeStem, validateRuntimeReleaseManifest, verifyRuntimeRelease } from "../lib/runtime-release.mjs";
+import { RUNTIME_RELEASE_SCHEMA, runtimeStem, runtimeFileNames, validateRuntimeReleaseManifest, verifyRuntimeRelease } from "../lib/runtime-release.mjs";
 import { extractGameDataLayout } from "../lib/runtime-data-layout.mjs";
 import { assertRuntimeDataShell } from "../lib/runtime-data-provider.mjs";
 
@@ -26,6 +26,7 @@ const builds = {
   th07: required("th07-build"),
   th07Multiplayer: required("th07-multiplayer-build"),
   th08: required("th08-build"),
+  th10: required("th10-build"),
 };
 
 async function identity(path) {
@@ -47,6 +48,17 @@ async function copyVariant(game, build, root, variant) {
   assertRuntimeDataShell(html, game, variant);
   await mkdir(resolve(staging, root), { recursive: true });
   const files = {};
+  if (PRODUCT_GAMES[game].runtimeFileLayout === "directory") {
+    const directory = JSON.parse(await readFile(resolve(build, "runtime-files.json"), "utf8"));
+    if (directory.schema !== "eagler-touhou/runtime-directory/1") throw new Error(`${game}: missing directory Runtime build manifest`);
+    for (const name of runtimeFileNames(game, directory.files)) {
+      const source = resolve(build, name), actual = await identity(source), expected = directory.files[name];
+      if (actual.bytes !== expected.bytes || actual.sha256 !== expected.sha256) throw new Error(`${game}: stale Runtime build identity: ${name}`);
+      await mkdir(dirname(resolve(staging, root, name)), { recursive: true });
+      await cp(source, resolve(staging, root, name)); files[name] = actual;
+    }
+    return files;
+  }
   for (const extension of ["html", "js", "wasm"]) {
     const name = `${stem}.${extension}`;
     const source = resolve(build, name);
