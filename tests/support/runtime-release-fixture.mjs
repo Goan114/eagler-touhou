@@ -38,12 +38,18 @@ export async function writeSyntheticRuntimeRelease(root) {
         : `<script>window.parent.__eaglerPrepareManagedRuntimeDataV1;</script>${variant}`);
       const js = Buffer.from(preload?.script || `globalThis.__fixture=${JSON.stringify(game)};`);
       const wasm = Buffer.from(`${game}:${variant}:wasm`);
-      const payloads = {
-        [`${stem}.html`]: html,
-        [`${stem}.js`]: js,
-        [`${stem}.wasm`]: wasm,
-      };
-      for (const [name, bytes] of Object.entries(payloads)) await writeFile(resolve(target, name), bytes);
+      const payloads = product.runtimeFileLayout === "directory"
+        ? Object.fromEntries(product.runtimeAssets.map(name => [name,
+          name === `${stem}.html` ? html : Buffer.from(`${game}:${variant}:${name}`)]))
+        : {
+            [`${stem}.html`]: html,
+            [`${stem}.js`]: js,
+            [`${stem}.wasm`]: wasm,
+          };
+      for (const [name, bytes] of Object.entries(payloads)) {
+        await mkdir(resolve(target, name, ".."), { recursive: true });
+        await writeFile(resolve(target, name), bytes);
+      }
       entry[key] = {
         root: runtimeRoot,
         files: Object.fromEntries(Object.entries(payloads).map(([name, bytes]) => [name, identity(bytes)])),

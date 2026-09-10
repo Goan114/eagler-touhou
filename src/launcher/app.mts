@@ -694,7 +694,7 @@ function applyHostManifest(value: unknown) {
     originMigrationOpen.hidden = !hostOriginMigrationAvailable(manifest, location.protocol);
   }
   serverResourceMode = manifest.shared?.resourceMode || "hosted";
-  importServer = serverResourceMode !== "hosted";
+  importServer = serverResourceMode === "import";
   gameDataFallback = manifest.shared?.gameDataFallback || null;
   state.netplay.url = typeof manifest.shared?.netplayRelay === "string" ? manifest.shared.netplayRelay : "";
   serverConfigurationWarning = importServer && !gameDataFallback
@@ -4176,6 +4176,9 @@ async function ensureRuntime(show = true) {
       : `服务器发行信息尚未就绪，且本机没有已安装的 ${state.game.toUpperCase()} 游戏资源。请稍后重试，或导入本地游戏包。`);
   }
   if (importServer) throw new Error("当前服务器不提供游戏文件，请先导入本地游戏包");
+  if (serverResourceMode === "external") {
+    throw new Error("外部游戏资源当前不可用，请检查网络 / CDN，或导入本地游戏包");
+  }
   const expectedData = gameDataDescriptor();
   const sourceUrl = new URL(runtimeUrl(), location.href);
   sourceUrl.searchParams.set("runtimeVariant", state.runtimeVariant || "normal");

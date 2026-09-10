@@ -14,7 +14,7 @@ import { verifyReleaseBundle } from "../lib/release-bundle-verifier.mjs";
 
 const root = await mkdtemp(join(tmpdir(), "eagler-release-bundle-"));
 const games = Object.keys(PRODUCT_GAMES);
-for (const directory of ["hosted-site", "import-site", "runtime-release", "game-package", "offline-zip"]) {
+for (const directory of ["hosted-site", "external-site", "import-site", "runtime-release", "game-package", "offline-zip"]) {
   await mkdir(join(root, directory));
 }
 await writeSyntheticRuntimeRelease(join(root, "runtime-release"));
@@ -22,7 +22,17 @@ for (const game of games) {
   await mkdir(join(root, "game-package", game));
   await writeFile(join(root, "game-package", game, "package.json"), "{}\n");
   await writeFile(join(root, "offline-zip", `${game}.zip`), game);
+  await writeFile(join(root, "external-site", `${game}.package.json`), "{}\n");
 }
+await writeFile(join(root, "external-site", "release-catalog.json"), JSON.stringify({
+  schema: "eagler-touhou/release-catalog/1",
+  resourceMode: "external",
+  games: Object.fromEntries(games.map(game => [game, { revision: "0".repeat(16), descriptor: `${game}.package.json` }])),
+}));
+await writeFile(join(root, "external-site", "deployment.json"), JSON.stringify({
+  resourceMode: "external",
+  files: games.map(game => ({ path: `${game}.package.json` })),
+}));
 const completion = Object.fromEntries(COMPLETION_FIELDS.map(field => [field, "pending"]));
 completion.IMPLEMENTED = "yes";
 completion["BUILD-VERIFIED"] = "yes";

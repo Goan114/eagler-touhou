@@ -6,7 +6,9 @@ import {
   type HostRuntimeFeatures,
 } from "./product-catalog.mjs";
 import {
+  RESOURCE_MODE_EXTERNAL,
   RESOURCE_MODE_HOSTED,
+  RESOURCE_MODE_IMPORT,
   normalizeResourceMode,
   type ResourceMode,
 } from "./resource-mode.mjs";
@@ -114,7 +116,7 @@ function validOggManifest(value: unknown): value is HostOggManifest | null | und
 }
 
 function validOfflineCompatibility(item: UnknownRecord, resourceMode: ResourceMode, gameId: GameId): boolean {
-  if (resourceMode === RESOURCE_MODE_HOSTED) return true;
+  if (resourceMode !== RESOURCE_MODE_IMPORT) return true;
   const compatibility = item.offlineCompatibility;
   const gameData = item.gameData;
   if (!isRecord(compatibility) || !isRecord(gameData)) return false;
@@ -150,12 +152,16 @@ function validGame(gameId: string, value: unknown, resourceMode: ResourceMode): 
   if ("multiplayerRuntime" in product &&
       (typeof value.multiplayerRuntime !== "string" || !value.multiplayerRuntime)) return false;
   const expectedDataPath = product.package.dataTarget.slice(1);
+  const packagePointer = value.package;
+  const validExternalPackage = resourceMode !== RESOURCE_MODE_EXTERNAL ||
+    (isRecord(packagePointer) && typeof packagePointer.revision === "string" && /^[a-f0-9]{16}$/i.test(packagePointer.revision) &&
+      typeof packagePointer.descriptor === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]*\.package\.json$/i.test(packagePointer.descriptor));
   return typeof gameData.version === "string" && SHA256_VERSION.test(gameData.version) &&
     typeof gameData.layout === "string" && SHA256_VERSION.test(gameData.layout) &&
     gameData.path === expectedDataPath &&
     Number.isSafeInteger(gameData.bytes) && Number(gameData.bytes) > 0 &&
     typeof gameData.sha256 === "string" && SHA256.test(gameData.sha256) &&
-    validHostRuntimeFeatures(value.features) && validOggManifest(music.ogg) &&
+    validExternalPackage && validHostRuntimeFeatures(value.features) && validOggManifest(music.ogg) &&
     validOfflineCompatibility(value, resourceMode, gameId);
 }
 
@@ -190,7 +196,7 @@ export function validateHostManifest(value: unknown): HostManifest {
   }
   if (resourceMode !== RESOURCE_MODE_HOSTED &&
       (value.shared.vanillaFont != null || value.shared.unicodeFont != null)) {
-    throw new Error("import Host Manifest must not publish shared font URLs");
+    throw new Error(`${resourceMode} Host Manifest must not publish shared font URLs`);
   }
   const fallback = value.shared.gameDataFallback;
   if (fallback != null && (!isRecord(fallback) || typeof fallback.url !== "string" ||

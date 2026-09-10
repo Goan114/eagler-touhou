@@ -13,7 +13,7 @@ import {
 } from "../lib/workspace-layout.mjs";
 
 assert.deepEqual(Object.keys(WORKSPACE_REPOSITORIES), [
-  "launcher", "th06", "th07", "th08", "thprac", "dependencies", "toolchains",
+  "launcher", "th06", "th07", "th08", "th10", "thprac", "dependencies", "toolchains",
 ]);
 assert.deepEqual(workspaceRepositoryNames(["launcher", "th06", "th08"]), [
   "eagler-touhou", "th06-eagler", "th08-eaglertemp",

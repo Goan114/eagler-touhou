@@ -74,9 +74,9 @@ Both values are optional.
 Run `npm run host:doctor` to validate the local Host inputs and show optional
 service warnings.
 
-## Hosted and Import modes
+## Hosted, External, and Import modes
 
-The generated site has two canonical game-content delivery modes.
+The generated site has three canonical game-content delivery modes.
 
 ### `hosted`
 
@@ -108,6 +108,10 @@ rebuilding the hosted base. Maintainers can force that base to be rebuilt with
 
 `import-only` and `import-partial` are historical read-compatibility values,
 not new production modes.
+
+### `external`
+
+`npm run package:external-site -- --source=dist/site --output=dist/external-site --runtime-release=runtime-release --profile=web-release-external` derives an External site from a verified Hosted site. It keeps the Launcher and each selected game's Runtime HTML, JavaScript, and WebAssembly in the generated site, together with the Release Catalog and Package Descriptors. It omits `games/` and `shared/` payload files. The serving infrastructure must redirect those same-origin payload routes to an external HTTPS origin. See [`EXTERNAL_RESOURCE_MODE.md`](EXTERNAL_RESOURCE_MODE.md) for routing and verification requirements.
 
 ## Static Web-server behavior
 

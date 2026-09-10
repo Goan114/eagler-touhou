@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
+import { validatePackageDescriptor } from "../package/package-descriptor.mjs";
 import { PRODUCT_GAMES } from "../lib/contracts/product-catalog.mjs";
-import { normalizeResourceMode } from "../lib/contracts/resource-mode.mjs";
+import { RESOURCE_MODE_EXTERNAL, RESOURCE_MODE_HOSTED, RESOURCE_MODE_IMPORT, normalizeResourceMode } from "../lib/contracts/resource-mode.mjs";
 import { assertAppShellContract } from "../lib/app-shell-policy.mjs";
-import { RELEASE_CATALOG_FILE } from "../lib/contracts/release-catalog.mjs";
+import { RELEASE_CATALOG_FILE, releaseCatalogEntryUrl, validateReleaseCatalog } from "../lib/contracts/release-catalog.mjs";
 import { HOST_MANIFEST_FILE, validateHostManifest } from "../lib/contracts/host-manifest.mjs";
 
 if (!process.argv[2]) throw new Error("usage: node scripts/verify-deployed-site.mjs URL");
@@ -136,14 +137,19 @@ else if (!/^(?:text|application)\/javascript\b/i.test(legacyGamePackResult.conte
 if (!releaseCatalogResult) failures.push(`${RELEASE_CATALOG_FILE}: unavailable`);
 else if (!hostManifestResult) failures.push(`${HOST_MANIFEST_FILE}: unavailable`);
 else {
-  const catalog = JSON.parse(new TextDecoder().decode(releaseCatalogResult.bytes));
+  let catalog;
+  try { catalog = validateReleaseCatalog(JSON.parse(new TextDecoder().decode(releaseCatalogResult.bytes))); }
+  catch (error) {
+    failures.push(`${RELEASE_CATALOG_FILE}: ${error?.message || error}`);
+    catalog = null;
+  }
   let games;
   try { games = validateHostManifest(JSON.parse(new TextDecoder().decode(hostManifestResult.bytes))); }
   catch (error) {
     failures.push(`${HOST_MANIFEST_FILE}: ${error?.message || error}`);
     games = null;
   }
-  if (!games) {
+  if (!games || !catalog) {
     // Host Manifest validation already recorded the concrete failure.
   } else {
   if (!appShellWorkerResult) {
@@ -170,14 +176,80 @@ else {
       normalizeResourceMode(games.shared?.resourceMode || "hosted") !== resourceMode) {
     failures.push("Release Catalog / Host Manifest resource mode mismatch");
   }
-  if (resourceMode !== "hosted") {
+  if (resourceMode === RESOURCE_MODE_IMPORT) {
     if (games.shared?.vanillaFont != null || games.shared?.unicodeFont != null) failures.push(`${resourceMode}: runtime font URL must be absent`);
     const payloads = [...inventory.keys()].filter(path => path.startsWith("games/") || path.startsWith("shared/"));
     const updates = deployment.runtimeUpdates || [];
     if (Object.keys(catalog.games).length || payloads.length || updates.length) {
       failures.push("import deployment exposes game resources, Runtime updates, or releases");
     }
-  } else {
+  } else if (resourceMode === RESOURCE_MODE_EXTERNAL) {
+    if (games.shared?.vanillaFont != null || games.shared?.unicodeFont != null) failures.push("external: runtime font URL must be absent");
+    const payloads = [...inventory.keys()].filter(path => path.startsWith("games/") || path.startsWith("shared/"));
+    if (payloads.length) failures.push("external deployment bundles game/shared payloads");
+    const gameIds = Object.keys(games.games).sort();
+    if (Object.keys(catalog.games).sort().join(",") !== gameIds.join(",")) {
+      failures.push("external deployment does not publish every selected Package Descriptor");
+    }
+    for (const game of gameIds) {
+      const descriptorHref = releaseCatalogEntryUrl(new URL(RELEASE_CATALOG_FILE, base).href, catalog, game);
+      const descriptorPath = descriptorHref && new URL(descriptorHref).pathname.slice(base.pathname.length).replace(/^\//, "");
+      const descriptorResult = descriptorPath && results.get(descriptorPath);
+      if (!descriptorHref || !descriptorResult) {
+        failures.push(`${game}: external Package Descriptor unavailable`);
+        continue;
+      }
+      let descriptor;
+      try { descriptor = validatePackageDescriptor(JSON.parse(new TextDecoder().decode(descriptorResult.bytes))); }
+      catch (error) {
+        failures.push(`${game}: invalid external Package Descriptor: ${error?.message || error}`);
+        continue;
+      }
+      for (const [fileId, file] of Object.entries(descriptor.files)) {
+        if (!/^(?:games|shared)\//.test(file.source)) {
+          failures.push(`${game}/${fileId}: Package source is outside redirect-owned routes`);
+          continue;
+        }
+        const route = new URL(file.source, descriptorHref);
+        try {
+          const redirect = await fetch(route, { method: "HEAD", cache: "no-store", redirect: "manual" });
+          if (![301, 302, 303, 307, 308].includes(redirect.status)) throw new Error(`HTTP ${redirect.status}, expected redirect`);
+          const location = redirect.headers.get("location");
+          const external = location && new URL(location, route);
+          if (!external || external.protocol !== "https:" || external.origin === base.origin) throw new Error("invalid external Location");
+          const response = await fetch(route, { method: "HEAD", cache: "no-store", redirect: "follow", headers: { Origin: base.origin } });
+          if (!response.ok || response.url === route.href) throw new Error(`external HEAD failed: HTTP ${response.status}`);
+          const allowOrigin = response.headers.get("access-control-allow-origin");
+          if (allowOrigin !== "*" && allowOrigin !== base.origin) throw new Error("external response does not allow Launcher origin");
+          const contentLengthHeader = response.headers.get("content-length");
+          if (contentLengthHeader != null) {
+            const contentLength = Number(contentLengthHeader);
+            if (!Number.isSafeInteger(contentLength) || contentLength !== file.bytes) {
+              throw new Error(`Content-Length ${contentLengthHeader} != ${file.bytes}`);
+            }
+          }
+          const range = await fetch(route, {
+            method: "GET",
+            cache: "no-store",
+            redirect: "follow",
+            headers: { Origin: base.origin, Range: "bytes=0-0" },
+          });
+          if (range.status !== 206) throw new Error(`Range GET returned HTTP ${range.status}, expected 206`);
+          if (range.headers.get("content-range") !== `bytes 0-0/${file.bytes}`) {
+            throw new Error(`invalid Content-Range: ${range.headers.get("content-range") || "missing"}`);
+          }
+          const exposed = (range.headers.get("access-control-expose-headers") || "").toLowerCase()
+            .split(",").map(value => value.trim());
+          if (!exposed.includes("content-range") && !exposed.includes("*")) {
+            throw new Error("external response does not expose Content-Range");
+          }
+          if ((await range.arrayBuffer()).byteLength !== 1) throw new Error("Range GET did not return exactly one byte");
+        } catch (error) {
+          failures.push(`${game}/${fileId}: ${error?.message || error}`);
+        }
+      }
+    }
+  } else if (resourceMode === RESOURCE_MODE_HOSTED) {
   for (const key of ["vanillaFont", "unicodeFont"]) {
     if (typeof games.shared?.[key] !== "string") {
       failures.push(`shared ${key} reference missing`);

@@ -13,7 +13,7 @@ import { HOST_MANIFEST_FILE, HOST_MANIFEST_SCHEMA, validateHostManifest } from "
 import { PRODUCT_GAMES, languagePriority } from "../lib/contracts/product-catalog.mjs";
 import { assertProductEntriesRegistered, normalizeProductSelection, selectProductEntries } from "../lib/product-selection.mjs";
 import { createPublicationHostSeed } from "../lib/publication-host-seed.mjs";
-import { RESOURCE_MODE_HOSTED, RESOURCE_MODE_IMPORT } from "../lib/contracts/resource-mode.mjs";
+import { RESOURCE_MODE_EXTERNAL, RESOURCE_MODE_HOSTED, RESOURCE_MODE_IMPORT } from "../lib/contracts/resource-mode.mjs";
 import { BUILD_AUTHORITY_PUBLICATION, classifyBuildProfile } from "../lib/build-profile.mjs";
 import { extractGameDataLayout } from "../lib/runtime-data-layout.mjs";
 import { assemblePreloadData } from "../lib/preload-data-assembler.mjs";
@@ -50,11 +50,12 @@ if (configuredFeatures && (configuredFeatures.schema !== "eagler-touhou/server-f
   throw new Error(`invalid server feature config: ${featureConfigPath}`);
 }
 const configuredResourceMode = configuredFeatures?.resourceMode || RESOURCE_MODE_HOSTED;
-if (![RESOURCE_MODE_HOSTED, RESOURCE_MODE_IMPORT].includes(configuredResourceMode)) {
+if (![RESOURCE_MODE_HOSTED, RESOURCE_MODE_EXTERNAL, RESOURCE_MODE_IMPORT].includes(configuredResourceMode)) {
   throw new Error(`invalid resourceMode in server feature config: ${featureConfigPath}`);
 }
 const serverResourceMode = configuredResourceMode;
 const hostedResources = serverResourceMode === RESOURCE_MODE_HOSTED;
+const externalResources = serverResourceMode === RESOURCE_MODE_EXTERNAL;
 if (args["test-build"] !== undefined && !["0", "1"].includes(args["test-build"])) throw new Error("--test-build must be 0 or 1");
 const testBuild = args["test-build"] === "1";
 const buildProfile = args.profile;
@@ -327,6 +328,9 @@ if (!hostedResources && !hostManifestPath) {
 const manifest = hostManifestPath
   ? validateHostManifest(JSON.parse(await readFile(hostManifestPath, "utf8")))
   : createPublicationHostSeed(buildProfile);
+if (externalResources && manifest.shared.resourceMode !== RESOURCE_MODE_HOSTED) {
+  throw new Error("external packaging requires a Host Manifest from a hosted resource publication");
+}
 if (manifest.protocol !== "eagler-touhou/1" || !manifest.games || typeof manifest.games !== "object") {
   throw new Error(`invalid Host Manifest input: ${hostManifestPath || "generated publication Host seed"}`);
 }
@@ -353,7 +357,7 @@ manifest.shared = {
     ? { originMigration: configuredFeatures.originMigration }
     : {}),
 };
-if (!hostedResources) {
+if (serverResourceMode === RESOURCE_MODE_IMPORT) {
   for (const entry of Object.values(manifest.games)) delete entry.package;
 }
 
@@ -365,7 +369,7 @@ if (serverResourceMode === RESOURCE_MODE_HOSTED) {
 
 // TH08 is an App-owned subsidiary Runtime just like the existing game
 // binaries. Publish the already-verified formal HTML/JS/WASM in every
-// resource mode; only DATA/OGG ownership changes between hosted and import.
+// resource mode; only DATA/OGG ownership changes between hosted, external, and import.
 if (gameIds.includes("th08")) {
   const game = "th08";
   const entry = manifest.games?.[game];
@@ -384,7 +388,7 @@ if (gameIds.includes("th08")) {
   entry.features = { ...(entry.features || {}), thprac: false };
   entry.languages = [];
   entry.languageOptions = [{ id: "ja", title: languageDisplayName("ja"), pack: null }];
-  if (!hostedResources) {
+  if (serverResourceMode === RESOURCE_MODE_IMPORT) {
     entry.offlineCompatibility = {
       schema: "eagler-touhou/offline-game-pack/1",
       runtimeCompatibility: {
@@ -426,11 +430,11 @@ for (const game of gameIds.filter(id => PRODUCT_GAMES[id].runtimeFileLayout === 
   entry.features = { thprac: false, focusHitbox: false };
   entry.languages = []; entry.languageOptions = [{ id: "ja", title: languageDisplayName("ja"), pack: null }];
   entry.music = { midi: { files: [], supported: false } };
-  if (!hostedResources) {
+  if (serverResourceMode === RESOURCE_MODE_IMPORT) {
     entry.offlineCompatibility = { schema: "eagler-touhou/offline-game-pack/1",
       runtimeCompatibility: { protocol: manifest.protocol, dataLayout: entry.gameData.layout, versionSource: "offline-pack" },
       requiredShared: [...product.requiredShared], languages: { source: "offline-pack", baseline: ["ja"] } };
-  } else {
+  } else if (hostedResources) {
     const target = `games/${game}/${game}.data`;
     await mkdir(dirname(resolve(staging, target)), { recursive: true });
     await cp(resolve(dataAssets[game], `${game}.data`), resolve(staging, target));
@@ -484,7 +488,7 @@ for (const game of preloadGames) {
     await versionRuntimeScript(multiplayerRoot, game, multiplayerRuntimeVersion);
     entry.multiplayerRuntime = `runtime/${game}/multiplayer/${game}.html?hosted=1&v=${multiplayerRuntimeVersion}`;
   }
-  if (serverResourceMode !== RESOURCE_MODE_HOSTED) {
+  if (serverResourceMode === RESOURCE_MODE_IMPORT) {
     // Runtime HTML/JS/WASM belong to the Launcher/App, not to imported or
     // remotely acquired game content. Publish the supported App Runtime in
     // every resource mode; DATA, OGG, runtime fonts, language content and user
@@ -520,6 +524,7 @@ for (const game of preloadGames) {
     };
     continue;
   }
+  if (externalResources) continue;
   const gameRoot = resolve(staging, "games", game);
   await mkdir(gameRoot, { recursive: true });
   const assembled = await assemblePreloadData({
@@ -741,6 +746,28 @@ if (hostedResources && gameIds.includes("th08")) {
   const descriptorName = `${game}.package.json`;
   await writeFile(resolve(staging, descriptorName), `${JSON.stringify(descriptor, null, 2)}\n`);
   entry.package = { revision: descriptor.revision, descriptor: descriptorName };
+}
+
+if (externalResources) {
+  const sourceRoot = dirname(hostManifestPath);
+  for (const [game, entry] of Object.entries(manifest.games)) {
+    const pointer = entry.package;
+    if (!pointer || typeof pointer.descriptor !== "string" || !pointer.descriptor ||
+        basename(pointer.descriptor) !== pointer.descriptor) {
+      throw new Error(`${game}: external publication is missing a safe Package Descriptor pointer`);
+    }
+    const descriptor = validatePackageDescriptor(JSON.parse(await readFile(resolve(sourceRoot, pointer.descriptor), "utf8")));
+    const revision = createHash("sha256").update(canonicalPackagePayload(descriptor)).digest("hex").slice(0, 16);
+    if (descriptor.game !== game || descriptor.revision !== pointer.revision || descriptor.revision !== revision) {
+      throw new Error(`${game}: external Package Descriptor identity mismatch`);
+    }
+    for (const [fileId, file] of Object.entries(descriptor.files)) {
+      if (!/^(?:games|shared)\//.test(file.source)) {
+        throw new Error(`${game}: external Package source is outside redirect-owned routes: ${fileId}`);
+      }
+    }
+    await writeFile(resolve(staging, pointer.descriptor), `${JSON.stringify(descriptor, null, 2)}\n`);
+  }
 }
 
 const releaseCatalog = validateReleaseCatalog({

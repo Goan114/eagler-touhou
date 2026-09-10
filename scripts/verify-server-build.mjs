@@ -9,7 +9,12 @@ import { RELEASE_CATALOG_FILE, releaseCatalogEntryUrl, validateReleaseCatalog } 
 import { HOST_MANIFEST_FILE, validateHostManifest } from "../lib/contracts/host-manifest.mjs";
 import { extractGameDataLayout } from "../lib/runtime-data-layout.mjs";
 import { verifyReleaseManifest } from "../lib/release-manifest.mjs";
-import { normalizeResourceMode } from "../lib/contracts/resource-mode.mjs";
+import {
+  RESOURCE_MODE_EXTERNAL,
+  RESOURCE_MODE_HOSTED,
+  RESOURCE_MODE_IMPORT,
+  normalizeResourceMode,
+} from "../lib/contracts/resource-mode.mjs";
 import { BUILD_AUTHORITY_PUBLICATION, classifyBuildProfile } from "../lib/build-profile.mjs";
 import { hostArtworkFiles } from "../lib/frontend-manifest.mjs";
 import { assertAppShellContract } from "../lib/app-shell-policy.mjs";
@@ -167,15 +172,16 @@ for (const game of gameIds.filter(id => PRODUCT_GAMES[id].runtimeFileLayout === 
   const identity = entry.gameData;
   if (!Number.isSafeInteger(identity?.bytes) || identity.bytes <= 0 || !/^[a-f0-9]{64}$/.test(identity.sha256) ||
       identity.path !== `${game}.data` || identity.version !== `sha256-${identity.sha256}`) throw new Error(`${game}: invalid DATA identity`);
-  if (resourceMode === "hosted") {
+  if (resourceMode === RESOURCE_MODE_HOSTED) {
     const bytes = await readFile(resolve(root, "games", game, `${game}.data`));
     if (bytes.length !== identity.bytes || createHash("sha256").update(bytes).digest("hex") !== identity.sha256) throw new Error(`${game}: DATA identity mismatch`);
-  } else if (entry.offlineCompatibility?.runtimeCompatibility?.dataLayout !== identity.layout ||
-      !Array.isArray(entry.offlineCompatibility?.requiredShared) || entry.offlineCompatibility.requiredShared.length !== 0) {
+  } else if (resourceMode === RESOURCE_MODE_IMPORT &&
+      (entry.offlineCompatibility?.runtimeCompatibility?.dataLayout !== identity.layout ||
+       !Array.isArray(entry.offlineCompatibility?.requiredShared) || entry.offlineCompatibility.requiredShared.length !== 0)) {
     throw new Error(`${game}: invalid import-only compatibility`);
   }
 }
-if (resourceMode !== "hosted" && gameIds.includes("th08")) {
+if (resourceMode === RESOURCE_MODE_IMPORT && gameIds.includes("th08")) {
   const entry = games.games?.th08;
   if (!entry?.music?.midi || typeof entry.runtime !== "string" || !entry.runtime.includes("&v=")) {
     throw new Error(`invalid ${resourceMode} game entry: th08`);
@@ -215,18 +221,27 @@ if (resourceMode !== "hosted" && gameIds.includes("th08")) {
     await stat(resolve(runtimeRoot, `th08-modern.${extension}`));
   }
 }
-if (resourceMode === "hosted") {
+if (resourceMode === RESOURCE_MODE_HOSTED) {
   for (const key of ["vanillaFont", "unicodeFont"]) {
     if (typeof games.shared?.[key] !== "string" || !games.shared[key].includes("?v=")) throw new Error(`versioned shared ${key} missing`);
     await stat(resolve(root, games.shared[key].split("?")[0]));
   }
-} else {
+} else if (resourceMode === RESOURCE_MODE_IMPORT) {
   if (games.shared?.vanillaFont != null || games.shared?.unicodeFont != null) throw new Error(`${resourceMode} manifest must not expose runtime font URLs`);
   const updates = deployment.runtimeUpdates || [];
   if (!Array.isArray(updates)) throw new Error("invalid runtime update declarations");
   const publishedPayloads = [...inventoryPaths].filter(path => path.startsWith("games/") || path.startsWith("shared/"));
   if (updates.length || publishedPayloads.length || Object.keys(releaseCatalog.games).length) {
     throw new Error("import deployment must not publish game/shared payloads, Runtime updates, or releases");
+  }
+} else {
+  if (games.shared?.vanillaFont != null || games.shared?.unicodeFont != null) {
+    throw new Error("external manifest must not expose direct runtime font URLs");
+  }
+  const publishedPayloads = [...inventoryPaths].filter(path => path.startsWith("games/") || path.startsWith("shared/"));
+  if (publishedPayloads.length) throw new Error("external deployment must not bundle game/shared payloads");
+  if (Object.keys(releaseCatalog.games).sort().join(",") !== [...gameIds].sort().join(",")) {
+    throw new Error("external deployment must publish every selected Package Descriptor");
   }
 }
 const fallback = games.shared?.gameDataFallback;
@@ -241,7 +256,7 @@ if (netplayRelay != null) {
   catch { throw new Error("invalid optional netplayRelay in server package"); }
   if (!/^wss?:$/.test(relay.protocol)) throw new Error("invalid optional netplayRelay in server package");
 }
-const sharedFontMounts = resourceMode === "hosted"
+const sharedFontMounts = resourceMode === RESOURCE_MODE_HOSTED
   ? [games.shared.vanillaFont, games.shared.unicodeFont]
     .map(value => `/${basename(new URL(value, "https://eagler.invalid/").pathname)}`)
   : [];
@@ -262,7 +277,7 @@ for (const mount of sharedFontMounts) {
 }
 for (const game of preloadGames) {
   const entry = games.games?.[game];
-  if (resourceMode !== "hosted") {
+  if (resourceMode === RESOURCE_MODE_IMPORT) {
     if (!entry?.music?.midi || typeof entry.runtime !== "string" || !entry.runtime.includes("&v=")) {
       throw new Error(`invalid ${resourceMode} game entry: ${game}`);
     }
@@ -292,6 +307,7 @@ for (const game of preloadGames) {
     if (typeof entry.features?.thprac !== "boolean") throw new Error(`missing ${game.toUpperCase()} thprac capability`);
     continue;
   }
+  if (resourceMode === RESOURCE_MODE_EXTERNAL) continue;
   if (!entry?.music?.midi || typeof entry.runtime !== "string" || !entry.runtime.includes("&v=")) throw new Error(`invalid game entry: ${game}`);
   const runtimeVersion = new URL(entry.runtime, "https://eagler.invalid/").searchParams.get("v");
   const runtimeHtml = await readFile(resolve(root, "runtime", game, `${game}.html`), "utf8");
@@ -398,7 +414,34 @@ for (const game of preloadGames) {
   }
 }
 
-if (resourceMode === "hosted" && gameIds.includes("th08")) {
+if (resourceMode === RESOURCE_MODE_EXTERNAL) {
+  for (const game of gameIds) {
+    const entry = games.games[game];
+    const published = releaseCatalog.games[game];
+    if (!published || !entry.package || entry.package.revision !== published.revision ||
+        entry.package.descriptor !== published.descriptor) {
+      throw new Error(`${game}: external Package pointer diverges from Release Catalog`);
+    }
+    const descriptorPath = new URL(releaseCatalogEntryUrl(
+      `https://eagler.invalid/${RELEASE_CATALOG_FILE}`, releaseCatalog, game)).pathname.slice(1);
+    const descriptor = validatePackageDescriptor(JSON.parse(await readFile(resolve(root, descriptorPath), "utf8")));
+    const revision = createHash("sha256").update(canonicalPackagePayload(descriptor)).digest("hex").slice(0, 16);
+    if (descriptor.game !== game || descriptor.revision !== published.revision || descriptor.revision !== revision) {
+      throw new Error(`${game}: external Package Descriptor identity mismatch`);
+    }
+    for (const [fileId, file] of Object.entries(descriptor.files)) {
+      if (!/^(?:games|shared)\//.test(file.source)) {
+        throw new Error(`${game}: external Package source is outside redirect-owned routes: ${fileId}`);
+      }
+      if (inventoryPaths.has(file.source)) throw new Error(`${game}: external payload was bundled: ${fileId}`);
+      if (!Number.isSafeInteger(file.bytes) || file.bytes <= 0 || !/^[a-f0-9]{16}$/i.test(file.revision || "")) {
+        throw new Error(`${game}: invalid external Package file identity: ${fileId}`);
+      }
+    }
+  }
+}
+
+if (resourceMode === RESOURCE_MODE_HOSTED && gameIds.includes("th08")) {
   const game = "th08";
   const entry = games.games?.[game];
   if (!entry?.music?.midi || typeof entry.runtime !== "string" || !entry.runtime.includes("&v=")) {

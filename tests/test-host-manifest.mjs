@@ -56,6 +56,22 @@ assert.doesNotThrow(() => validateHostManifest({
   ...hosted,
   games: { th06: { ...game, features: undefined } },
 }));
+
+const external = validateHostManifest({
+  ...hosted,
+  shared: { resourceMode: "external" },
+  games: { th06: { ...game, package: { revision: "a".repeat(16), descriptor: "th06.package.json" } } },
+});
+assert.equal(external.shared.resourceMode, "external");
+assert.throws(() => validateHostManifest({
+  ...hosted,
+  shared: { ...hosted.shared, resourceMode: "external" },
+  games: { th06: { ...game, package: { revision: "a".repeat(16), descriptor: "th06.package.json" } } },
+}), /shared font URLs/);
+assert.throws(() => validateHostManifest({
+  ...hosted,
+  shared: { resourceMode: "external" },
+}), /games/);
 for (const features of [
   { thprac: "yes" },
   { focusHitbox: 1 },

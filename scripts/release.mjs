@@ -143,7 +143,7 @@ await verifyRuntimeRelease(prepare.RuntimeRelease);
 
 const features = JSON.parse(await readFile(prepare.FeatureConfig, "utf8"));
 if ((features.resourceMode || "hosted") !== "hosted") {
-  throw new Error("full release requires hosted input; the import site is derived from it");
+  throw new Error("full release requires hosted input; external and import sites are derived from it");
 }
 if (!Array.isArray(prepare.Music) || !prepare.Music.length) {
   throw new Error("prepare.Music must explicitly list the requested modes");
@@ -181,6 +181,15 @@ await runStep(report, "hosted-build", "pwsh", [
 
 const hosted = prepare.OutputDirectory;
 await runStep(report, "hosted-verify", process.execPath, ["scripts/verify-server-build.mjs", hosted]);
+const externalSite = resolve(scratch, "external-site");
+await runStep(report, "external-build", process.execPath, [
+  "scripts/package-external-site.mjs",
+  `--source=${hosted}`,
+  `--output=${externalSite}`,
+  `--runtime-release=${prepare.RuntimeRelease}`,
+  `--games=${releaseGames.join(",")}`,
+  "--profile=web-release-external",
+]);
 const importConfig = resolve(scratch, "import-features.json");
 await writeFile(importConfig, JSON.stringify({
   ...features,
@@ -215,6 +224,7 @@ if (inputsBefore.sha256 !== inputsAfter.sha256) {
 await mkdir(dirname(incompleteOutput), { recursive: true });
 await mkdir(incompleteOutput);
 await cp(hosted, resolve(incompleteOutput, "hosted-site"), { recursive: true });
+await cp(externalSite, resolve(incompleteOutput, "external-site"), { recursive: true });
 await cp(importSite, resolve(incompleteOutput, "import-site"), { recursive: true });
 await cp(prepare.RuntimeRelease, resolve(incompleteOutput, "runtime-release"), { recursive: true });
 await mkdir(resolve(incompleteOutput, "game-package"));

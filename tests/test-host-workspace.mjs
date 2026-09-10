@@ -14,7 +14,7 @@ assert.equal(layout.site, join(root, "dist", "site"));
 assert.equal(layout.importSite, join(root, "dist", "import-site"));
 assert.equal(layout.importPackages, join(root, "dist", "import"));
 await writeSyntheticRuntimeRelease(layout.runtimeRelease);
-for (const game of ["th06", "th07", "th08"]) await mkdir(layout.games[game], { recursive: true });
+for (const game of ["th06", "th07", "th08", "th10"]) await mkdir(layout.games[game], { recursive: true });
 const put = async path => { await mkdir(join(path, ".."), { recursive: true }); await writeFile(path, Buffer.from([1])); };
 for (const name of ["紅魔郷CM.DAT", "紅魔郷ED.DAT", "紅魔郷IN.DAT", "紅魔郷MD.DAT", "紅魔郷ST.DAT", "紅魔郷TL.DAT"]) {
   await put(join(layout.games.th06, name));
@@ -35,6 +35,7 @@ const full = await inspectHostWorkspace(root);
 assert.deepEqual(full.music, ["midi", "ogg"]);
 assert.equal(full.runtimeReleaseSchema, "eagler-touhou/runtime-release/1");
 assert.equal(full.games.th08, layout.games.th08);
+assert.equal(full.games.th10, layout.games.th10);
 assert.equal(full.hostConfig.present, false);
 assert.equal(full.warnings.length, 2);
 await writeFile(layout.config, JSON.stringify({
