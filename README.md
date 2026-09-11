@@ -11,6 +11,8 @@
   <p><a href="https://github.com/YomotsuHisami/eagler-touhou/blob/main/docs/README.md">开发文档 📄</a>&nbsp;|&nbsp;<a href="https://touhou.vip/">立刻体验 🎮</a></p>
 </div>
 
+---
+
 ## 概要
 
 在保证原作体验的基础上，提供触控适配与个性化布局、STG 社区热门工具、存档和 Replay 管理、多人联机大厅。

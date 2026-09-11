@@ -11,6 +11,8 @@
   <p><a href="https://github.com/YomotsuHisami/eagler-touhou/blob/main/docs/README.md">Documentation 📄</a>&nbsp;|&nbsp;<a href="https://touhou.vip/">Play Now 🎮</a></p>
 </div>
 
+---
+
 ## Overview
 
 While preserving the original game experience, Eagler Touhou provides touch controls with customizable layouts, popular STG community tools, save and Replay management, and a multiplayer lobby.
