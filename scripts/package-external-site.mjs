@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import { randomUUID } from "node:crypto";
-import { readFile, rm, writeFile } from "node:fs/promises";
+import { readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { resolve } from "node:path";
+import { basename, dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { normalizeProductSelection } from "../lib/product-selection.mjs";
 import { validateHostManifest } from "../lib/contracts/host-manifest.mjs";
@@ -22,6 +22,7 @@ const required = name => {
 const source = required("source");
 const output = required("output");
 const runtimeRelease = required("runtime-release");
+const candidate = resolve(dirname(output), `.${basename(output)}.external-${randomUUID()}`);
 const profile = String(args.profile || "");
 if (!/^web-(?:validation|release)-/.test(profile)) throw new Error("external packaging requires an explicit web-validation-* or web-release-* --profile=NAME");
 if (source === output) throw new Error("external output must differ from its hosted source");
@@ -40,6 +41,33 @@ for (const game of games) {
   }
 }
 
+async function runtimeInventory(root) {
+  const files = new Map();
+  async function walk(directory) {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const path = resolve(directory, entry.name);
+      if (entry.isDirectory()) await walk(path);
+      else if (entry.isFile()) files.set(relative(root, path).replaceAll("\\", "/"), await readFile(path));
+      else throw new Error(`unsupported Runtime entry: ${path}`);
+    }
+  }
+  for (const game of games) await walk(resolve(root, "runtime", game));
+  return files;
+}
+
+async function assertMatchingRuntimeTrees(hostedRoot, externalRoot) {
+  const [hostedFiles, externalFiles] = await Promise.all([
+    runtimeInventory(hostedRoot),
+    runtimeInventory(externalRoot),
+  ]);
+  if (JSON.stringify([...hostedFiles.keys()].sort()) !== JSON.stringify([...externalFiles.keys()].sort())) {
+    throw new Error("external Runtime file set does not match its hosted source");
+  }
+  for (const [path, bytes] of hostedFiles) {
+    if (!bytes.equals(externalFiles.get(path))) throw new Error(`external Runtime identity does not match hosted source: ${path}`);
+  }
+}
+
 const featureConfig = resolve(tmpdir(), `eagler-touhou-external-features-${randomUUID()}.json`);
 try {
   await writeFile(featureConfig, `${JSON.stringify({
@@ -54,7 +82,7 @@ try {
   }, null, 2)}\n`);
   await run(process.execPath, [
     resolve(project, "scripts/package-server.mjs"),
-    `--output=${output}`,
+    `--output=${candidate}`,
     `--runtime-release=${runtimeRelease}`,
     `--host-manifest=${resolve(source, "host-manifest.json")}`,
     `--artwork-dir=${resolve(source, "assets")}`,
@@ -63,7 +91,11 @@ try {
     `--profile=${profile}`,
     `--test-build=${args["test-build"] || "0"}`,
   ], { cwd: project });
-  await run(process.execPath, [resolve(project, "scripts/verify-server-build.mjs"), output], { cwd: project });
+  await run(process.execPath, [resolve(project, "scripts/verify-server-build.mjs"), candidate], { cwd: project });
+  await assertMatchingRuntimeTrees(source, candidate);
+  await rm(output, { recursive: true, force: true });
+  await rename(candidate, output);
 } finally {
   await rm(featureConfig, { force: true });
+  await rm(candidate, { recursive: true, force: true });
 }

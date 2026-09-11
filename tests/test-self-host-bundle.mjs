@@ -67,11 +67,14 @@ for (const required of [
   "host/build.mjs",
   "host/build-import.mjs",
   "host/lib/site-builder.mjs",
+  "scripts/package-external-site.mjs",
   "scripts/package-server.mjs",
+  "scripts/verify-deployed-site.mjs",
   "scripts/verify-server-build.mjs",
   "scripts/prepare-th06-language-pack.mjs",
   "SELF-HOSTING.md",
   "SELF-HOSTING-REFERENCE.md",
+  "EXTERNAL_RESOURCE_MODE.md",
   "package.json",
   "package-lock.json",
 ]) assert.ok(targets.has(required), `required self-host bundle file missing: ${required}`);
@@ -141,6 +144,16 @@ try {
   assert.equal(doctor.status, 1, "incomplete smoke bundle should fail Host input validation");
   assert.ok(`${doctor.stdout}\n${doctor.stderr}`.includes("Eagler Touhou Host Check"),
     "host:doctor must reach its own diagnostics before npm ci installs package dependencies");
+
+  const external = spawnSync(process.execPath, [
+    resolve(smokeRoot, "scripts", "package-external-site.mjs"),
+  ], {
+    cwd: smokeRoot,
+    encoding: "utf8",
+  });
+  assert.equal(external.status, 1, "External packaging without arguments should fail its input contract");
+  assert.ok(`${external.stdout}\n${external.stderr}`.includes("missing --source=PATH"),
+    "packaged External entrypoint must load its complete module closure and reach argument validation");
 } finally {
   await rm(smokeRoot, { recursive: true, force: true });
 }
@@ -164,7 +177,15 @@ for (const [target, source] of targets) {
 const packageTemplate = JSON.parse(await readFile(resolve(project, "host/bundle/package.json"), "utf8"));
 assert.deepEqual(Object.keys(packageTemplate.dependencies).sort(), [...SELF_HOST_BUNDLE_NODE_DEPENDENCIES].sort());
 assert.equal(packageTemplate.devDependencies, undefined);
-assert.deepEqual(Object.keys(packageTemplate.scripts).sort(), ["host", "host:build", "host:doctor", "import"]);
+assert.deepEqual(Object.keys(packageTemplate.scripts).sort(), [
+  "host",
+  "host:build",
+  "host:doctor",
+  "import",
+  "package:external-site",
+  "verify:deployed",
+  "verify:server",
+]);
 assert.ok(Object.values(packageTemplate.scripts).every(command => !/pwsh|powershell/i.test(command)),
   "self-host npm commands must not require PowerShell");
 

@@ -161,11 +161,20 @@ player supplies the game package. This mode does not publish original game
 content and does not pretend to offer remote game package revisions that are
 not actually present.
 
-### External package source - Optional
+### `external` - Supported
+
+The deployer publishes the Launcher, Package metadata and App-managed Runtime
+on a user-facing site while a matching complete Hosted site owns the game and
+shared Package payloads. The user-facing infrastructure redirects those
+payload routes to the Hosted resource Origin. Both sites must derive from the
+same verified Hosted generation.
+
+### Manual external package source - Optional
 
 A deployer may expose an administrator-provided external package/download link.
 The Launcher opens the configured source; absence of this setting is a normal
-optional warning, not a failed Host build.
+optional warning, not a failed Host build. This manual link is independent of
+the `external` resource mode.
 
 ## Self-host surface
 

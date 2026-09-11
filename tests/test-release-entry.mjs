@@ -7,8 +7,7 @@ import { spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { PRODUCT_GAMES } from "../lib/contracts/product-catalog.mjs";
-import { formalReleaseSourceOwners, normalizeFormalReleaseInput } from "../lib/release-plan.mjs";
+import { FORMAL_RELEASE_GAMES, formalReleaseSourceOwners, normalizeFormalReleaseInput } from "../lib/release-plan.mjs";
 
 const workspace = resolve("workspace-fixture");
 const inputDirectory = resolve("release-input-fixture");
@@ -25,9 +24,9 @@ const validInput = {
   },
 };
 const plan = normalizeFormalReleaseInput(validInput, normalizationOptions);
-assert.deepEqual(plan.games, Object.keys(PRODUCT_GAMES));
+assert.deepEqual(plan.games, FORMAL_RELEASE_GAMES);
 assert.equal(plan.prepare.Profile, "web-release-hosted");
-assert.deepEqual(plan.prepare.Games, Object.keys(PRODUCT_GAMES));
+assert.deepEqual(plan.prepare.Games, FORMAL_RELEASE_GAMES);
 assert.equal(plan.prepare.RuntimeRelease, resolve(inputDirectory, "runtime-release"));
 assert.deepEqual(formalReleaseSourceOwners(), ["launcher"]);
 
@@ -36,7 +35,7 @@ assert.throws(() => normalizeFormalReleaseInput({ ...validInput, prepare: { ...v
 }), /requires prepare\.RuntimeRelease/);
 assert.throws(() => normalizeFormalReleaseInput({ ...validInput, games: ["th07"] }, {
   ...normalizationOptions,
-}), /must contain every registered product/);
+}), /must contain every non-test product/);
 assert.throws(() => normalizeFormalReleaseInput({ ...validInput, prepare: { ...validInput.prepare, Th08Build: "build" } }, {
   ...normalizationOptions,
 }), /belongs to maintainer Runtime compilation/);

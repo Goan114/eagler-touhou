@@ -485,8 +485,18 @@ music/language resources and repository-owned frontend files into a verified
 static site. The verifier checks metadata/profile consistency and offline
 Runtime/App Shell completeness.
 
+The verified Hosted generation is the content-identity authority for its
+derived publication modes. A formal release derives External and Import sites
+from that same generation. External preserves the selected Runtime files,
+Release Catalog and Package Descriptors while omitting `games/**` and
+`shared/**`; deployment infrastructure redirects those relative Package
+sources to the matching Hosted resource Origin. Import removes remote Package
+publication and accepts user-supplied complete Packages. These derived sites
+must not reconstruct content identity from an unrelated build.
+
 See `ARTIFACTS.md`, `SELF_HOSTING.md`, `SELF_HOSTING_REFERENCE.md` and
-`RELEASE.md` for artifact/self-host/release details.
+`RELEASE.md` for artifact/self-host/release details. The paired External
+deployment procedure is owned by `EXTERNAL_RESOURCE_MODE.md`.
 
 ## 9. Build-policy ownership
 

@@ -20,6 +20,8 @@ deployment, and verification.
   with a Runtime Release and legally-owned TH06/TH07/TH08 installations.
 - [Self-hosting reference](SELF_HOSTING_REFERENCE.md) - self-host inputs, generated static
   site, resource modes, WebSocket relay/TURN configuration, and updates.
+- [External resource mode](EXTERNAL_RESOURCE_MODE.md) - paired Hosted resource
+  origin and External user-site generation, routing, rollout, and verification.
 - [Release engineering](RELEASE.md) - maintainer release candidates,
   HTTP-to-HTTPS migration/HSTS contracts and public behavior verification.
 

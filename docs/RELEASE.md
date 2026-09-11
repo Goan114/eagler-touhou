@@ -12,9 +12,11 @@ There is one public maintainer entrypoint for formal candidates:
 npm run release -- --input=D:\ReleaseInputs\release.json --output=D:\Releases\candidate
 ```
 
-The input uses `eagler-touhou/release-input/1`. A formal Release must cover every registered game and explicitly provide:
+The input uses `eagler-touhou/release-input/1`. A formal Release covers every
+non-test product in canonical order and explicitly provides:
 
-- one verified, resource-free Runtime Release covering every game;
+- one verified, resource-free Runtime Release covering every registered game,
+  including Runtime artifacts retained for validation-only products;
 - original-resource directories for TH06, TH07, and TH08;
 - a maintainer feature configuration;
 - an explicit music mode;
@@ -61,6 +63,10 @@ Artifact authority and resource delivery are independent dimensions:
 - `import`: the site publishes the Launcher, App Shell, and app-owned Runtime, while players import complete game packages themselves.
 
 A formal release first generates and verifies the hosted site, then derives the external site, import site, and offline ZIPs from **that same hosted build**. It never re-reads unrelated historical artifact identities. External output retains the small, frequently updated Runtime HTML, JavaScript, and WebAssembly files locally; only Package payload routes are delegated to infrastructure.
+
+The paired `hosted-site/` resource origin and `external-site/` user site have a
+coordinated routing, CORS, Range, cache, cutover and rollback procedure. See
+[`EXTERNAL_RESOURCE_MODE.md`](EXTERNAL_RESOURCE_MODE.md).
 
 The maintainer feature configuration uses `eagler-touhou/server-features/1` and is a low-level release-assembly input. Ordinary self-host users do not write it manually; `eagler-touhou.config.json` owns ordinary operator configuration.
 

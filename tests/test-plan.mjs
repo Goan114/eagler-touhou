@@ -61,6 +61,7 @@ export const REPOSITORY_NODE_TESTS = Object.freeze([
   "tests/test-completion-report.mjs",
   "tests/test-development-host-manifest.mjs",
   "tests/test-development-server-scope.mjs",
+  "tests/test-external-resource-routing.mjs",
   "tests/test-publication-host-seed.mjs",
   "tests/test-network-activity.mjs",
   "tests/test-static-content-policy.mjs",

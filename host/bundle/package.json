@@ -10,7 +10,10 @@
     "host": "node host/build.mjs",
     "host:build": "node host/build.mjs --build-only",
     "host:doctor": "node scripts/inspect-host.mjs",
-    "import": "node host/build-import.mjs"
+    "package:external-site": "node scripts/package-external-site.mjs",
+    "import": "node host/build-import.mjs",
+    "verify:deployed": "node scripts/verify-deployed-site.mjs",
+    "verify:server": "node scripts/verify-server-build.mjs"
   },
   "dependencies": {
     "acorn": "8.18.0",

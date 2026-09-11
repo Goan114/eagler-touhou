@@ -5,6 +5,7 @@ import { RESOURCE_MODE_EXTERNAL, RESOURCE_MODE_HOSTED, RESOURCE_MODE_IMPORT, nor
 import { assertAppShellContract } from "../lib/app-shell-policy.mjs";
 import { RELEASE_CATALOG_FILE, releaseCatalogEntryUrl, validateReleaseCatalog } from "../lib/contracts/release-catalog.mjs";
 import { HOST_MANIFEST_FILE, validateHostManifest } from "../lib/contracts/host-manifest.mjs";
+import { validateExternalResourceFinalUrl, validateExternalResourceRedirect } from "../lib/external-resource-routing.mjs";
 
 if (!process.argv[2]) throw new Error("usage: node scripts/verify-deployed-site.mjs URL");
 const base = new URL(process.argv[2]);
@@ -213,12 +214,11 @@ else {
         const route = new URL(file.source, descriptorHref);
         try {
           const redirect = await fetch(route, { method: "HEAD", cache: "no-store", redirect: "manual" });
-          if (![301, 302, 303, 307, 308].includes(redirect.status)) throw new Error(`HTTP ${redirect.status}, expected redirect`);
           const location = redirect.headers.get("location");
-          const external = location && new URL(location, route);
-          if (!external || external.protocol !== "https:" || external.origin === base.origin) throw new Error("invalid external Location");
+          validateExternalResourceRedirect(route, { status: redirect.status, location });
           const response = await fetch(route, { method: "HEAD", cache: "no-store", redirect: "follow", headers: { Origin: base.origin } });
           if (!response.ok || response.url === route.href) throw new Error(`external HEAD failed: HTTP ${response.status}`);
+          validateExternalResourceFinalUrl(route, response.url);
           const allowOrigin = response.headers.get("access-control-allow-origin");
           if (allowOrigin !== "*" && allowOrigin !== base.origin) throw new Error("external response does not allow Launcher origin");
           const contentLengthHeader = response.headers.get("content-length");

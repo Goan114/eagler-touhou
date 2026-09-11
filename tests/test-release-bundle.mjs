@@ -7,13 +7,13 @@ import { mkdtemp, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { COMPLETION_FIELDS, COMPLETION_REPORT_SCHEMA } from "../lib/completion-report.mjs";
-import { PRODUCT_GAMES } from "../lib/contracts/product-catalog.mjs";
 import { writeSyntheticRuntimeRelease } from "../tests/support/runtime-release-fixture.mjs";
 import { writeReleaseManifest } from "../lib/release-manifest.mjs";
 import { verifyReleaseBundle } from "../lib/release-bundle-verifier.mjs";
+import { FORMAL_RELEASE_GAMES } from "../lib/release-plan.mjs";
 
 const root = await mkdtemp(join(tmpdir(), "eagler-release-bundle-"));
-const games = Object.keys(PRODUCT_GAMES);
+const games = [...FORMAL_RELEASE_GAMES];
 for (const directory of ["hosted-site", "external-site", "import-site", "runtime-release", "game-package", "offline-zip"]) {
   await mkdir(join(root, directory));
 }

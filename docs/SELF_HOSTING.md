@@ -65,6 +65,24 @@ The local server is for development, LAN use and checking the generated site.
 For a public deployment, copy `dist/site/` to the Web server, object store, CDN,
 container image or hosting platform of your choice.
 
+To keep the large Package resources on a separate HTTPS origin, derive an
+External user site from the verified Hosted output:
+
+```powershell
+npm run package:external-site -- `
+  --source=dist/site `
+  --runtime-release=runtime-release `
+  --output=dist/external-site `
+  --profile=web-release-external
+```
+
+Publish `dist/site/` as the complete resource origin and
+`dist/external-site/` as the matching user-facing site. The user-facing server
+redirects `/games/` and `/shared/` to the resource origin; the resource origin
+provides CORS and byte-range responses. Follow
+[External resource mode](EXTERNAL_RESOURCE_MODE.md) for the complete paired
+deployment and public verification procedure.
+
 To inspect inputs without generating the site:
 
 ```text

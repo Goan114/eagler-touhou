@@ -36,9 +36,14 @@ Disposable generated output:
 
 ```text
 dist/site/
+dist/external-site/
 dist/import-site/
 dist/import/
 ```
+
+`dist/external-site/` is present only after the operator derives External mode
+from `dist/site/`. It is disposable generated output, like the other `dist/`
+directories.
 
 Do not edit generated site files. Change the persistent configuration or input
 resources and regenerate.
@@ -112,6 +117,11 @@ not new production modes.
 ### `external`
 
 `npm run package:external-site -- --source=dist/site --output=dist/external-site --runtime-release=runtime-release --profile=web-release-external` derives an External site from a verified Hosted site. It keeps the Launcher and each selected game's Runtime HTML, JavaScript, and WebAssembly in the generated site, together with the Release Catalog and Package Descriptors. It omits `games/` and `shared/` payload files. The serving infrastructure must redirect those same-origin payload routes to an external HTTPS origin. See [`EXTERNAL_RESOURCE_MODE.md`](EXTERNAL_RESOURCE_MODE.md) for routing and verification requirements.
+
+The Hosted source remains the complete resource-origin artifact and must be
+deployed together with its derived External site. The External guide owns the
+operator procedure; this reference only defines the generated-artifact
+boundary.
 
 ## Static Web-server behavior
 

@@ -12,6 +12,7 @@
  */
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
@@ -138,6 +139,29 @@ try {
     "external deployment must retain Package metadata without bundling game/shared payloads");
   assert(externalDeployment.files.some(file => file.path === "runtime/th06/th06.wasm"));
   assert(externalDeployment.files.some(file => file.path === "runtime/th07/th07.wasm"));
+
+  const externalDeploymentBeforeMismatch = await readFile(resolve(external, "deployment.json"), "utf8");
+  const runtimeManifestPath = resolve(runtimeRelease, "runtime-release.json");
+  const changedRuntimeManifest = JSON.parse(await readFile(runtimeManifestPath, "utf8"));
+  const changedRuntimePath = resolve(runtimeRelease, changedRuntimeManifest.games.th06.runtime.root, "th06.wasm");
+  const changedRuntimeBytes = Buffer.concat([await readFile(changedRuntimePath), Buffer.from("runtime-mismatch")]);
+  await writeFile(changedRuntimePath, changedRuntimeBytes);
+  changedRuntimeManifest.games.th06.runtime.files["th06.wasm"] = {
+    bytes: changedRuntimeBytes.length,
+    sha256: createHash("sha256").update(changedRuntimeBytes).digest("hex"),
+  };
+  await writeFile(runtimeManifestPath, JSON.stringify(changedRuntimeManifest, null, 2));
+  const mismatchFailure = runExpectFailure([
+    "scripts/package-external-site.mjs",
+    `--source=${host}`,
+    `--output=${external}`,
+    `--runtime-release=${runtimeRelease}`,
+    "--games=th06,th07",
+    "--profile=web-validation-runtime-release-external",
+  ], { ...process.env, EAGLER_WORKSPACE_ROOT: fakeWorkspace });
+  assert.match(mismatchFailure, /external Runtime identity does not match hosted source/);
+  assert.equal(await readFile(resolve(external, "deployment.json"), "utf8"), externalDeploymentBeforeMismatch,
+    "a mismatched Runtime candidate must not replace the previous External output");
   console.log(JSON.stringify({ runtimeReleaseHost: "PASS", games: deployment.games, sourceRepositories: Object.keys(manifest.sources) }));
 } finally {
   await rm(scratch, { recursive: true, force: true });
