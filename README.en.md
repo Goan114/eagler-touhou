@@ -13,13 +13,15 @@
 
 ## Overview
 
-While preserving the original game experience, Eagler Touhou provides touch controls with customizable layouts, thprac integration, multilingual support based on thcrap, save and Replay management, and a multiplayer lobby.
+While preserving the original game experience, Eagler Touhou provides touch controls with customizable layouts, popular STG community tools, save and Replay management, and a multiplayer lobby.
 
 In a secure context, the Launcher **can run offline**. If the player goes offline or the server is unavailable, Service Worker caches allow installed games to keep working even after the page is refreshed.
 
 ## Features
 
 ### The Complete Original Game Experience
+
+![Touhou Youyoumu running at 90 Hz on a phone](docs/assets/readme/original-experience.webp)
 
 - Run TH06 and TH07 in the browser, with TH08 currently a work in progress. The Launcher provides interfaces for importing and exporting saves, Replays, and other files.
 - Saves and Replays are fully interoperable with the original games.
@@ -28,6 +30,8 @@ In a secure context, the Launcher **can run offline**. If the player goes offlin
 - Supports refresh rates above 60 Hz. \[Thanks to [reallyportable](https://github.com/some100/th07/tree/reallyportable)\]
 
 ### Touch Controls
+
+![A touch layout with adjustable positions, sizes, sensitivity, and Focus controls](docs/assets/readme/touch-controls.webp)
 
 - Your touch path becomes the player's movement path. Available movement methods include Touch, Touch (cheat, unlimited speed), Joystick, and more. \[Thanks to [reallyportable](https://github.com/some100/th07/tree/reallyportable)\]
 - Customizable touch layouts. Touch buttons can be freely moved and scaled from 60% to 180%.
@@ -38,17 +42,18 @@ In a secure context, the Launcher **can run offline**. If the player goes offlin
 - Adjustable default game viewport position.
 - Multiple Focus methods, including hold, toggle, and two-finger controls.
 
-### thprac Integration
+### Popular STG Community Tools
+
+![Using the thprac practice menu in the browser](docs/assets/readme/stg-community-tools.webp)
 
 - Supports every feature provided by [thprac](https://github.com/touhouworldcup/thprac).
-- Touch devices can use mouse emulation, with virtual buttons for opening the Tab Tracker and cheat menu. (If you need the F12 menu, tell us why.)
-
-### Languages
-
+- Touch devices can use mouse emulation, with virtual buttons for opening the Tab Tracker and cheat menu. (F12 WIP)
 - In theory, every language pack in the [thcrap language repository](https://srv.thpatch.net/) is supported.
 - Servers can choose which language packs to offer for each game. You can throw in a whole pile of unusual language packs; players download only the one they select.
 
 ### Multiplayer Lobby
+
+![A multiplayer lobby with player and spectator seats](docs/assets/readme/multiplayer-lobby.webp)
 
 - Provides TH06MP and TH07MP, both based on the [TH07MP rules](https://github.com/sbrik1111/th07_multi_player).
 - The lobby supports room creation, joining by room code, character and difficulty selection—including Extra and Phantasm—ready checks before the game starts, and spectators.
@@ -60,10 +65,20 @@ In a secure context, the Launcher **can run offline**. If the player goes offlin
 
 ### Game Packages and Offline Play
 
+![Game package, music, language, save, and Replay management in the Launcher](docs/assets/readme/game-packages.webp)
+
 - Install game packages from the site or import a ZIP containing a legally owned copy of the game.
 - Installed packages remain in the browser. Game data, OGG music, fonts, and language packs can be managed independently, while Runtime components are provided by the site.
 - In secure contexts such as HTTPS or a trusted loopback address, installed games and the Launcher can run offline.
 - Original game data imported by the player is never uploaded to the server; it remains in the browser.
+
+Operators can choose among three modes based on their resources and bandwidth:
+
+- **Hosted**: the site serves the Launcher, Runtime components, and all game resources. Players can install games directly, while the site carries all resource traffic;
+- **External**: the user-facing site serves the Launcher and Runtime components, while a separate complete resource site or CDN serves large game files. Players can still install games directly without sending large-file traffic through the frontend server;
+- **Import**: the site serves only the Launcher and Runtime components and does not publish original game data. Players import a ZIP made from their legally owned game copy. This suits operators without a CDN traffic budget or who do not want to host original resources.
+
+All three modes share the same frontend, browser-local game packages, and offline-play support. See the [self-hosting guide](docs/SELF_HOSTING.md) for complete deployment instructions.
 
 ## License
 
