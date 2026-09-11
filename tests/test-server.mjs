@@ -59,6 +59,10 @@ try {
   if (!generatedModuleResponse.ok || !/^text\/javascript\b/i.test(generatedModuleResponse.headers.get("content-type") || "")) {
     throw new Error(`generated ES module mapping is invalid: ${generatedModuleResponse.status} ${generatedModuleResponse.headers.get("content-type")}`);
   }
+  const webManifestResponse = await fetch(`http://127.0.0.1:${port}/site.webmanifest`, { method: "HEAD" });
+  if (!webManifestResponse.ok || !/^application\/manifest\+json\b/i.test(webManifestResponse.headers.get("content-type") || "")) {
+    throw new Error(`Web App Manifest MIME is invalid: ${webManifestResponse.status} ${webManifestResponse.headers.get("content-type")}`);
+  }
   const brandFontResponse = await fetch(`http://127.0.0.1:${port}/assets/fonts/touhou98.woff2`, { method: "HEAD" });
   if (!brandFontResponse.ok || !/^font\/woff2\b/i.test(brandFontResponse.headers.get("content-type") || "")) {
     throw new Error(`Touhou98 font MIME is invalid: ${brandFontResponse.status} ${brandFontResponse.headers.get("content-type")}`);

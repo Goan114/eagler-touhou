@@ -193,6 +193,35 @@ initUiLocale();
 
 let appShellClient: ReturnType<typeof createAppShellClient> | null = null;
 let serverUpdateState = "unknown";
+const vendorLoads = new Map<string, Promise<void>>();
+
+function loadVendor(path: string, ready: () => boolean, label: string): Promise<void> {
+  if (ready()) return Promise.resolve();
+  const pending = vendorLoads.get(path);
+  if (pending) return pending;
+  const task = new Promise<void>((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = path;
+    script.async = true;
+    script.addEventListener("load", () => ready() ? resolve() : reject(new Error(`${label} 加载后没有注册组件`)), { once: true });
+    script.addEventListener("error", () => reject(new Error(`${label} 加载失败`)), { once: true });
+    document.head.append(script);
+  }).catch(error => {
+    vendorLoads.delete(path);
+    throw error;
+  });
+  vendorLoads.set(path, task);
+  return task;
+}
+
+async function ensureFflate() {
+  await loadVendor("vendor/fflate.min.js", () => Boolean(launcherWindow.fflate), "ZIP 组件");
+  return launcherWindow.fflate;
+}
+
+async function ensureTinySynth() {
+  await loadVendor("vendor/webaudio-tinysynth.min.js", () => Boolean(launcherWindow.WebAudioTinySynth), "MIDI 合成器");
+}
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -2823,7 +2852,7 @@ async function launchConfiguredRuntime() {
   chooseDefaultMusic();
   const runtimePack = await prepareLanguagePack();
   await ensureManagedOggStartupBarrier();
-  prepareMidi();
+  await prepareMidi();
   const musicResources = await selectedMusicResources();
   const localMusicResources = isOggMusicMode(state.music) && musicResources.length > 0 &&
     musicResources.every(isLocalMusicResource) ? musicResources : null;
@@ -3008,7 +3037,8 @@ function syncCustomSelect(select: HTMLSelectElement) {
   const selected = select.selectedOptions[0] || select.options[0];
   const triggerI18n = select.dataset.triggerI18n;
   ui.value.textContent = isUiMessageKey(triggerI18n) ? t(triggerI18n) : (selected?.textContent || "");
-  const ariaLabel = select.getAttribute("aria-label") || "选择选项";
+  const explicitLabel = select.id ? document.querySelector<HTMLLabelElement>(`label[for="${CSS.escape(select.id)}"]`)?.textContent?.trim() : "";
+  const ariaLabel = select.getAttribute("aria-label") || explicitLabel || "选择选项";
   ui.trigger.setAttribute("aria-label", ariaLabel);
   ui.menu.setAttribute("aria-label", ariaLabel);
   ui.trigger.disabled = select.disabled;
@@ -3181,6 +3211,11 @@ function render() {
   chooseDefaultMusic();
   const multiplayerProduct = isMultiplayerProduct();
   document.body.classList.toggle("less-motion", state.lessMotion);
+  document.querySelectorAll<HTMLElement>('[role="switch"]:not([aria-label]):not([aria-labelledby])').forEach(control => {
+    const row = control.closest(".itemtop, .mobile-option, .touch-layout-setting-row");
+    const label = row?.querySelector<HTMLElement>("[data-i18n]");
+    if (label?.textContent?.trim()) control.setAttribute("aria-label", label.textContent.trim());
+  });
   const lessMotionToggle = $("#lessMotionToggle");
   lessMotionToggle.setAttribute("aria-pressed", String(state.lessMotion));
   lessMotionToggle.title = t(state.lessMotion ? "nav.motionFullTitle" : "nav.motionLessTitle");
@@ -3197,7 +3232,7 @@ function render() {
     card.hidden = !matchesCardFilter(product);
     const selected = state.hasSelection && product === state.product;
     card.classList.toggle("selected", selected);
-    card.setAttribute("aria-pressed", String(selected));
+    if (card instanceof HTMLAnchorElement) card.setAttribute("aria-current", selected ? "page" : "false");
   });
   $("#gameId").textContent = multiplayerProduct ? `${state.game.toUpperCase()} MP` : state.game.toUpperCase();
   $("#gameId").dataset.game = state.game;
@@ -3459,9 +3494,10 @@ function resetRuntime() {
   frame.removeAttribute("src");
 }
 
-function prepareMidi() {
+async function prepareMidi() {
   if (state.music !== "midi" && !isOggMusicMode(state.music)) return;
   if (!webAudioAvailable) throw new Error("当前浏览器不支持 Web Audio，请选择“无”音乐模式");
+  await ensureTinySynth();
   if (!launcherWindow.WebAudioTinySynth) throw new Error("MIDI 合成器没有加载");
   if (!midiSynth) midiSynth = new launcherWindow.WebAudioTinySynth({ quality: 1, useReverb: 1, voices: 64 });
   const context = midiSynth.getAudioContext();
@@ -4355,7 +4391,7 @@ async function downloadLanguagePack(pack: RemoteLanguagePackSource, cacheMode: R
 async function prepareLanguagePack() {
   const pack = selectedLanguagePack();
   if (!pack) return null;
-  const zip = launcherWindow.fflate;
+  const zip = await ensureFflate();
   if (!zip?.unzipSync) throw new Error("ZIP 组件没有加载");
   let archive: Uint8Array | null = null;
   let cache: Cache | null = null;
@@ -4468,7 +4504,7 @@ async function exportFiles(kind: ImportFileKind) {
       const result = await send("read", { path: gameStorage().scoreFile });
       download(gameStorage().scoreFile, copyBytesToArrayBuffer(new Uint8Array(runtimeResponseBytes(result))), "application/octet-stream");
     } else {
-      const zip = launcherWindow.fflate;
+      const zip = await ensureFflate();
       if (!zip?.zipSync) throw new Error("ZIP 组件没有加载");
       const storedFiles = await listReplayStorageFiles();
       const exportPaths = selectReplayExportPaths(storedFiles.map(file => file.path));
@@ -4525,7 +4561,7 @@ async function importFile(kind: ImportFileKind, file: File) {
     if (!replayName) throw new Error("用户录像槽已用尽");
     files = [{ path: `replay/${replayName}`, bytes: new Uint8Array(await file.arrayBuffer()) }];
   } else if (kind === "replay" && lowerName.endsWith(".zip")) {
-    const zip = launcherWindow.fflate;
+    const zip = await ensureFflate();
     if (!zip?.unzipSync) throw new Error("ZIP 组件没有加载");
     const archive = zip.unzipSync(new Uint8Array(await file.arrayBuffer()));
     const listing = await send("list");
@@ -6229,7 +6265,8 @@ new ResizeObserver(() => {
 }).observe($("#cardFilterBar"));
 
 document.querySelectorAll<HTMLElement>(".game").forEach(card => {
-  card.addEventListener("click", () => {
+  card.addEventListener("click", event => {
+    event.preventDefault();
     if (mpUiState.room) return;
     cancelMobileHomeCards();
     const mobileLite = matchMedia("(max-width: 780px), (hover: none), (pointer: coarse)").matches || state.lessMotion;

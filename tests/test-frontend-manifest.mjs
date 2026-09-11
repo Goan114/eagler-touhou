@@ -28,6 +28,7 @@ async function collectFiles(directory, prefix = "") {
 }
 
 assert.ok(FRONTEND_PACKAGE_FILES.includes("index.html"));
+assert.ok(FRONTEND_PACKAGE_FILES.includes("robots.txt"));
 assert.ok(FRONTEND_PACKAGE_FILES.includes("vendor/fflate.LICENSE"));
 assert.ok(APP_SHELL_FILES.includes("vendor/fflate.min.js"));
 assert.ok(!APP_SHELL_FILES.includes("vendor/fflate.LICENSE"));

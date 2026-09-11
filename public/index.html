@@ -10,6 +10,7 @@
   <meta property="og:site_name" content="EAGLER TOUHOU">
   <meta property="og:title" content="网页上的东方原作 ~ EAGLER TOUHOU" data-i18n-content="site.documentTitle">
   <meta property="og:description" content="进入网站就能玩的东方原作游戏启动器 / 联机平台，提供了高刷新率适配、触控适配、汉化、thprac 以及原版联机 Mod。" data-i18n-content="site.description">
+  <link rel="canonical" href="./">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="EAGLER TOUHOU">
@@ -17,9 +18,6 @@
   <link rel="icon" href="assets/th06.ico" type="image/x-icon">
   <link rel="manifest" href="site.webmanifest">
   <link rel="preload" href="assets/fonts/chill-round-gothic-site-medium.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="preload" href="assets/fonts/yatra-one-latin.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="preload" href="assets/fonts/chill-round-gothic-site-heavy.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="preload" href="assets/fonts/touhou98.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="touch-guide.css" media="print" onload="this.media='all'">
   <noscript><link rel="stylesheet" href="touch-guide.css"></noscript>
@@ -233,37 +231,38 @@
       </nav>
     </header>
     <main class="main" id="main">
-      <button class="game game-th06" data-game="th06" type="button">
-        <span class="card-art" aria-hidden="true"><img class="card-art-image" src="assets/th06-card.webp" alt=""><span class="card-art-shade"></span></span>
+      <h1 class="visually-hidden">EAGLER TOUHOU 网页东方游戏启动器</h1>
+      <a class="game game-th06" data-game="th06" href="?game=th06">
+        <span class="card-art" aria-hidden="true"><img class="card-art-image" src="assets/th06-card.webp" alt="" width="640" height="480" fetchpriority="high"><span class="card-art-shade"></span></span>
         <span class="card-glow" aria-hidden="true"><img class="card-art-image" src="assets/th06-card.webp" alt=""></span>
         <div class="no"><span class="no-label">06</span></div>
         <div class="game-copy"><h2><span class="game-title"><span>東方</span><wbr><span>紅魔郷</span></span></h2><small>the Embodiment of Scarlet Devil</small>
         </div>
         <span class="rail-title"><strong>東方紅魔郷</strong> ~ the Embodiment of Scarlet Devil</span>
-      </button>
-      <button class="game game-th07" data-game="th07" type="button">
+      </a>
+      <a class="game game-th07" data-game="th07" href="?game=th07">
         <span class="card-art" aria-hidden="true"><img class="card-art-image" src="assets/th07-card.webp" alt=""><span class="card-art-shade"></span></span>
         <span class="card-glow" aria-hidden="true"><img class="card-art-image" src="assets/th07-card.webp" alt=""></span>
         <div class="no"><span class="no-label">07</span></div>
         <div class="game-copy"><h2><span class="game-title"><span>東方</span><wbr><span>妖々夢</span></span></h2><small>Perfect Cherry Blossom</small>
         </div>
         <span class="rail-title"><strong>東方妖々夢</strong> ~ Perfect Cherry Blossom</span>
-      </button>
-      <button class="game game-th08" data-game="th08" type="button">
+      </a>
+      <a class="game game-th08" data-game="th08" href="?game=th08">
         <span class="card-art" aria-hidden="true"><img class="card-art-image" src="assets/th08-card.webp" alt=""><span class="card-art-shade"></span></span>
         <span class="card-glow" aria-hidden="true"><img class="card-art-image" src="assets/th08-card.webp" alt=""></span>
         <div class="no"><span class="no-label">08</span></div>
         <div class="game-copy"><h2><span class="game-title"><span>東方</span><wbr><span>永夜抄</span></span></h2><small>Imperishable Night</small>
         </div>
         <span class="rail-title"><strong>東方永夜抄</strong> ~ Imperishable Night</span>
-      </button>
-      <button class="game game-th10" data-game="th10" type="button" hidden>
+      </a>
+      <a class="game game-th10" data-game="th10" href="?game=th10" hidden>
         <span class="card-art" aria-hidden="true" style="background:radial-gradient(ellipse at 65% 20%,#6d885c,transparent 65%),linear-gradient(155deg,#172e2c,#35221c)"><span class="card-art-shade"></span></span>
         <div class="no"><span class="no-label">10</span></div>
         <div class="game-copy"><h2><span class="game-title"><span>東方</span><wbr><span>風神録</span></span></h2><small>Mountain of Faith</small></div>
         <span class="rail-title"><strong>東方風神録</strong> ~ Mountain of Faith</span>
-      </button>
-      <button class="game game-th06 game-th06mp game-multiplayer" data-game="th06" data-product="th06mp" type="button">
+      </a>
+      <a class="game game-th06 game-th06mp game-multiplayer" data-game="th06" data-product="th06mp" href="?game=th06mp">
         <span class="card-art" aria-hidden="true"><img class="card-art-image" src="assets/th06-card.webp" alt=""><span class="card-art-shade"></span></span>
         <span class="card-glow" aria-hidden="true"><img class="card-art-image" src="assets/th06-card.webp" alt=""></span>
         <span class="mp-card-mark" aria-hidden="true">MULTIPLAYER</span>
@@ -271,8 +270,8 @@
         <div class="game-copy"><h2><span class="game-title"><span>東方</span><wbr><span>紅魔郷</span></span> <span class="mp-game-title-badge" aria-hidden="true">MULTIPLAYER</span></h2><small>the Embodiment of Scarlet Devil</small>
         </div>
         <span class="rail-title"><strong>東方紅魔郷</strong> ~ Multiplayer</span>
-      </button>
-      <button class="game game-th07 game-th07mp game-multiplayer" data-game="th07" data-product="th07mp" type="button">
+      </a>
+      <a class="game game-th07 game-th07mp game-multiplayer" data-game="th07" data-product="th07mp" href="?game=th07mp">
         <span class="card-art" aria-hidden="true"><img class="card-art-image" src="assets/th07-card.webp" alt=""><span class="card-art-shade"></span></span>
         <span class="card-glow" aria-hidden="true"><img class="card-art-image" src="assets/th07-card.webp" alt=""></span>
         <span class="mp-card-mark" aria-hidden="true">MULTIPLAYER</span>
@@ -280,7 +279,7 @@
         <div class="game-copy"><h2><span class="game-title"><span>東方</span><wbr><span>妖々夢</span></span> <span class="mp-game-title-badge" aria-hidden="true">MULTIPLAYER</span></h2><small>Perfect Cherry Blossom</small>
         </div>
         <span class="rail-title"><strong>東方妖々夢</strong> ~ Multiplayer</span>
-      </button>
+      </a>
       <aside class="tools" aria-hidden="true">
         <div class="tools-head"><div class="game-id" id="gameId">TH06</div><h3 id="gameTitle">東方紅魔郷</h3><span class="mp-title-badge" id="mpTitleBadge" hidden>MULTIPLAYER</span></div>
         <aside class="tools-callout tools-callout-caution" id="th08MaintenanceCallout" role="note" aria-labelledby="th08MaintenanceCalloutTitle" hidden>
@@ -809,8 +808,7 @@
     </aside>
     <div class="game-viewport" id="gameViewport"><iframe id="gameFrame" title="Touhou game" allow="autoplay; fullscreen" tabindex="0"></iframe></div>
   </section>
-  <script src="vendor/fflate.min.js"></script>
-  <script src="vendor/webaudio-tinysynth.min.js"></script>
+  <noscript><p class="noscript-message">此启动器需要 JavaScript。你仍可查看<a href="faq.html">常见问题</a>和<a href="about.html">项目说明</a>。</p></noscript>
   <script>window.__eaglerBoot && window.__eaglerBoot.mark("app-module-request");</script>
   <script type="module" src="app.js"></script>
 </body>
