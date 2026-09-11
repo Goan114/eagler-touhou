@@ -35,7 +35,7 @@ try{
     const context=await browser.newContext({serviceWorkers:'block',reducedMotion:'reduce'}),page=await context.newPage();
     page.on('pageerror',error=>errors.push(String(error)));
     await page.goto(url+'?debug=card-gate&game=th10');
-    await page.waitForFunction(()=>document.querySelector('.game[data-game=th06]').hasAttribute('aria-pressed'));
+    await page.waitForFunction(()=>document.querySelector('.game[data-game=th06]').hasAttribute('aria-current'));
     if(flag===true)await page.waitForFunction(()=>!document.querySelector('.game[data-game=th10]').hidden);
     const expected=flag===true?['th06','th06mp','th07','th07mp','th08','th10']:['th06','th06mp','th07','th07mp','th08'];
     const visible=()=>page.locator('.game:not([hidden])').evaluateAll(cards=>cards.map(c=>c.dataset.product||c.dataset.game).sort());
@@ -50,7 +50,7 @@ try{
     await page.locator('[data-card-filter=original]').evaluate(button=>button.click());
     await page.waitForFunction(()=>!document.querySelector('#main').classList.contains('card-filter-motion'));
     assert.deepEqual(await visible(),expected.filter(p=>!p.endsWith('mp')));
-    await page.reload();await page.waitForFunction(()=>document.querySelector('.game[data-game=th06]').hasAttribute('aria-pressed'));
+    await page.reload();await page.waitForFunction(()=>document.querySelector('.game[data-game=th06]').hasAttribute('aria-current'));
     if(flag===true)await page.waitForFunction(()=>!document.querySelector('.game[data-game=th10]').hidden);
     assert.deepEqual(await visible(),expected.filter(p=>!p.endsWith('mp')));
     checks.push(scenario.name+': ordinary TH08 selection, TH10 visibility, direct route, hidden click, category and reload');await context.close();

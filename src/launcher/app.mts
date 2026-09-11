@@ -3229,6 +3229,10 @@ function render() {
     const candidate = card.dataset.product || card.dataset.game || "";
     if (!isProductId(candidate)) return;
     const product = candidate;
+    if (card instanceof HTMLAnchorElement && product === "th10") {
+      if (productEnabled(product)) card.href = "?game=th10";
+      else card.removeAttribute("href");
+    }
     card.hidden = !matchesCardFilter(product);
     const selected = state.hasSelection && product === state.product;
     card.classList.toggle("selected", selected);
@@ -6291,6 +6295,13 @@ document.querySelectorAll<HTMLElement>(".game").forEach(card => {
       resetRuntime();
     }
     state.hasSelection = true;
+    const routeOperation = playerRouteHistoryOperation({
+      currentUrl: location.href,
+      currentState: history.state,
+      routedProduct: routedGameFromLocation(),
+      product,
+    });
+    if (routeOperation) applyHistoryOperations(history, [routeOperation]);
     render();
     animateCardLayout(previousLayout);
     setTranslatedStatus(changed ? "status.switchedProduct" : "status.selectedProduct", { product: productTitle(product) });
