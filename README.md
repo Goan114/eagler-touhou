@@ -1,5 +1,8 @@
-<div align="center">
+<h1 align="center">
   <img src="docs/assets/eagler-touhou-wordmark.svg" alt="EAGLER TOUHOU" width="312">
+</h1>
+
+<div align="center">
   <p>简体中文 | <a href="README.en.md">English</a></p>
   <p>一个在 Web 上运行东方 Project 原作的<strong>游戏启动器</strong>和<strong>联机平台</strong>。</p>
   <p>
@@ -11,8 +14,6 @@
   <p><a href="https://github.com/YomotsuHisami/eagler-touhou/blob/main/docs/README.md">开发文档 📄</a>&nbsp;|&nbsp;<a href="https://touhou.vip/">立刻体验 🎮</a></p>
 </div>
 
----
-
 ## 概要
 
 在保证原作体验的基础上，提供触控适配与个性化布局、STG 社区热门工具、存档和 Replay 管理、多人联机大厅。
@@ -23,7 +24,7 @@
 
 ### 完整的原作体验
 
-![在手机上以 90 Hz 运行东方妖妖梦](docs/assets/readme/original-experience.webp)
+![Eagler Touhou 启动器与游戏管理界面](docs/assets/readme/launcher.webp)
 
 - 允许用户在浏览器中运行 TH06 和 TH07 (TH08 WIP），并提供导入导出存档、Replay 等文件的界面。
 - 存档、Replay 等完全和原版互通。
@@ -66,8 +67,6 @@
 - 单人和多人的存档和 Replay 相互隔离，不过允许共用设置。
 
 ### 游戏包与离线运行
-
-![启动器中的游戏包、音乐、语言、存档和 Replay 管理](docs/assets/readme/game-packages.webp)
 
 - 可以从站点安装游戏包，也可以导入自己合法持有的游戏包 ZIP；
 - 游戏包安装后保存在浏览器本地，游戏数据、OGG、字体和语言包可以分别管理；运行组件由站点统一提供；

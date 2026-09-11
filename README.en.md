@@ -1,5 +1,8 @@
-<div align="center">
+<h1 align="center">
   <img src="docs/assets/eagler-touhou-wordmark.svg" alt="EAGLER TOUHOU" width="312">
+</h1>
+
+<div align="center">
   <p><a href="README.md">简体中文</a> | English</p>
   <p>A <strong>game launcher</strong> and <strong>multiplayer platform</strong> for running original Touhou Project games on the Web.</p>
   <p>
@@ -11,8 +14,6 @@
   <p><a href="https://github.com/YomotsuHisami/eagler-touhou/blob/main/docs/README.md">Documentation 📄</a>&nbsp;|&nbsp;<a href="https://touhou.vip/">Play Now 🎮</a></p>
 </div>
 
----
-
 ## Overview
 
 While preserving the original game experience, Eagler Touhou provides touch controls with customizable layouts, popular STG community tools, save and Replay management, and a multiplayer lobby.
@@ -23,7 +24,7 @@ In a secure context, the Launcher **can run offline**. If the player goes offlin
 
 ### The Complete Original Game Experience
 
-![Touhou Youyoumu running at 90 Hz on a phone](docs/assets/readme/original-experience.webp)
+![The Eagler Touhou Launcher and game management interface](docs/assets/readme/launcher.webp)
 
 - Run TH06 and TH07 in the browser, with TH08 currently a work in progress. The Launcher provides interfaces for importing and exporting saves, Replays, and other files.
 - Saves and Replays are fully interoperable with the original games.
@@ -66,8 +67,6 @@ In a secure context, the Launcher **can run offline**. If the player goes offlin
 - Single-player and multiplayer saves and Replays are isolated. Settings may still be shared.
 
 ### Game Packages and Offline Play
-
-![Game package, music, language, save, and Replay management in the Launcher](docs/assets/readme/game-packages.webp)
 
 - Install game packages from the site or import a ZIP containing a legally owned copy of the game.
 - Installed packages remain in the browser. Game data, OGG music, fonts, and language packs can be managed independently, while Runtime components are provided by the site.
