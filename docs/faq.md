@@ -73,7 +73,7 @@ STG游戏存档分两个概念。
 
 联机前，请先确认**是否使用了网络优化工具（如有，请关闭）**和双方的**NAT类型**。测试方法：[猫点饭](https://mao.fan/mynat) 或 [NAT Checker](https://natchecker.com/)。如您不了解NAT类型为什么会影响联机，可以查看[百度百科](https://baike.baidu.com/item/%E7%BD%91%E7%BB%9C%E5%9C%B0%E5%9D%80%E8%BD%AC%E6%8D%A2/2985755)。
 
-如果双方的NAT类型为“**Full Cone(NAT1)/(Port) Restricted Cone(NAT2/NAT3)**”，那么P2P连接就有极大概率成功，**在网络信号良好的情况下大概率不会出现任何联机问题。**
+如果双方的NAT类型为“**Full Cone(NAT1)/(Port) Restricted Cone(NAT2/NAT3)**”，那么P2P连接就有**极大概率成功**，**在网络信号良好的情况下大概率不会出现任何联机问题。**
 
 如果双方有**任何一方**的NAT类型为“**Symmetric(NAT4)**”，那么P2P连接就有**极大概率失败**。**即使网络信号良好，也容易回退到中转服务器来保证联机的可用性。**随之，联机的流畅程度便**有很大可能下降**。
 
