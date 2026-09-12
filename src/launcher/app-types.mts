@@ -168,21 +168,13 @@ export interface PackageSnapshotState {
 export interface RuntimeDiagnosticState {
   fps: number | null;
   maxGapMs: number | null;
-  frameHealthAt: number | null;
-  queuedMs: number | null;
   minQueuedMs: number | null;
   backend: "" | "worklet" | "script";
   underruns: number;
   robust: boolean | null;
   renderer: string;
-  childVisibility: string;
-  childHasFocus: boolean | null;
-  childActiveTag: string;
-  directTouches: number;
   hostRafHz: number | null;
-  hostRafAt: number | null;
   childRafHz: number | null;
-  childRafAt: number | null;
 }
 
 export interface TransferPresentation {

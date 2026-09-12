@@ -126,9 +126,11 @@ import {
 } from "./replay-files.mjs";
 import {
   appendRttSample,
+  compactDiagnosticText,
   compactRendererLabel,
   describeBrowserEnvironment,
   describeNetplayConnection,
+  runtimeDiagnosticsVisibleByDefault,
   selectedRtcPair,
 } from "./runtime-diagnostics-model.mjs";
 import {
@@ -1404,7 +1406,6 @@ const player = $("#player");
 const playerFullscreenElement: LauncherFullscreenElement = player;
 const runtimeDiagnostics = $("#runtimeDiagnostics");
 const runtimeBrowserDiag = $("#runtimeBrowserDiag");
-const runtimeUaDiag = $("#runtimeUaDiag");
 const runtimeGapDiag = $("#runtimeGapDiag");
 const runtimeAudioDiag = $("#runtimeAudioDiag");
 const runtimeRendererDiag = $("#runtimeRendererDiag");
@@ -1416,17 +1417,9 @@ const runtimeNetplayQualityDiag = $("#runtimeNetplayQualityDiag");
 const runtimeNetplayIceDiag = $("#runtimeNetplayIceDiag");
 const runtimeDiagnosticState: RuntimeDiagnosticState = {
   fps: null,
-  frameHealthAt: null,
   maxGapMs: null,
   hostRafHz: null,
-  hostRafAt: null,
   childRafHz: null,
-  childRafAt: null,
-  childVisibility: "",
-  childHasFocus: null,
-  childActiveTag: "",
-  directTouches: 0,
-  queuedMs: null,
   minQueuedMs: null,
   backend: "",
   underruns: 0,
@@ -1455,7 +1448,6 @@ function startRuntimeSchedulingProbe() {
   const hostFrame = () => {
     if (serial !== runtimeSchedulingProbeSerial || !state.launched) return;
     const now = performance.now();
-    runtimeDiagnosticState.hostRafAt = now;
     hostFrames++;
     const elapsed = now - hostWindowStart;
     if (elapsed >= 500) {
@@ -1469,7 +1461,6 @@ function startRuntimeSchedulingProbe() {
   const childFrame = () => {
     if (serial !== runtimeSchedulingProbeSerial || !state.launched || frame.contentWindow !== runtimeWindow) return;
     const now = performance.now();
-    runtimeDiagnosticState.childRafAt = now;
     childFrames++;
     const elapsed = now - childWindowStart;
     if (elapsed >= 500) {
@@ -1484,15 +1475,6 @@ function startRuntimeSchedulingProbe() {
   runtimeWindow.requestAnimationFrame(childFrame);
   runtimeSchedulingProbeTimer = setInterval(() => {
     if (serial !== runtimeSchedulingProbeSerial || !state.launched || frame.contentWindow !== runtimeWindow) return;
-    try {
-      runtimeDiagnosticState.childVisibility = String(runtimeWindow.document?.visibilityState || "");
-      runtimeDiagnosticState.childHasFocus = !!runtimeWindow.document?.hasFocus?.();
-      runtimeDiagnosticState.childActiveTag = String(runtimeWindow.document?.activeElement?.tagName || "");
-    } catch {
-      runtimeDiagnosticState.childVisibility = "unavailable";
-      runtimeDiagnosticState.childHasFocus = null;
-      runtimeDiagnosticState.childActiveTag = "";
-    }
     updateRuntimeDiagnostics();
   }, 500);
 }
@@ -1526,7 +1508,6 @@ interface RuntimeNetplayEntry extends UnknownRecord {
 
 interface RuntimeNetplaySnapshot {
   mode: string;
-  build: string;
   active: boolean;
   spectator: boolean;
   transport: string;
@@ -1537,9 +1518,6 @@ interface RuntimeNetplaySnapshot {
   resimulated: number | null;
   advantage: number | null;
   pacing: number | null;
-  teamWipeTimer: number | null;
-  playerStates: unknown[];
-  pauseState: unknown[];
   rtcPaths: RuntimeNetplayEntry[];
   lanPeers: RuntimeNetplayEntry[];
   peerCount: number | null;
@@ -1582,21 +1560,21 @@ const browserEnvironment = describeBrowserEnvironment({
   mobile: launcherNavigator.userAgentData?.mobile,
   brave: !!launcherNavigator.brave,
 });
+function setRuntimeDiagnostic(element: HTMLElement, value: unknown) {
+  element.textContent = compactDiagnosticText(value);
+}
 function resetRuntimeDiagnostics() {
   stopRuntimeSchedulingProbe();
   Object.assign(runtimeDiagnosticState, {
-    fps: null, frameHealthAt: null, maxGapMs: null,
-    hostRafHz: null, hostRafAt: null, childRafHz: null, childRafAt: null,
-    childVisibility: "", childHasFocus: null, childActiveTag: "",
-    directTouches: 0,
-    queuedMs: null, minQueuedMs: null,
+    fps: null, maxGapMs: null,
+    hostRafHz: null, childRafHz: null,
+    minQueuedMs: null,
     backend: "", underruns: 0, robust: false, renderer: ""
   });
-  runtimeBrowserDiag.textContent = t("diagnostics.browser", { value: browserEnvironment.browser });
-  runtimeUaDiag.textContent = t("diagnostics.environment", { value: browserEnvironment.ua });
-  runtimeGapDiag.textContent = t("diagnostics.maxGap", { value: "--" });
-  runtimeAudioDiag.textContent = t("diagnostics.audio", { value: "--" });
-  runtimeRendererDiag.textContent = t("diagnostics.graphics", { value: "--" });
+  setRuntimeDiagnostic(runtimeBrowserDiag, t("diagnostics.browser", { value: browserEnvironment.browser }));
+  setRuntimeDiagnostic(runtimeGapDiag, t("diagnostics.maxGap", { value: "--" }));
+  setRuntimeDiagnostic(runtimeAudioDiag, t("diagnostics.audio", { value: "--" }));
+  setRuntimeDiagnostic(runtimeRendererDiag, t("diagnostics.graphics", { value: "--" }));
   for (const line of [runtimeNetplaySessionDiag, runtimeNetplayRouteDiag, runtimeNetplayFrameDiag, runtimeNetplayRollbackDiag, runtimeNetplayQualityDiag, runtimeNetplayIceDiag]) {
     line.hidden = true;
   }
@@ -1665,7 +1643,6 @@ function runtimeNetplaySnapshot(): RuntimeNetplaySnapshot | null {
   const peerSize = Number(peerState?.peers?.size);
   return {
     mode,
-    build: String(value("__eaglerNetplayRuntimeBuild") || "--"),
     active: value("__eaglerNetplayLanActive") === true,
     spectator: value("__eaglerNetplaySpectator") === true || state.netplay.spectator === true,
     transport: String(value("__eaglerNetplayTransport") || "connecting"),
@@ -1676,9 +1653,6 @@ function runtimeNetplaySnapshot(): RuntimeNetplaySnapshot | null {
     resimulated: number("__eaglerNetplayLanResimulated"),
     advantage: number("__eaglerNetplayLanFrameAdvantage"),
     pacing: number("__eaglerNetplayLanPacingScale"),
-    teamWipeTimer: number("__eaglerNetplayTeamWipeTimer"),
-    playerStates: (() => { const raw = value("__eaglerNetplayPlayerStates"); return Array.isArray(raw) ? raw : []; })(),
-    pauseState: (() => { const raw = value("__eaglerNetplayPauseState"); return Array.isArray(raw) ? raw : []; })(),
     rtcPaths,
     lanPeers,
     peerCount: Number.isFinite(peerSize) && peerSize >= 0 ? peerSize : null,
@@ -1788,29 +1762,21 @@ function updateNetplayDiagnostics() {
   const room = String(mpUiState.room?.code || "--");
   const playerIndex = Math.max(0, Number(state.netplay.player) || 0);
   const playerCount = Math.max(2, Number(state.netplay.playerCount) || 2);
-  const wipe = net.teamWipeTimer != null ? Math.max(0, Math.trunc(net.teamWipeTimer)) : null;
-  const states = net.playerStates.length ? ` - states ${net.playerStates.join("/")}` : "";
-  const pause = net.pauseState.length ? ` - pause ${net.pauseState.join("/")}` : "";
   const role = net.spectator ? t("diagnostics.netplayRoleSpectator", { players: playerCount }) : `P${playerIndex + 1}/${playerCount}`;
-  runtimeNetplaySessionDiag.textContent = t("diagnostics.netplayRuntime", {
-    room, role, runtime: `${state.runtimeVariant}/${net.mode || "--"}`, build: net.build,
-    wipe: wipe != null ? ` - wipe ${wipe}` : "", states, pause,
-  });
+  setRuntimeDiagnostic(runtimeNetplaySessionDiag, t("diagnostics.netplayRuntime", {
+    room, role, runtime: `${state.runtimeVariant}/${net.mode || "--"}`,
+  }));
 
   const transport = net.transport === "rtc" ? "RTC" : net.transport === "relay" ? "WS Relay" : net.transport === "spectator"
     ? t("diagnostics.transportSpectator") : t("diagnostics.transportConnecting");
   const route = net.transport === "relay" ? "relay" : net.path;
-  const protocols = [...new Set(net.rtcPaths.map(entry => String(entry.protocol || "").toUpperCase()).filter(Boolean))];
-  const families = [...new Set(net.rtcPaths.map(entry => String(entry.family || "")).filter(Boolean))];
   const expectedPeers = Math.max(1, playerCount - 1);
   const peerStatus = net.spectator ? t("diagnostics.peerSpectator") : net.peerCount == null ? "peers --" : `peers ${net.peerCount}/${expectedPeers}${net.rtcReady ? " ready" : ""}`;
-  runtimeNetplayRouteDiag.textContent = t("diagnostics.network", {
+  setRuntimeDiagnostic(runtimeNetplayRouteDiag, t("diagnostics.network", {
     transport, route,
-    protocols: protocols.length ? ` - ${protocols.join("/")}` : "",
-    families: families.length ? `/${families.join("/")}` : "",
     peers: peerStatus,
     failure: net.failed ? ` - FAIL ${net.error || "transport"}` : "",
-  });
+  }));
 
   const frame = net.active && net.frame != null ? Math.max(0, Math.trunc(net.frame)) : null;
   const confirmed = net.confirmed != null && net.confirmed >= 0 && net.confirmed < 0xffffffff
@@ -1822,17 +1788,17 @@ function updateNetplayDiagnostics() {
   const peerFrames = net.lanPeers
     .map(peer => `P${Number(peer.player) + 1} gap ${Math.max(0, Math.trunc(Number(peer.gap) || 0))}/pred ${Math.max(0, Math.trunc(Number(peer.predicted) || 0))}/rb ${Math.max(0, Math.trunc(Number(peer.rollbacks) || 0))}`)
     .join(" - ");
-  runtimeNetplayFrameDiag.textContent = net.active
+  setRuntimeDiagnostic(runtimeNetplayFrameDiag, net.active
     ? t("diagnostics.sync", { frame: frame ?? "--", confirmed: confirmed ?? "--", peers: peerFrames ? ` - ${peerFrames}` : "" })
-    : t("diagnostics.syncWaiting");
+    : t("diagnostics.syncWaiting"));
 
   const rollback = net.rollback != null ? Math.max(0, Math.trunc(net.rollback)) : 0;
   const resimulated = net.resimulated != null ? Math.max(0, Math.trunc(net.resimulated)) : 0;
   const advantage = net.advantage != null ? `${net.advantage >= 0 ? "+" : ""}${net.advantage.toFixed(2)}` : "--";
   const pacing = net.pacing != null ? net.pacing.toFixed(4) : "--";
-  runtimeNetplayRollbackDiag.textContent = net.spectator
+  setRuntimeDiagnostic(runtimeNetplayRollbackDiag, net.spectator
     ? t("diagnostics.spectatorRollback")
-    : t("diagnostics.rollback", { rollback, resimulated, advantage, pacing });
+    : t("diagnostics.rollback", { rollback, resimulated, advantage, pacing }));
 
   const confirmedAgeMs = runtimeNetplayQualityState.confirmedAt == null
     ? null : Math.max(0, performance.now() - runtimeNetplayQualityState.confirmedAt);
@@ -1842,36 +1808,26 @@ function updateNetplayDiagnostics() {
   const iceStates = [...new Set(qualities
     .map(quality => quality.iceState || quality.connectionState)
     .filter(Boolean))];
-  runtimeNetplayQualityDiag.textContent = t("diagnostics.quality", {
+  setRuntimeDiagnostic(runtimeNetplayQualityDiag, t("diagnostics.quality", {
     rtt: rttValues.length ? `${Math.round(Math.max(...rttValues))}ms` : "--",
     variation: variationValues.length ? `${Math.round(Math.max(...variationValues))}ms` : "--",
     stall: net.active && confirmedAgeMs != null ? `${(confirmedAgeMs / 1000).toFixed(1)}s` : "--",
-  }) + ` - ICE ${iceStates.join("/") || "--"}`;
-  runtimeNetplayIceDiag.textContent = net.rtcPaths.length
+  }) + ` - ICE ${iceStates.join("/") || "--"}`);
+  setRuntimeDiagnostic(runtimeNetplayIceDiag, net.rtcPaths.length
     ? `ICE ${net.rtcPaths.map(entry => `P${Number(entry.peer) + 1} ${entry.path || "?"}/${String(entry.protocol || "?").toLowerCase()}/${entry.family || "?"}`).join(" - ")}`
-    : net.transport === "relay" ? t("diagnostics.iceFallback") : t("diagnostics.iceCandidates");
+    : net.transport === "relay" ? t("diagnostics.iceFallback") : t("diagnostics.iceCandidates"));
 }
 function updateRuntimeDiagnostics() {
   const diag = runtimeDiagnosticState;
-  runtimeBrowserDiag.textContent = t("diagnostics.browser", { value: browserEnvironment.browser });
-  runtimeUaDiag.textContent = t("diagnostics.environment", { value: browserEnvironment.ua });
-  const now = performance.now();
+  setRuntimeDiagnostic(runtimeBrowserDiag, t("diagnostics.browser", { value: browserEnvironment.browser }));
   const hz = (value: number | null) => value != null && Number.isFinite(value) ? Math.round(value) : "--";
-  const age = (value: number | null) => value != null && Number.isFinite(value) ? Math.max(0, Math.round(now - value)) : null;
-  const hostAge = age(diag.hostRafAt);
-  const childAge = age(diag.childRafAt);
-  const presentAge = age(diag.frameHealthAt);
-  const focus = diag.childHasFocus == null ? "?" : diag.childHasFocus ? "Y" : "N";
-  runtimeGapDiag.textContent = [
-    t("diagnostics.frameShort", { hz: hz(diag.hostRafHz), age: hostAge == null ? "" : `/${hostAge}ms` }),
-    `C${hz(diag.childRafHz)}${childAge == null ? "" : `/${childAge}ms`}`,
-    `P${hz(diag.fps)}${presentAge == null ? "" : `/${presentAge}ms`}`,
+  setRuntimeDiagnostic(runtimeGapDiag, [
+    t("diagnostics.frameShort", { hz: hz(diag.hostRafHz), age: "" }),
+    `C${hz(diag.childRafHz)}`,
+    `P${hz(diag.fps)}`,
     `gap ${diag.maxGapMs != null && Number.isFinite(diag.maxGapMs) ? `${Math.round(diag.maxGapMs)}ms` : "--"}`,
-    `lock ${state.options.frameLimit60Enabled ? "60" : "off"}`,
-    `vis ${diag.childVisibility || "?"}`,
-    `focus ${focus}/${diag.childActiveTag || "-"}`,
-    `touch ${Math.max(0, Number(diag.directTouches) || 0)}`
-  ].join(" - ");
+    `lock ${state.options.frameLimit60Enabled ? "60" : "off"}`
+  ].join(" - "));
   const backend = diag.backend === "worklet" ? "AW" : diag.backend === "script" ? "SP" : "";
   const audioParts = [
     diag.minQueuedMs != null && Number.isFinite(diag.minQueuedMs) ? `${Math.max(0, Math.round(diag.minQueuedMs))}ms` : "--",
@@ -1879,8 +1835,8 @@ function updateRuntimeDiagnostics() {
     diag.robust ? t("diagnostics.audioRobust") : "",
     diag.underruns > 0 ? t("diagnostics.audioUnderruns", { count: diag.underruns }) : ""
   ].filter(Boolean);
-  runtimeAudioDiag.textContent = t("diagnostics.audio", { value: audioParts.join(" ") });
-  runtimeRendererDiag.textContent = t("diagnostics.graphics", { value: compactRendererLabel(diag.renderer) });
+  setRuntimeDiagnostic(runtimeAudioDiag, t("diagnostics.audio", { value: audioParts.join(" ") }));
+  setRuntimeDiagnostic(runtimeRendererDiag, t("diagnostics.graphics", { value: compactRendererLabel(diag.renderer) }));
   updateNetplayDiagnostics();
 
   const softwareRenderer = /SwiftShader|llvmpipe|software raster/i.test(diag.renderer);
@@ -1890,7 +1846,7 @@ function updateRuntimeDiagnostics() {
   const frameWarn = diag.maxGapMs != null && Number.isFinite(diag.maxGapMs) && diag.maxGapMs >= 35;
   runtimeDiagnostics.classList.toggle("bad", softwareRenderer || audioBad || frameBad);
   runtimeDiagnostics.classList.toggle("warn", !softwareRenderer && !audioBad && !frameBad && (audioWarn || frameWarn));
-  runtimeDiagnostics.hidden = !state.launched;
+  runtimeDiagnostics.hidden = !runtimeDiagnosticsVisibleByDefault(manifest.shared.testBuild, state.launched);
 }
 window.setInterval(() => {
   if (state.launched && (isMultiplayerProduct() || state.runtimeVariant === "multiplayer")) updateRuntimeDiagnostics();
@@ -4089,13 +4045,11 @@ window.addEventListener("message", event => {
   }
   if (message.event === "frame-health") {
     runtimeDiagnosticState.fps = Number.isFinite(Number(message.fps)) ? Number(message.fps) : null;
-    runtimeDiagnosticState.frameHealthAt = performance.now();
     runtimeDiagnosticState.maxGapMs = Number.isFinite(Number(message.maxGapMs)) ? Number(message.maxGapMs) : null;
     updateRuntimeDiagnostics();
     return;
   }
   if (message.event === "audio-health") {
-    runtimeDiagnosticState.queuedMs = Number.isFinite(Number(message.queuedMs)) ? Number(message.queuedMs) : null;
     runtimeDiagnosticState.minQueuedMs = Number.isFinite(Number(message.minQueuedMs)) ? Number(message.minQueuedMs) : null;
     runtimeDiagnosticState.backend = message.backend === "worklet" ? "worklet" : message.backend === "script" ? "script" : "";
     runtimeDiagnosticState.underruns = Math.max(0, Number(message.underruns) || 0);
@@ -6922,7 +6876,6 @@ function postDirectTouch(type: DirectTouchType, touch: DirectTouchPoint) {
 function cancelDirectTouches(notifyRuntime = true) {
   if (!directTouchPointers.size) return;
   directTouchPointers.clear();
-  runtimeDiagnosticState.directTouches = 0;
   invalidateDirectTouchFrameRect();
   if (notifyRuntime) postRuntimeTouchCancel(touchRuntimeMessageContext());
 }
@@ -6934,7 +6887,6 @@ touchDirectSurface.addEventListener("pointerdown", event => {
   event.preventDefault();
   const touch = { id: nextDirectTouchId--, ...point };
   directTouchPointers.set(event.pointerId, touch);
-  runtimeDiagnosticState.directTouches = directTouchPointers.size;
   if (gameZoom.isActive()) gameZoom.beginPointer(event);
   postDirectTouch("down", touch);
 });
@@ -6964,7 +6916,6 @@ const releaseDirectTouch = (event: PointerEvent) => {
   const point = Number.isFinite(event.clientX) ? directTouchFramePoint(event, gameZoom.isActive()) : null;
   if (point) { touch.x = point.x; touch.y = point.y; }
   directTouchPointers.delete(event.pointerId);
-  runtimeDiagnosticState.directTouches = directTouchPointers.size;
   if (gameZoom.isActive()) gameZoom.endPointer(event);
   postDirectTouch("up", touch);
   if (!directTouchPointers.size) invalidateDirectTouchFrameRect();
@@ -6989,7 +6940,6 @@ touchDirectSurface.addEventListener("touchstart", event => {
     if (gameZoom.isActive()) gameZoom.beginPointer(directTouchZoomInput(contact));
     postDirectTouch("down", touch);
   });
-  runtimeDiagnosticState.directTouches = directTouchPointers.size;
 }, { passive: false });
 
 touchDirectSurface.addEventListener("touchmove", event => {
@@ -7019,7 +6969,6 @@ const releaseIosDirectTouches = (event: TouchEvent) => {
     if (gameZoom.isActive()) gameZoom.endPointer(directTouchZoomInput(contact));
     postDirectTouch("up", touch);
   });
-  runtimeDiagnosticState.directTouches = directTouchPointers.size;
   if (!directTouchPointers.size) invalidateDirectTouchFrameRect();
 };
 touchDirectSurface.addEventListener("touchend", releaseIosDirectTouches, { passive: false });

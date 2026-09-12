@@ -6,6 +6,17 @@ export interface BrowserEnvironmentInput {
   brave?: boolean | null;
 }
 
+export function runtimeDiagnosticsVisibleByDefault(testBuild: unknown, launched: unknown): boolean {
+  return testBuild === true && launched === true;
+}
+
+export function compactDiagnosticText(value: unknown, maxLength = 96): string {
+  const text = String(value ?? "").replace(/\s+/g, " ").trim();
+  const limit = Math.max(1, Math.trunc(maxLength) || 96);
+  const characters = [...text];
+  return characters.length <= limit ? text : `${characters.slice(0, Math.max(1, limit - 1)).join("")}…`;
+}
+
 export function describeBrowserEnvironment(input: BrowserEnvironmentInput) {
   const ua = String(input.userAgent || "");
   const match = (regex: RegExp): string => regex.exec(ua)?.[1] || "";
