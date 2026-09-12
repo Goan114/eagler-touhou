@@ -49,8 +49,13 @@
 
 ![在浏览器中使用 thprac 练习菜单](docs/assets/readme/stg-community-tools.webp)
 
+#### thprac
+
 - 适配 [thprac](https://github.com/touhouworldcup/thprac) 的所有功能。
 - 支持在触控设备上使用模拟鼠标，并提供打开 Tab Tracker 和作弊菜单的模拟按键。（F12 WIP）
+
+#### thcrap 多语言
+
 - 理论上支持 [thcrap 语言仓库](https://srv.thpatch.net/) 里的所有语言包。
 - 服务器可以按作品指定语言包。你可以往里面加一堆奇怪的语言包，玩家只下载他选中的那个。
 

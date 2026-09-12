@@ -49,8 +49,13 @@ In a secure context, the Launcher **can run offline**. If the player goes offlin
 
 ![Using the thprac practice menu in the browser](docs/assets/readme/stg-community-tools.webp)
 
+#### thprac
+
 - Supports every feature provided by [thprac](https://github.com/touhouworldcup/thprac).
 - Touch devices can use mouse emulation, with virtual buttons for opening the Tab Tracker and cheat menu. (F12 WIP)
+
+#### thcrap Languages
+
 - In theory, every language pack in the [thcrap language repository](https://srv.thpatch.net/) is supported.
 - Servers can choose which language packs to offer for each game. You can throw in a whole pile of unusual language packs; players download only the one they select.
 
