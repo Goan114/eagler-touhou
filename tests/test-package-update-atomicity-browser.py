@@ -126,6 +126,18 @@ def main() -> int:
           }
           const afterFailure = await store.readCurrentPackageGeneration('th06');
 
+          let missingBase = null;
+          try {
+            const incomplete = makeDescriptor('r1-incomplete', null);
+            await installer.installParsedPackageZip({
+              descriptor: incomplete,
+              files: new Map(),
+            });
+          } catch (error) {
+            missingBase = String(error?.message || error);
+          }
+          const afterMissingBase = await store.readCurrentPackageGeneration('th06');
+
           const abortController = new AbortController();
           let abortSignalForwarded = false;
           let abortName = null;
@@ -352,6 +364,49 @@ def main() -> int:
           });
           const afterSelectedLanguageUpdate = await store.readCurrentPackageGeneration('th06');
 
+          const missingObjectDescriptor = makeLanguageDescriptor('r11-missing-object', 'r2');
+          const missingObjectId = afterSelectedLanguageUpdate.generation.files.data.objectId;
+          await new Promise((resolve, reject) => {
+            const request = indexedDB.open(store.PACKAGE_STORE_DB);
+            request.onsuccess = () => {
+              const db = request.result;
+              const transaction = db.transaction([store.PACKAGE_OBJECTS], 'readwrite');
+              transaction.objectStore(store.PACKAGE_OBJECTS).delete(missingObjectId);
+              transaction.oncomplete = () => { db.close(); resolve(); };
+              transaction.onerror = () => { db.close(); reject(transaction.error); };
+              transaction.onabort = () => { db.close(); reject(transaction.error); };
+            };
+            request.onerror = () => reject(request.error);
+          });
+          let missingObjectFetches = [];
+          await installer.installPackageFromRemote(missingObjectDescriptor, {
+            descriptorUrl: new URL('./th06.package.json', location.href).href,
+            desiredFileIds: ['data'],
+            fetchImpl: async url => {
+              missingObjectFetches.push(String(url));
+              if (String(url).endsWith('/game/data.bin')) return new Response(new Uint8Array([1,2,3,4]));
+              throw new Error(`unexpected fetch: ${url}`);
+            },
+          });
+          const afterMissingObject = await store.readCurrentPackageGeneration('th06');
+          const repairedMissingObject = await store.readPackageObject(afterMissingObject.generation.files.data.objectId);
+
+          // Even when there are no unchanged candidates, same-revision files
+          // with a changed identity must not drop out of the forced fetch set.
+          const changedIdentityDescriptor = structuredClone(missingObjectDescriptor);
+          changedIdentityDescriptor.files.data.bytes = 5;
+          let changedIdentityFetches = 0;
+          await installer.installPackageFromRemote(changedIdentityDescriptor, {
+            descriptorUrl: new URL('./th06.package.json', location.href).href,
+            desiredFileIds: ['data'],
+            fetchImpl: async () => {
+              changedIdentityFetches++;
+              return new Response(new Uint8Array([1,2,3,4,5]));
+            },
+          });
+          const afterChangedIdentity = await store.readCurrentPackageGeneration('th06');
+          const changedIdentityObject = await store.readPackageObject(afterChangedIdentity.generation.files.data.objectId);
+
           return {
             packageDb: store.PACKAGE_STORE_DB,
             wasmMime: store.packageMimeType('games/th08/th08.wasm'),
@@ -367,6 +422,14 @@ def main() -> int:
             orphanCollected: orphanAfterGc === null,
             cacheNames,
             failed,
+            missingBase,
+            missingBaseCurrentId: afterMissingBase.installation.currentGeneration,
+            missingBasePending: afterMissingBase.installation.pendingGeneration,
+            missingObjectFetches,
+            missingObjectRepaired: afterMissingObject.generation.files.data.objectId !== missingObjectId,
+            missingObjectBytes: repairedMissingObject?.data?.byteLength || null,
+            changedIdentityFetches,
+            changedIdentityBytes: changedIdentityObject?.data?.byteLength || null,
             beforeId: before.installation.currentGeneration,
             afterFailureId: afterFailure.installation.currentGeneration,
             afterFailurePending: afterFailure.installation.pendingGeneration,
@@ -424,6 +487,14 @@ def main() -> int:
         assert result["orphanCollected"] is True, result
         assert result["cacheNames"] == [], result
         assert result["failed"] and "music: desired Package file is unavailable" in result["failed"], result
+        assert result["missingBase"] and "Package ZIP is missing required base files: data" in result["missingBase"], result
+        assert result["missingBaseCurrentId"] == result["afterFailureId"], result
+        assert result["missingBasePending"] is None, result
+        assert result["missingObjectFetches"] == ["http://127.0.0.1:%d/game/data.bin" % http_port], result
+        assert result["missingObjectRepaired"] is True, result
+        assert result["missingObjectBytes"] == 4, result
+        assert result["changedIdentityFetches"] == 1, result
+        assert result["changedIdentityBytes"] == 5, result
         assert result["beforeId"] == result["afterFailureId"], result
         assert result["afterFailurePending"] is None, result
         assert result["afterFailureRevision"] == "r1", result

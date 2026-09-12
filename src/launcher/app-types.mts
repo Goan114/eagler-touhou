@@ -16,6 +16,7 @@ export interface PendingRuntimeRequest {
   resolve(message: RuntimeResponseMessage): void;
   reject(error: Error): void;
   timer: ReturnType<typeof setTimeout>;
+  noteProgress?(mode: string, loaded: number): void;
 }
 
 export interface MultiplayerLoadout {

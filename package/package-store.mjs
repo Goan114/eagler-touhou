@@ -69,6 +69,23 @@ export async function readPackageObjects(objectIds, { indexedDBFactory } = {}) {
   }, indexedDBFactory);
 }
 
+export async function readPackageObjectKeys(objectIds, { indexedDBFactory } = {}) {
+  const ids = [...new Set((objectIds || []).filter(id => typeof id === "string" && id))];
+  if (!ids.length) return new Set();
+  return withPackageDb(async db => {
+    const transaction = db.transaction([PACKAGE_OBJECTS], "readonly");
+    const done = transactionDone(transaction);
+    const store = transaction.objectStore(PACKAGE_OBJECTS);
+    const keys = await Promise.all(ids.map(id => requestResult(store.getKey(id))));
+    await done;
+    const result = new Set();
+    for (let index = 0; index < ids.length; index++) {
+      if (keys[index] !== undefined) result.add(ids[index]);
+    }
+    return result;
+  }, indexedDBFactory);
+}
+
 function transactionDone(transaction) {
   return new Promise((resolve, reject) => {
     transaction.oncomplete = () => resolve();

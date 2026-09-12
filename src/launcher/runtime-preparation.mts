@@ -5,20 +5,28 @@ type ReadObject = (objectId: string) => Promise<StoredPackageObject | null>;
 
 interface ReadOptions {
   readObject?: ReadObject;
+  timeoutMs?: number;
 }
+
+export class InstalledGameDataError extends Error {}
 
 function packageDataFileId(generation: InstalledPackageGeneration) {
   const descriptor = generation?.descriptor;
-  if (!descriptor?.files || !generation?.files) throw new Error("Package generation is unavailable");
+  if (!descriptor?.files || !generation?.files) throw new InstalledGameDataError("Package generation is unavailable");
   const declared = descriptor.runtimeRequirement?.dataFile;
-  if (declared && descriptor.files[declared] && generation.files[declared]?.objectId) return declared;
+  if (declared) {
+    if (!descriptor.files[declared] || !generation.files[declared]?.objectId) {
+      throw new InstalledGameDataError("Installed game DATA is missing");
+    }
+    return declared;
+  }
   if (descriptor.files["game-data"] && generation.files["game-data"]?.objectId) return "game-data";
   const matches = Object.entries(descriptor.files)
     .filter(([fileId, declaration]) => generation.files?.[fileId]?.objectId && /\.data$/i.test(String(declaration?.target || "")))
     .map(([fileId]) => fileId);
-  if (matches.length !== 1) throw new Error("Package generation must contain exactly one installed DATA file");
+  if (matches.length !== 1) throw new InstalledGameDataError("Package generation must contain exactly one installed DATA file");
   const [fileId] = matches;
-  if (!fileId) throw new Error("Package generation DATA file resolution failed");
+  if (!fileId) throw new InstalledGameDataError("Package generation DATA file resolution failed");
   return fileId;
 }
 
@@ -29,21 +37,33 @@ async function storedObjectBuffer(stored: StoredPackageObject | null) {
   return null;
 }
 
+async function readObjectBuffer(objectId: string, readObject: ReadObject, timeoutMs: number) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      readObject(objectId).then(storedObjectBuffer),
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error("本地存储读取超时，请重试")), timeoutMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function readManagedRuntimeData(
   generation: InstalledPackageGeneration,
-  { readObject = readPackageObject }: ReadOptions = {},
+  { readObject = readPackageObject, timeoutMs = 30_000 }: ReadOptions = {},
 ) {
   const fileId = packageDataFileId(generation);
   const declaration = generation.descriptor.files[fileId];
   const fileRef = generation.files[fileId];
-  if (!declaration || !fileRef?.objectId) throw new Error("Installed game DATA is missing");
+  if (!declaration || !fileRef?.objectId) throw new InstalledGameDataError("Installed game DATA is missing");
   const objectId = fileRef.objectId;
-  const stored = await readObject(objectId);
-  if (!stored) throw new Error("Installed game DATA is missing");
-  const buffer = await storedObjectBuffer(stored);
-  if (!(buffer instanceof ArrayBuffer)) throw new Error("Installed game DATA cannot be read");
+  const buffer = await readObjectBuffer(objectId, readObject, timeoutMs);
+  if (!(buffer instanceof ArrayBuffer)) throw new InstalledGameDataError("Installed game DATA cannot be read");
   if (declaration.bytes != null && buffer.byteLength !== Number(declaration.bytes)) {
-    throw new Error(`Installed game DATA size mismatch: ${buffer.byteLength}/${declaration.bytes}`);
+    throw new InstalledGameDataError(`Installed game DATA size mismatch: ${buffer.byteLength}/${declaration.bytes}`);
   }
   return { buffer, bytes: buffer.byteLength, fileId };
 }
@@ -51,14 +71,12 @@ export async function readManagedRuntimeData(
 export async function readManagedRuntimeResource(
   generation: InstalledPackageGeneration,
   fileId: string,
-  { readObject = readPackageObject }: ReadOptions = {},
+  { readObject = readPackageObject, timeoutMs = 30_000 }: ReadOptions = {},
 ) {
   const declaration = generation?.descriptor?.files?.[fileId];
   const objectId = generation?.files?.[fileId]?.objectId;
   if (!declaration || !objectId) return null;
-  const stored = await readObject(objectId);
-  if (!stored) return null;
-  const buffer = await storedObjectBuffer(stored);
+  const buffer = await readObjectBuffer(objectId, readObject, timeoutMs);
   if (!(buffer instanceof ArrayBuffer)) return null;
   if (declaration.bytes != null && buffer.byteLength !== Number(declaration.bytes)) {
     throw new Error(`${fileId}: installed resource size mismatch`);

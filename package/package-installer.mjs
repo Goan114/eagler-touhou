@@ -9,6 +9,7 @@ import {
   refreshPendingPackageOperation,
   packageMimeType,
   readCurrentPackageGeneration,
+  readPackageObjectKeys,
   stagePendingPackageGeneration,
 } from "./package-store.mjs";
 import { parsePackageZip } from "./package-zip.mjs";
@@ -36,6 +37,35 @@ function throwIfAborted(signal) {
 }
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+async function invalidReusableFileIds(current, descriptor, desiredFileIds) {
+  if (!current?.descriptor?.files || !current.files || typeof current.files !== "object") return [];
+  const invalid = new Set();
+  const candidates = [];
+  const objectIds = [];
+  for (const fileId of desiredFileIds) {
+    const previous = current.descriptor.files[fileId];
+    const next = descriptor.files[fileId];
+    const reference = current.files[fileId];
+    if (previous?.revision !== next?.revision || !reference?.objectId) continue;
+    const previousBytes = previous.bytes == null ? null : Number(previous.bytes);
+    const nextBytes = next.bytes == null ? null : Number(next.bytes);
+    const previousHash = previous.sha256?.toLowerCase() || null;
+    const nextHash = next.sha256?.toLowerCase() || null;
+    if (previousBytes !== nextBytes || previousHash !== nextHash) {
+      invalid.add(fileId);
+      continue;
+    }
+    candidates.push({ fileId, objectId: reference.objectId });
+    objectIds.push(reference.objectId);
+  }
+  if (!candidates.length) return [...invalid];
+  const presentObjectIds = await readPackageObjectKeys(objectIds);
+  for (const candidate of candidates) {
+    if (!presentObjectIds.has(candidate.objectId)) invalid.add(candidate.fileId);
+  }
+  return [...invalid];
+}
 
 async function stageWhenAvailable(generation, { source, operationId: owner, signal }) {
   while (true) {
@@ -78,10 +108,21 @@ async function installPackageFromAcquisitionExclusive({
     throw new Error("invalid Package acquisition request");
   }
 
+  // A current generation may contain a stale object reference after browser
+  // eviction or manual store damage. Do this check before planning so a file
+  // with the same declared revision is re-acquired instead of being silently
+  // carried into the next generation.
+  const invalidReusableIds = await invalidReusableFileIds(
+    currentResult.generation,
+    descriptor,
+    resolvedDesiredFileIds,
+  );
+
   const plan = planPackageGeneration({
     current: currentResult.generation,
     descriptor,
     desiredFileIds: resolvedDesiredFileIds,
+    forceFileIds: invalidReusableIds,
     generationId: generationId(),
   });
   const owner = operationId();
@@ -159,6 +200,14 @@ export async function installPackageFromZip(blob, { onProgress = null } = {}) {
 
 export async function installParsedPackageZip(parsed, { onProgress = null } = {}) {
   if (!parsed?.descriptor || !(parsed.files instanceof Map)) throw new Error("invalid parsed Package ZIP");
+  validatePackageDescriptor(parsed.descriptor);
+  const missingBaseFiles = parsed.descriptor.base.files.filter(fileId => {
+    const entry = parsed.files.get(fileId);
+    return !(entry?.blob instanceof Blob);
+  });
+  if (missingBaseFiles.length) {
+    throw new Error(`Package ZIP is missing required base files: ${missingBaseFiles.join(", ")}`);
+  }
   const desiredFileIds = [...parsed.files.keys()];
   return installPackageFromAcquisition({
     descriptor: parsed.descriptor,

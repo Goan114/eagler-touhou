@@ -10,6 +10,11 @@ export function readPackageObject(
   options?: { indexedDBFactory?: IDBFactory },
 ): Promise<StoredPackageObject | null>;
 
+export function readPackageObjectKeys(
+  objectIds: string[],
+  options?: { indexedDBFactory?: IDBFactory },
+): Promise<Set<string>>;
+
 export function readCurrentPackageGeneration(
   game: string,
   options?: { indexedDBFactory?: IDBFactory },

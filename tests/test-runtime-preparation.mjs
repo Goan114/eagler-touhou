@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  InstalledGameDataError,
   managedRuntimeUrl,
   readManagedRuntimeData,
   readManagedRuntimeResource,
@@ -86,8 +87,18 @@ await assert.rejects(
 );
 await assert.rejects(
   readManagedRuntimeData(legacyBlob, { readObject: async () => null }),
-  /Installed game DATA is missing/,
+  InstalledGameDataError,
 );
+const unavailableStore = new Error("Package Store open blocked");
+await assert.rejects(readManagedRuntimeData(legacyBlob, { readObject: () => new Promise(() => {}), timeoutMs: 10 }),
+  error => !(error instanceof InstalledGameDataError) && /读取超时/.test(error.message),
+  "a stalled local read must terminate without claiming the DATA is absent");
+await assert.rejects(readManagedRuntimeData(legacyBlob, { readObject: async () => { throw unavailableStore; } }),
+  error => error === unavailableStore && !(error instanceof InstalledGameDataError),
+  "storage availability errors must not claim that installed DATA is missing");
+await assert.rejects(readManagedRuntimeData({ ...explicit, files: { "game-data": { objectId: "obj-fallback" } } }, {
+  readObject: async () => ({ data: bytes(1, 2, 3, 4) }),
+}), InstalledGameDataError, "a missing explicitly required DATA cannot fall through to a different installed file");
 await assert.rejects(
   readManagedRuntimeData(legacyBlob, { readObject: async () => ({ data: bytes(1, 2) }) }),
   /Installed game DATA size mismatch: 2\/3/,

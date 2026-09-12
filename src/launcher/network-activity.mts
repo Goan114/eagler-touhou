@@ -59,6 +59,25 @@ interface NetworkActivityOptions {
   xhrFactory?: (() => XhrLike) | null;
   onChange?: (snapshot: NetworkActivitySnapshot) => void;
   clock?: () => number;
+  /** Maximum time without a byte-progress advance on the XHR path. */
+  xhrTimeoutMs?: number;
+  /** Maximum total time for native fetch headers and body consumption. */
+  fetchTimeoutMs?: number;
+}
+
+function timeoutError(url: string, detail: string) {
+  const message = `${url}: ${detail}`;
+  if (typeof DOMException === "function") return new DOMException(message, "TimeoutError");
+  const error = new Error(message);
+  error.name = "TimeoutError";
+  return error;
+}
+
+function abortError() {
+  if (typeof DOMException === "function") return new DOMException("已取消下载", "AbortError");
+  const error = new Error("已取消下载");
+  error.name = "AbortError";
+  return error;
 }
 
 function requestUrl(input: FetchInput) {
@@ -90,9 +109,13 @@ export function createNetworkActivityTracker({
     : null,
   onChange = () => {},
   clock = nowMs,
+  xhrTimeoutMs = 30_000,
+  fetchTimeoutMs = 120_000,
 }: NetworkActivityOptions = {}) {
   if (typeof fetchImpl !== "function") throw new TypeError("fetch implementation is required");
   if (typeof onChange !== "function") throw new TypeError("onChange must be a function");
+  const xhrTimeout = Math.max(0, Number(xhrTimeoutMs) || 0);
+  const fetchTimeout = Math.max(0, Number(fetchTimeoutMs) || 0);
   let serial = 0;
   const tasks = new Map<string, NetworkTask>();
 
@@ -152,14 +175,82 @@ export function createNetworkActivityTracker({
   async function trackedFetch(input: FetchInput, init: RequestInit = {}, meta: NetworkTaskPatch = {}) {
     const url = requestUrl(input);
     const id = begin({ ...meta, url });
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+    let timeoutReject: ((error: unknown) => void) | null = null;
+    let abortReject: ((error: unknown) => void) | null = null;
+    let timedOut = false;
+    let userAborted = false;
+    let settled = false;
+    let bodyHandedOff = false;
+    const controller = typeof AbortController === "function" ? new AbortController() : null;
+    const signal = init.signal ?? (typeof Request !== "undefined" && input instanceof Request ? input.signal : null);
+    const fetchInit = controller ? { ...init, signal: controller.signal } : init;
+    const timeoutPromise = new Promise<never>((_resolve, reject) => {
+      timeoutReject = reject;
+      timeoutHandle = setTimeout(() => {
+        if (settled || userAborted) return;
+        timedOut = true;
+        const error = timeoutError(url, `native fetch timed out after ${fetchTimeout} ms`);
+        timeoutReject?.(error);
+        try { controller?.abort(); } catch {}
+        finishTracked();
+      }, fetchTimeout);
+    });
+    const abortPromise = new Promise<never>((_resolve, reject) => {
+      abortReject = reject;
+    });
+    const onAbort = () => {
+      if (bodyHandedOff) {
+        // The caller owns the native stream now; keep its original signal
+        // connected even though generic progress/deadline ownership ended.
+        signal?.removeEventListener?.("abort", onAbort);
+        controller?.abort();
+        return;
+      }
+      if (settled || userAborted) return;
+      userAborted = true;
+      const error = abortError();
+      abortReject?.(error);
+      try { controller?.abort(); } catch {}
+      finishTracked();
+    };
+    const cleanup = () => {
+      if (timeoutHandle !== null) {
+        clearTimeout(timeoutHandle);
+        timeoutHandle = null;
+      }
+      if (!bodyHandedOff) signal?.removeEventListener?.("abort", onAbort);
+    };
+    const finishTracked = (loaded?: unknown) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (loaded !== undefined) {
+        const total = Math.max(0, Number(responseTotal) || 0);
+        const finalLoaded = Math.max(0, Number(loaded) || total || 0);
+        update(id, { loaded: finalLoaded, total: total || finalLoaded, phase: "receiving" });
+      }
+      finish(id);
+    };
+    let responseTotal = 0;
     try {
-      const response = await fetchImpl(input, init);
-      const total = Math.max(0, Number(response.headers?.get?.("content-length")) || 0);
-      update(id, { phase: "receiving", total });
+      if (signal?.aborted) {
+        userAborted = true;
+        finishTracked();
+        throw abortError();
+      }
+      signal?.addEventListener?.("abort", onAbort, { once: true });
+      const response = await Promise.race([
+        Promise.resolve().then(() => fetchImpl(input, fetchInit)),
+        timeoutPromise,
+        abortPromise,
+      ]);
+      responseTotal = Math.max(0, Number(response.headers?.get?.("content-length")) || 0);
+      update(id, { phase: "receiving", total: responseTotal });
 
       const method = String(init.method || (typeof Request !== "undefined" && input instanceof Request ? input.method : "GET")).toUpperCase();
       if (!response.ok || method === "HEAD" || response.status === 204 || response.status === 205) {
-        finish(id);
+        finishTracked();
         return response;
       }
 
@@ -168,19 +259,16 @@ export function createNetworkActivityTracker({
       // Android WebView/Via before the caller's json()/blob() consumer receives
       // bytes. Progress ownership follows normal Response consumption methods
       // instead; direct body consumers receive the original stream unchanged.
-      let settled = false;
-      const settle = (loaded: unknown) => {
-        if (settled) return;
-        settled = true;
-        const finalLoaded = Math.max(0, Number(loaded) || total || 0);
-        update(id, { loaded: finalLoaded, total: total || finalLoaded, phase: "receiving" });
-        finish(id);
-      };
+      const settle = (loaded: unknown) => finishTracked(loaded);
       const consumptionMethods = new Set<PropertyKey>(["arrayBuffer", "blob", "formData", "json", "text", "bytes"]);
       return new Proxy(response, {
         get(target, property) {
           if (property === "body") {
-            settle(total);
+            // Preserve the native body identity. Direct stream consumers do
+            // not expose a completion callback, so retain the historical
+            // ownership boundary when the body is handed to the caller.
+            bodyHandedOff = true;
+            settle(responseTotal);
             return Reflect.get(target, property, target);
           }
           const value = Reflect.get(target, property, target) as unknown;
@@ -189,24 +277,29 @@ export function createNetworkActivityTracker({
           }
           return async (...args: unknown[]) => {
             try {
-              const result = await (value as (...args: unknown[]) => Promise<unknown>).apply(target, args);
+              const result = await Promise.race([
+                Promise.resolve().then(() => (value as (...args: unknown[]) => Promise<unknown>).apply(target, args)),
+                timeoutPromise,
+                abortPromise,
+              ]);
               const loaded = result instanceof Blob ? result.size
                 : result instanceof ArrayBuffer ? result.byteLength
                 : ArrayBuffer.isView(result) ? result.byteLength
                 : typeof result === "string" ? new TextEncoder().encode(result).byteLength
-                : total;
+                : responseTotal;
               settle(loaded);
               return result;
             } catch (error) {
-              finish(id);
-              settled = true;
+              finishTracked();
               throw error;
             }
           };
         },
       });
     } catch (error) {
-      finish(id);
+      finishTracked();
+      if (timedOut) throw timeoutError(url, `native fetch timed out after ${fetchTimeout} ms`);
+      if (userAborted) throw abortError();
       throw error;
     }
   }
@@ -219,16 +312,25 @@ export function createNetworkActivityTracker({
     const url = requestUrl(input);
     const id = begin({ ...meta, url });
     return new Promise<Response>((resolvePromise, reject) => {
-      const xhr = xhrFactory();
+      let xhr: XhrLike | null = null;
       let settled = false;
-      const signal = init.signal || null;
-      const abortError = () => {
-        if (typeof DOMException === "function") return new DOMException("已取消下载", "AbortError");
-        const error = new Error("已取消下载");
-        error.name = "AbortError";
-        return error;
+      const signal = init.signal ?? (typeof Request !== "undefined" && input instanceof Request ? input.signal : null);
+      let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+      let lastProgressLoaded = 0;
+      const cleanup = () => {
+        if (timeoutHandle !== null) {
+          clearTimeout(timeoutHandle);
+          timeoutHandle = null;
+        }
+        signal?.removeEventListener?.("abort", abort);
+        if (xhr) {
+          xhr.onprogress = null;
+          xhr.onerror = null;
+          xhr.ontimeout = null;
+          xhr.onabort = null;
+          xhr.onload = null;
+        }
       };
-      const cleanup = () => signal?.removeEventListener?.("abort", abort);
       const fail = (error: unknown) => {
         if (settled) return;
         settled = true;
@@ -252,55 +354,89 @@ export function createNetworkActivityTracker({
         // XHR as the preferred progress path, but retry that narrow transport
         // failure once through the already-supported native Response path.
         void trackedFetch(input, init, meta).then(resolvePromise, fallbackError => {
-          reject(fallbackError instanceof Error ? fallbackError : error);
+          reject(fallbackError && (fallbackError instanceof Error || typeof fallbackError === "object")
+            ? fallbackError
+            : error);
         });
       };
       const abort = () => {
-        try { xhr.abort(); } catch {}
+        if (settled) return;
+        try { xhr?.abort(); } catch {}
         fail(abortError());
+      };
+      const timeout = () => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        try { xhr?.abort(); } catch {}
+        finish(id);
+        reject(timeoutError(url, `XHR download made no progress for ${xhrTimeout} ms`));
+      };
+      const armTimeout = () => {
+        if (timeoutHandle !== null) clearTimeout(timeoutHandle);
+        timeoutHandle = setTimeout(timeout, xhrTimeout);
       };
       if (signal?.aborted) {
         fail(abortError());
         return;
       }
       try {
-        xhr.open(method, url, true);
-        xhr.responseType = "blob";
-        xhr.withCredentials = init.credentials === "include";
+        xhr = xhrFactory();
+        const request = xhr;
+        if (!request) throw new TypeError("XHR factory returned no request");
+        request.open(method, url, true);
+        request.responseType = "blob";
+        request.withCredentials = init.credentials === "include";
         if (init.headers) {
           const headers = new Headers(init.headers);
-          headers.forEach((value, name) => xhr.setRequestHeader(name, value));
+          headers.forEach((value, name) => request.setRequestHeader(name, value));
         }
-        xhr.onprogress = event => update(id, {
+        request.onprogress = event => update(id, {
           phase: "receiving",
           loaded: event.loaded,
           total: event.lengthComputable ? event.total : 0,
         });
-        xhr.onerror = () => fallbackToFetch(new TypeError(`${url}: network request failed`));
-        xhr.ontimeout = () => fallbackToFetch(new TypeError(`${url}: network request timed out`));
-        xhr.onabort = () => fail(abortError());
-        xhr.onload = () => {
+        const progress = request.onprogress;
+        request.onprogress = event => {
+          progress?.(event);
+          const loaded = Math.max(0, Number(event.loaded) || 0);
+          if (loaded > lastProgressLoaded) {
+            lastProgressLoaded = loaded;
+            armTimeout();
+          }
+        };
+        request.onerror = () => fallbackToFetch(new TypeError(`${url}: network request failed`));
+        request.ontimeout = () => fallbackToFetch(new TypeError(`${url}: network request timed out`));
+        request.onabort = () => fail(abortError());
+        request.onload = () => {
           if (settled) return;
-          if (xhr.status === 0) {
+          if (request.status === 0) {
             fallbackToFetch(new TypeError(`${url}: network request returned status 0`));
             return;
           }
-          settled = true;
-          cleanup();
-          const blob = method === "HEAD" ? null : xhr.response instanceof Blob ? xhr.response : null;
+          const blob = method === "HEAD" || [204, 205, 304].includes(request.status)
+            ? null : request.response instanceof Blob ? request.response : null;
           const loaded = blob instanceof Blob ? blob.size : 0;
-          const total = Math.max(0, Number(xhr.getResponseHeader?.("content-length")) || loaded);
-          update(id, { phase: "receiving", loaded, total });
-          finish(id);
-          const headers = new Headers();
-          for (const line of String(xhr.getAllResponseHeaders?.() || "").trim().split(/[\r\n]+/)) {
-            const split = line.indexOf(":");
-            if (split > 0) headers.append(line.slice(0, split).trim(), line.slice(split + 1).trim());
+          const total = Math.max(0, Number(request.getResponseHeader?.("content-length")) || loaded);
+          try {
+            const headers = new Headers();
+            for (const line of String(request.getAllResponseHeaders?.() || "").trim().split(/[\r\n]+/)) {
+              const split = line.indexOf(":");
+              if (split > 0) headers.append(line.slice(0, split).trim(), line.slice(split + 1).trim());
+            }
+            const response = new Response(blob, { status: request.status, statusText: request.statusText, headers });
+            settled = true;
+            cleanup();
+            update(id, { phase: "receiving", loaded, total });
+            finish(id);
+            resolvePromise(response);
+          } catch (error) {
+            fail(error);
           }
-          resolvePromise(new Response(blob, { status: xhr.status, statusText: xhr.statusText, headers }));
         };
         signal?.addEventListener?.("abort", abort, { once: true });
-        xhr.send();
+        armTimeout();
+        request.send();
       } catch (error) {
         fail(error);
       }

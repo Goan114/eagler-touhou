@@ -6,7 +6,7 @@ import {
   migrateLegacyStoredImport,
 } from "../../legacy/legacy-import-storage.mjs";
 import { PACKAGE_DESCRIPTOR_SCHEMA } from "../../package/package-descriptor.mjs";
-import { canUseExistingInstallationAfterRemoteFailure, installPublishedPackage } from "../../package/package-launcher.mjs";
+import { installPublishedPackage } from "../../package/package-launcher.mjs";
 import { componentFileIds } from "../../package/package-generation.mjs";
 import {
   garbageCollectPackageStore,
@@ -16,6 +16,7 @@ import {
   retainPackageGeneration,
 } from "../../package/package-store.mjs";
 import {
+  InstalledGameDataError,
   managedRuntimeUrl,
   readManagedRuntimeData,
   readManagedRuntimeResource,
@@ -190,6 +191,7 @@ import type {
   LauncherFullscreenElement,
   LauncherState,
   LauncherWindow,
+  PendingRuntimeRequest,
   MultiplayerRoomState,
   MultiplayerUiState,
   RuntimeDiagnosticState,
@@ -264,10 +266,17 @@ function loadVendor(path: string, ready: () => boolean, label: string): Promise<
   if (pending) return pending;
   const task = new Promise<void>((resolve, reject) => {
     const script = document.createElement("script");
+    const finish = (error?: Error) => {
+      clearTimeout(timer);
+      script.onload = script.onerror = null;
+      if (error) { script.remove(); reject(error); }
+      else resolve();
+    };
+    const timer = setTimeout(() => finish(new Error(`${label} 加载超时，请重试`)), 30_000);
     script.src = path;
     script.async = true;
-    script.addEventListener("load", () => ready() ? resolve() : reject(new Error(`${label} 加载后没有注册组件`)), { once: true });
-    script.addEventListener("error", () => reject(new Error(`${label} 加载失败`)), { once: true });
+    script.onload = () => finish(ready() ? undefined : new Error(`${label} 加载后没有注册组件`));
+    script.onerror = () => finish(new Error(`${label} 加载失败`));
     document.head.append(script);
   }).catch(error => {
     vendorLoads.delete(path);
@@ -737,6 +746,7 @@ function scheduleNetworkActivityRender(snapshot: NetworkActivitySnapshot) {
   });
 }
 const networkActivity = createNetworkActivityTracker({ onChange: scheduleNetworkActivityRender });
+const backgroundNetworkActivity = createNetworkActivityTracker();
 
 function packageNetworkMeta(gameId: GameId, input: RequestInfo | URL) {
   let pathname = "";
@@ -2299,9 +2309,11 @@ function noteFirstFrame() {
   if (firstFrameTimedOut) clearStartupError();
   firstFrameTimedOut = false;
 }
+// Only the DATA acquisition stage may offer a replacement game package.
+// Runtime, language and audio failures must retain their actual diagnosis.
+class GameDataAcquisitionError extends Error {}
 function isResourceLoadFailure(error: unknown) {
-  const message = errorMessage(error);
-  return /网络\s*\/\s*CDN|网络|CDN|超时|HTTP\s+\d+|Failed to fetch|Load failed|NetworkError|ERR_(?:CONNECTION|TIMED_OUT|NETWORK|INTERNET|FAILED)|当前服务器不提供游戏文件|请先导入本地游戏包|请导入本地游戏包|本机没有已安装的\s*TH0[67]\s*游戏资源|服务器发行信息尚未就绪/i.test(message);
+  return error instanceof GameDataAcquisitionError;
 }
 function clearStartupError() { $("#startupError").hidden = true; $("#startupErrorText").textContent = ""; }
 function clock(seconds: number) {
@@ -2581,6 +2593,7 @@ interface RemoteMusicResource {
 }
 
 type MusicResource = LocalMusicResource | RemoteMusicResource;
+let activeLocalMusicInstall: ReturnType<typeof createLocalMusicInstall> | null = null;
 
 function isLocalMusicResource(resource: MusicResource): resource is LocalMusicResource {
   return "packageFileId" in resource && typeof resource.packageFileId === "string";
@@ -2607,6 +2620,7 @@ function createLocalMusicInstall(
   let loaded = 0;
   let completed = 0;
   let cancelled = false;
+  let failed = false;
   const emitProgress = () => {
     const seconds = Math.max((performance.now() - startedAt) / 1000, 0.1);
     showTransfer({
@@ -2618,7 +2632,7 @@ function createLocalMusicInstall(
     let currentDocument = null;
     const currentWindow = currentRuntimeWindow();
     try { currentDocument = currentWindow?.document || null; } catch {}
-    if (cancelled || currentWindow !== runtimeWindow || currentDocument !== runtimeDocument) throw new Error(t("runtime.offlineReplaced"));
+    if (cancelled || failed || currentWindow !== runtimeWindow || currentDocument !== runtimeDocument) throw new Error(t("runtime.offlineReplaced"));
   };
   const installOne = async (resource: LocalMusicResource) => {
     checkRuntime();
@@ -2645,7 +2659,13 @@ function createLocalMusicInstall(
     const worker = async () => {
       while (!cancelled && next < list.length) await installOne(list[next++]);
     };
-    await Promise.all(Array.from({ length: Math.min(2, list.length) }, worker));
+    try {
+      await Promise.all(Array.from({ length: Math.min(2, list.length) }, worker));
+    } catch (error) {
+      // Stop sibling reads before they can write or revive a failed transfer.
+      failed = true;
+      throw error;
+    }
   };
   const initial = resources.slice(0, Math.min(2, resources.length));
   const remaining = resources.slice(initial.length);
@@ -2656,6 +2676,7 @@ function createLocalMusicInstall(
       await run(initial);
     },
     installRemaining() {
+      checkRuntime();
       if (!remaining.length) {
         $("#transferTitle").textContent = t("transfer.musicReady");
         transferHideTimer = setTimeout(hideTransfer, 2200);
@@ -2669,6 +2690,7 @@ function createLocalMusicInstall(
         transferHideTimer = setTimeout(hideTransfer, 2200);
       }).catch(error => {
         if (cancelled) return;
+        hideTransfer();
         showToast(t("transfer.localOggPartialFailed", { reason: error.message }));
       });
     }
@@ -2994,89 +3016,110 @@ async function launchConfiguredRuntime() {
 async function launchConfiguredRuntimeImpl() {
   clearStartupError();
   await ensureRuntime(true);
-  launchMusicFallback = null;
-  chooseDefaultMusic();
-  const runtimePack = await prepareLanguagePack();
-  await ensureManagedOggStartupBarrier();
-  await prepareMidi();
-  const musicResources = await selectedMusicResources();
-  const localMusicResources = isOggMusicMode(state.music) && musicResources.length > 0 &&
-    musicResources.every(isLocalMusicResource) ? musicResources : null;
-  const localMusicGeneration = localMusicResources ? activeInstalledPackageGeneration : null;
-  const shared = await selectedSharedResources();
-  const packageResources = await installedPackageRuntimeResources();
-  setPlayerStatus(t("runtime.preparingResources", { resource: runtimePack ? `${entryTitle(languageEntry())} ${t("settings.language")}` : `${musicModeLabel(state.music)} ${t("settings.music")}` }));
-  const netplayOptions = state.runtimeVariant === "multiplayer" && !state.replayViewer ? validatedNetplayOptions() : {};
-  await send("configure", {
-    // Imported OGG is already in the host's IndexedDB.  Do not route those
-    // bytes back through blob: URLs and fetch() inside the iframe: on mobile
-    // and ordinary HTTP origins that duplicates the whole audio payload and
-    // can keep configure blocked long enough to look like a dead launch.
-    // Configure as MIDI first, then write the local OGG buffers directly into
-    // the same-origin runtime FS before callMain().
-    music: localMusicResources ? "midi" : musicTransportMode(state.music),
-    resources: localMusicResources ? [] : musicResources,
-    runtimeResources: [],
-    runtimePack: runtimePack ? { ...runtimePack, manifest: runtimePack.manifest, files: runtimePack.files } : null,
-    sharedResources: shared,
-    options: { ...state.options, thpracEnabled: state.runtimeVariant === "normal" && state.options.thpracEnabled,
-      limitPresentationTo60: state.options.frameLimit60Enabled, debugHarness, thpracLocale: thpracLocaleForLanguage(state.language),
-      oggDecodeMode: oggDecodeMode(state.music),
-      unlimitedTouch: state.options.touchMovementMode === "touch-unlimited",
-      touchBombZoneEnabled: false,
-      th06FocusHitbox: gameFeatureAvailable(state.game, "focusHitbox") && state.options.th06FocusHitbox,
-      replayViewer: !!state.replayViewer,
-      ...netplayOptions }
-  }, 30 * 60 * 1000);
-  if (packageResources.length) {
-    await installManagedPackageResources(packageResources);
-  }
-  let localMusicInstall = null;
-  if (localMusicResources) {
-    try {
-      if (!localMusicGeneration) throw new Error(t("runtime.localMusicGenerationUnavailable"));
-      localMusicInstall = createLocalMusicInstall(localMusicResources, localMusicGeneration);
-      await localMusicInstall.installInitial();
-      const runtimeWindow = currentRuntimeWindow();
-      if (!runtimeWindow?.Module) throw new Error(t("runtime.unavailable"));
-      runtimeWindow.Module.touhouMusicMode = "ogg";
-    } catch (error) {
-      localMusicInstall?.cancel();
-      localMusicInstall = null;
-      // Keep the durable preference intact, but make this launch's effective
-      // state match the Runtime after a corrupt or unavailable local object.
-      activateLaunchMusicFallback();
-      const runtimeWindow = currentRuntimeWindow();
-      if (runtimeWindow?.Module) runtimeWindow.Module.touhouMusicMode = "midi";
-      hideTransfer();
-      showToast(t("runtime.localOggFallbackMidi", { reason: errorMessage(error) }));
-    }
-  }
-  armFirstFrameWatchdog();
-  // The Runtime is once again the direct child browsing context. Keep the
-  // bounded Android focus relay that fixed the historical first-frame stall,
-  // but there is no longer a Player -> Runtime focus hop.
-  startPlayerFocusRelay();
+  const session = runtimeSessions.assertCurrent(currentRuntimeSession());
+  const assertSession = () => runtimeSessions.assertCurrent(session);
   try {
-    await send("launch");
+    launchMusicFallback = null;
+    chooseDefaultMusic();
+    const runtimePack = await prepareLanguagePack();
+    assertSession();
+    await ensureManagedOggStartupBarrier();
+    assertSession();
+    await prepareMidi();
+    assertSession();
+    const musicResources = await selectedMusicResources();
+    assertSession();
+    const localMusicResources = isOggMusicMode(state.music) && musicResources.length > 0 &&
+      musicResources.every(isLocalMusicResource) ? musicResources : null;
+    const localMusicGeneration = localMusicResources ? activeInstalledPackageGeneration : null;
+    const shared = await selectedSharedResources();
+    const packageResources = await installedPackageRuntimeResources();
+    assertSession();
+    setPlayerStatus(t("runtime.preparingResources", { resource: runtimePack ? `${entryTitle(languageEntry())} ${t("settings.language")}` : `${musicModeLabel(state.music)} ${t("settings.music")}` }));
+    const netplayOptions = state.runtimeVariant === "multiplayer" && !state.replayViewer ? validatedNetplayOptions() : {};
+    await send("configure", {
+      // Imported OGG is already in the host's IndexedDB.  Do not route those
+      // bytes back through blob: URLs and fetch() inside the iframe: on mobile
+      // and ordinary HTTP origins that duplicates the whole audio payload and
+      // can keep configure blocked long enough to look like a dead launch.
+      // Configure as MIDI first, then write the local OGG buffers directly into
+      // the same-origin runtime FS before callMain().
+      music: localMusicResources ? "midi" : musicTransportMode(state.music),
+      resources: localMusicResources ? [] : musicResources,
+      runtimeResources: [],
+      runtimePack: runtimePack ? { ...runtimePack, manifest: runtimePack.manifest, files: runtimePack.files } : null,
+      sharedResources: shared,
+      options: { ...state.options, thpracEnabled: state.runtimeVariant === "normal" && state.options.thpracEnabled,
+        limitPresentationTo60: state.options.frameLimit60Enabled, debugHarness, thpracLocale: thpracLocaleForLanguage(state.language),
+        oggDecodeMode: oggDecodeMode(state.music),
+        unlimitedTouch: state.options.touchMovementMode === "touch-unlimited",
+        touchBombZoneEnabled: false,
+        th06FocusHitbox: gameFeatureAvailable(state.game, "focusHitbox") && state.options.th06FocusHitbox,
+        replayViewer: !!state.replayViewer,
+        ...netplayOptions }
+    }, 120_000);
+    assertSession();
+    if (packageResources.length) {
+      await installManagedPackageResources(packageResources);
+    }
+    let localMusicInstall = null;
+    if (localMusicResources) {
+      try {
+        if (!localMusicGeneration) throw new Error(t("runtime.localMusicGenerationUnavailable"));
+        localMusicInstall = createLocalMusicInstall(localMusicResources, localMusicGeneration);
+        activeLocalMusicInstall = localMusicInstall;
+        await localMusicInstall.installInitial();
+        assertSession();
+        const runtimeWindow = currentRuntimeWindow();
+        if (!runtimeWindow?.Module) throw new Error(t("runtime.unavailable"));
+        runtimeWindow.Module.touhouMusicMode = "ogg";
+      } catch (error) {
+        localMusicInstall?.cancel();
+        localMusicInstall = null;
+        activeLocalMusicInstall = null;
+        assertSession();
+        // Keep the durable preference intact, but make this launch's effective
+        // state match the Runtime after a corrupt or unavailable local object.
+        activateLaunchMusicFallback();
+        const runtimeWindow = currentRuntimeWindow();
+        if (runtimeWindow?.Module) runtimeWindow.Module.touhouMusicMode = "midi";
+        hideTransfer();
+        showToast(t("runtime.localOggFallbackMidi", { reason: errorMessage(error) }));
+      }
+    }
+    armFirstFrameWatchdog();
+    // The Runtime is once again the direct child browsing context. Keep the
+    // bounded Android focus relay that fixed the historical first-frame stall,
+    // but there is no longer a Player -> Runtime focus hop.
+    startPlayerFocusRelay();
+    try {
+      await send("launch");
+      assertSession();
+    } catch (error) {
+      clearFirstFrameWatchdog();
+      localMusicInstall?.cancel();
+      activeLocalMusicInstall = null;
+      hideTransfer();
+      throw error;
+    }
+    state.launched = true; clearStartupError();
+    const backgroundUpdate = deferredBackgroundPackageUpdate;
+    deferredBackgroundPackageUpdate = null;
+    if (backgroundUpdate) startBackgroundPackageUpdate(backgroundUpdate);
+    updateRuntimeDiagnostics();
+    // resetRuntime() can run while #player is still hidden, when clientWidth is 0.
+    // Re-apply the persisted orientation-specific viewport offset only after the
+    // live player has been opened and the runtime has actually launched.
+    gameZoom.applyTransform(1, 0, 0);
+    updatePlayerOrientationUi();
+    pushTouchControlsLive();
+    setPlayerStatus(t("runtime.ready")); refocusGameIfNeeded();
+    if (localMusicInstall) localMusicInstall.installRemaining();
+    startManagedOggProgressiveInstall();
   } catch (error) {
-    clearFirstFrameWatchdog();
+    if (runtimeSessionCurrent(session) && !state.launched) resetRuntime();
     throw error;
   }
-  state.launched = true; clearStartupError();
-  const backgroundUpdate = deferredBackgroundPackageUpdate;
-  deferredBackgroundPackageUpdate = null;
-  if (backgroundUpdate) startBackgroundPackageUpdate(backgroundUpdate);
-  updateRuntimeDiagnostics();
-  // resetRuntime() can run while #player is still hidden, when clientWidth is 0.
-  // Re-apply the persisted orientation-specific viewport offset only after the
-  // live player has been opened and the runtime has actually launched.
-  gameZoom.applyTransform(1, 0, 0);
-  updatePlayerOrientationUi();
-  pushTouchControlsLive();
-  setPlayerStatus(t("runtime.ready")); refocusGameIfNeeded();
-  if (localMusicInstall) localMusicInstall.installRemaining();
-  startManagedOggProgressiveInstall();
 }
 function entryTitle(entry: LanguageCatalogEntry | null | undefined): string {
   return typeof entry?.title === "string" && entry.title ? entry.title : entry?.id || t("language.fallbackName");
@@ -3614,12 +3657,18 @@ async function confirmInputWarnings() {
 }
 
 function resetRuntime() {
+  activeLocalMusicInstall?.cancel();
+  activeLocalMusicInstall = null;
+  cancelBlockingNetworkOperation();
   cancelDirectTouches(false);
   clearOptionalTimeout(musicNoticeTimer); $("#musicNotice").classList.remove("show");
   clearFirstFrameWatchdog();
   clearGameDataAttempt();
   hideTransfer();
-  for (const pending of state.pending.values()) pending.reject(new Error(t("runtime.switched")));
+  for (const pending of state.pending.values()) {
+    clearTimeout(pending.timer);
+    pending.reject(new Error(t("runtime.switched")));
+  }
   state.pending.clear(); state.ready = false; state.launched = false; state.source = ""; state.sourceIdentity = "";
   launchMusicFallback = null;
   deferredBackgroundPackageUpdate = null;
@@ -3997,16 +4046,37 @@ function send(command: RuntimeProtocolCommand, payload: UnknownRecord = {}, time
   if (!state.ready || !runtime) return Promise.reject(new Error(t("runtime.notReady")));
   const request = `${Date.now().toString(36)}-${++state.request}`;
   return new Promise<RuntimeResponseMessage>((resolve, reject) => {
-    const timer = setTimeout(() => { state.pending.delete(request); reject(new Error(t("runtime.operationTimeout", { command }))); }, timeout);
-    state.pending.set(request, { resolve, reject, timer });
+    const expire = () => { state.pending.delete(request); reject(new Error(t("runtime.operationTimeout", { command }))); };
+    const pending: PendingRuntimeRequest = { resolve, reject, timer: setTimeout(expire, timeout) };
+    if (command === "configure") {
+      const loadedByMode = new Map<string, number>();
+      pending.noteProgress = (mode, loaded) => {
+        if (loaded <= (loadedByMode.get(mode) || 0)) return;
+        loadedByMode.set(mode, loaded);
+        clearTimeout(pending.timer);
+        pending.timer = setTimeout(expire, timeout);
+      };
+    }
+    state.pending.set(request, pending);
     runtime.postMessage({ protocol, game: state.game, command, request, ...payload }, location.origin);
   });
 }
 
 launcherWindow.__eaglerPrepareManagedRuntimeDataV1 = async request => {
   const generation = managedRuntimeGenerationLease.resolve(request);
+  const session = currentRuntimeSession();
   setPlayerStatus(t("runtime.handingLocalData"));
-  return readManagedRuntimeData(generation);
+  try {
+    return await readManagedRuntimeData(generation);
+  } catch (error) {
+    const failure = error instanceof InstalledGameDataError
+      ? new GameDataAcquisitionError(`本地游戏数据不完整，请重新导入或修复：${error.message}`, { cause: error })
+      : error;
+    // Older Runtime shells only print provider rejection inside their iframe.
+    // Notify the readiness owner directly instead of waiting for its watchdog.
+    if (runtimeSessionCurrent(session)) frame.dispatchEvent(new CustomEvent("runtime-error", { detail: failure }));
+    throw failure;
+  }
 };
 
 window.addEventListener("message", event => {
@@ -4070,7 +4140,12 @@ window.addEventListener("message", event => {
     frame.dispatchEvent(new CustomEvent("runtime-error", { detail: error }));
     return;
   }
-  if (message.event === "transfer") { showTransfer(transferPresentationFromRuntime(message)); return; }
+  if (message.event === "transfer") {
+    const progress = transferPresentationFromRuntime(message);
+    for (const pending of state.pending.values()) pending.noteProgress?.(progress.mode || "", Number(progress.loaded) || 0);
+    showTransfer(progress);
+    return;
+  }
   if (message.event === "music-error" || message.event === "music-incomplete") {
     if (!state.launched) transferFailure({ failed: Number(message.failed) || 0 });
     return;
@@ -4110,8 +4185,8 @@ function waitForRuntimeReady(session: RuntimeSessionToken, timeoutMessage: strin
     };
     const failed = (event: Event) => {
       if (!runtimeSessionCurrent(session)) return;
-      const detail = event instanceof CustomEvent && typeof event.detail === "string" ? event.detail : t("runtime.startFailed");
-      finish(() => reject(new Error(detail)));
+      const detail = event instanceof CustomEvent ? event.detail : t("runtime.startFailed");
+      finish(() => reject(detail instanceof Error ? detail : new Error(typeof detail === "string" ? detail : t("runtime.startFailed"))));
     };
     const timer = setTimeout(() => {
       if (!runtimeSessionCurrent(session)) {
@@ -4129,12 +4204,7 @@ function waitForRuntimeReady(session: RuntimeSessionToken, timeoutMessage: strin
 }
 
 async function ensureInstalledPackageRuntime(show = true) {
-  let installed;
-  try {
-    installed = await readCurrentPackageGeneration(state.game);
-  } catch {
-    return false;
-  }
+  const installed = await readCurrentPackageGeneration(state.game);
   const generation = installed?.generation;
   if (!generation?.id) { activeInstalledPackageGeneration = null; return false; }
   installedPackageSnapshots.set(state.game, generation);
@@ -4171,7 +4241,11 @@ async function ensureInstalledPackageRuntime(show = true) {
   // Arm readiness/error listeners before navigation so a fast local Runtime
   // cannot emit `ready` in the gap after frame.src changes.
   frame.src = state.source;
-  await runtimeReady;
+  try { await runtimeReady; }
+  catch (error) {
+    if (runtimeSessionCurrent(runtimeSession)) resetRuntime();
+    throw error;
+  }
   return true;
 }
 
@@ -4244,7 +4318,7 @@ function startBackgroundPackageUpdate(installed: CurrentPackageGeneration) {
     selectedComponentEntries,
     preserveLocalSource: true,
     // Background updates deliberately stay out of the blocking transfer UI.
-    fetchImpl: globalThis.fetch,
+    fetchImpl: (input, init) => backgroundNetworkActivity.xhrFetch(input, init),
   }).then(updated => {
     if (updated?.generation) {
       installedPackageSnapshots.set(game, updated.generation);
@@ -4268,6 +4342,8 @@ function startBackgroundPackageUpdate(installed: CurrentPackageGeneration) {
 
 async function ensureManagedOggStartupBarrier() {
   if (!isOggMusicMode(state.music) || !activeInstalledPackageGeneration) return;
+  const session = runtimeSessions.assertCurrent(currentRuntimeSession());
+  const gameId = state.game;
   let generation = activeInstalledPackageGeneration;
   const oggIds = componentFileIds(generation.descriptor, "ogg");
   const initialIds = oggIds.slice(0, 2);
@@ -4286,24 +4362,27 @@ async function ensureManagedOggStartupBarrier() {
   const operation = beginBlockingNetworkOperation({ label: t("music.cancelDownload") });
   try {
     setPlayerStatus(t("music.preparingInitialOgg"));
-    const updated = await installPublishedPackage(state.game, {
+    const updated = await installPublishedPackage(gameId, {
       catalog: releaseCatalog,
       catalogUrl: releaseCatalogUrl,
       addFileIds: initialIds,
       preserveLocalSource: true,
-      fetchImpl: packageTrackedFetch(state.game),
+      fetchImpl: packageTrackedFetch(gameId),
       signal: operation.controller.signal,
       onProgress(progress) {
+        if (!runtimeSessionCurrent(session)) return;
         setPlayerStatus(t("music.preparingInitialOggProgress", { completed: progress.completed, total: progress.total }));
       },
     });
+    runtimeSessions.assertCurrent(session);
     if (!initialIds.every(fileId => !!updated.generation?.files?.[fileId]?.objectId)) {
       throw new Error(t("music.initialOggPersistFailed"));
     }
     generation = updated.generation;
     activeInstalledPackageGeneration = generation;
-    installedPackageSnapshots.set(state.game, generation);
+    installedPackageSnapshots.set(gameId, generation);
   } catch (error) {
+    runtimeSessions.assertCurrent(session);
     if (!isCancelledDownload(error)) showToast(t("music.initialOggFailed", { reason: errorMessage(error) }));
     activateLaunchMusicFallback();
   } finally {
@@ -4377,8 +4456,7 @@ function startManagedOggProgressiveInstall() {
 
 async function ensureRuntime(show = true) {
   if (!productEnabled(state.product)) throw new Error("该游戏仅在测试版开启");
-  let localInstalled = null;
-  try { localInstalled = await readCurrentPackageGeneration(state.game); } catch {}
+  const localInstalled = await readCurrentPackageGeneration(state.game);
   if (localInstalled?.generation) {
     // Never wait for the network merely to decide whether a local current may
     // launch. If the background Catalog is already known, apply update policy;
@@ -4407,26 +4485,22 @@ async function ensureRuntime(show = true) {
           setPlayerStatus(t("package.installingResourcesProgress", { completed: progress.completed, total: progress.total }));
         }
       });
-      if (await ensureInstalledPackageRuntime(show)) return;
     } catch (error) {
       if (isCancelledDownload(error)) throw error;
-      if (!canUseExistingInstallationAfterRemoteFailure({
-        hostManifestAvailable,
-        installedGeneration: localInstalled?.generation,
-      })) throw error;
-      showToast(t("package.installFailedUsingExisting", { reason: errorMessage(error) }));
+      throw new GameDataAcquisitionError(errorMessage(error), { cause: error });
     } finally {
       finishBlockingNetworkOperation(operation);
     }
+    if (await ensureInstalledPackageRuntime(show)) return;
   }
   if (!hostManifestAvailable) {
-    throw new Error(remoteCatalogError
+    throw new GameDataAcquisitionError(remoteCatalogError
       ? t("package.remoteUnavailableNoLocal", { game: state.game.toUpperCase(), reason: errorMessage(remoteCatalogError) })
       : t("package.releaseNotReadyNoLocal", { game: state.game.toUpperCase() }));
   }
-  if (importServer) throw new Error(t("package.importServerNoFiles"));
+  if (importServer) throw new GameDataAcquisitionError(t("package.importServerNoFiles"));
   if (serverResourceMode === "external") {
-    throw new Error("外部游戏资源当前不可用，请检查网络 / CDN，或导入本地游戏包");
+    throw new GameDataAcquisitionError("外部游戏资源当前不可用，请检查网络 / CDN，或导入本地游戏包");
   }
   const expectedData = gameDataDescriptor();
   const sourceUrl = new URL(runtimeUrl(), location.href);
@@ -7281,7 +7355,7 @@ $("#launch").addEventListener("click", async () => {
     // belongs to TH06.  Treat an explicit route as authoritative at launch so
     // a stale tab can never silently start the wrong runtime/local pack.
     syncSelectionFromPlayerRoute();
-    if (!state.launched && importServer && !installedPackageSnapshots.has(state.game)) {
+    if (!state.launched && importServer && !(await readCurrentPackageGeneration(state.game)).generation) {
       clearStartupError();
       setStatus(t("package.needImport"));
       beginImportAttempt();
@@ -7306,7 +7380,7 @@ $("#launch").addEventListener("click", async () => {
       setStatus(t("package.downloadCancelledImport"));
       return;
     }
-    if (importServer && !state.launched) {
+    if (importServer && !state.launched && isResourceLoadFailure(error)) {
       const message = errorMessage(error);
       if (player.classList.contains("open")) {
         if (!await closePlayerView()) return;

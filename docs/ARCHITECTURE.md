@@ -109,7 +109,9 @@ Examples of already separated owners include:
 - `src/launcher/network-activity.mts` - network request/progress ownership;
   fetch tracking preserves the browser's native `Response.body` identity for
   WebView compatibility while XHR-backed package transfers can expose byte
-  progress.
+  progress. Package XHR requests have a no-progress deadline; native fetch
+  consumption has a bounded deadline covering headers and body. Background
+  updates use the same transport without owning the foreground progress UI.
 - `src/launcher/runtime-session.mts` - monotonic Launcher Runtime-session identity.
   Every iframe navigation/reset creates or invalidates an epoch token; asynchronous
   resource work must capture the token and revalidate it after awaits before it
@@ -133,6 +135,9 @@ Examples of already separated owners include:
   selection and read integrity plus managed Runtime URL construction. DATA
   selection is declared `runtimeRequirement.dataFile`, then canonical
   `game-data`, then a single installed `.data` target; ambiguity is rejected.
+  An explicitly declared but missing DATA file cannot fall through to another
+  file. Missing/damaged DATA and unavailable browser storage are distinct
+  failures, and managed DATA rejection reaches Launcher readiness immediately.
 - `src/launcher/replay-files.mts` - Launcher-side Replay filename/path policy,
   import collision allocation and Replay ZIP entry planning. `.rpy` and
   `.rpyx` are the supported Replay file identities; thprac practice metadata
@@ -358,6 +363,20 @@ New package production uses this format only.
 
 Remote installation and local ZIP import converge at the same Package Store
 boundary.
+
+Parsing may inspect an incomplete ZIP, but installing it requires every
+`descriptor.base.files` entry before any generation is staged. Optional entries
+may remain absent. Remote reuse checks that referenced objects still exist;
+matching revision strings alone do not establish a reusable installation.
+
+Launcher reads current installation state at launch time. Storage access errors
+must not be converted to an empty installation, and only DATA acquisition or
+confirmed missing/damaged DATA may open the automatic game-import recovery UI.
+Language, audio and Runtime errors retain their own startup diagnostics. The
+same game content generation serves ordinary and multiplayer Runtime variants.
+Startup resource continuations revalidate their Runtime session after waits;
+reset cancels foreground acquisition and local music installation. A failed
+music transfer must finish its UI ownership even when the game already launched.
 
 ```text
 remote Release Catalog                local ZIP

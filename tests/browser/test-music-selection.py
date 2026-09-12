@@ -36,10 +36,10 @@ def wait_for_server(url: str, process: subprocess.Popen[str]) -> None:
 SEED_LOCAL_OGG = """
 async () => {
   const db = await new Promise((resolve, reject) => {
-    const request = indexedDB.open('eagler-touhou-package-store-v1', 1);
+    const request = indexedDB.open('eagler-touhou-package-store-v1', 2);
     request.onupgradeneeded = () => {
       const db = request.result;
-      for (const name of ['objects', 'generations', 'installations']) {
+      for (const name of ['objects', 'generations', 'installations', 'leases']) {
         if (!db.objectStoreNames.contains(name)) db.createObjectStore(name);
       }
     };
@@ -142,7 +142,7 @@ RUNTIME_PROTOCOL_STUB = r"""<!doctype html>
 CORRUPT_LOCAL_OGG = """
 async () => {
   const db = await new Promise((resolve, reject) => {
-    const request = indexedDB.open('eagler-touhou-package-store-v1', 1);
+    const request = indexedDB.open('eagler-touhou-package-store-v1', 2);
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
@@ -184,15 +184,36 @@ def main() -> int:
             console_errors = []
             page.on("pageerror", lambda error: page_errors.append(str(error)))
             page.on("console", lambda message: console_errors.append(message.text) if message.type == "error" else None)
+            fault = {"mode": ""}
 
             def strip_published_ogg(route):
                 response = route.fetch()
                 manifest = response.json()
+                manifest['shared']['netplayRelay'] = f'ws://127.0.0.1:{port}/netplay'
+                if fault['mode']:
+                    manifest['shared']['resourceMode'] = 'import'
+                    manifest['shared'].pop('vanillaFont', None)
+                    manifest['shared'].pop('unicodeFont', None)
+                    manifest['shared'].pop('gameDataFallback', None)
                 for game_id, game in manifest.get("games", {}).items():
                     music = game.get("music") or {}
                     music.pop("ogg", None)
                     music.pop("wav", None)
                     game["runtime"] = f"runtime-stub/{game_id}.html"
+                    if game_id in ('th06', 'th07'):
+                        game['multiplayerRuntime'] = f'runtime-stub/{game_id}.html?multiplayer=1'
+                    if fault['mode']:
+                        game['offlineCompatibility'] = {
+                            'schema': 'eagler-touhou/offline-game-pack/1',
+                            'requiredShared': ['/msgothic.ttc', '/unifont.otf'],
+                            'runtimeCompatibility': {'protocol': 'eagler-touhou/1',
+                                'dataLayout': game['gameData']['layout'], 'versionSource': 'offline-pack'},
+                            'languages': {'source': 'offline-pack', 'baseline': ['ja']},
+                        }
+                if fault['mode']:
+                    subprocess.run(['node', '--input-type=module', '-e',
+                        "import {validateHostManifest} from './lib/contracts/host-manifest.mjs';import {readFileSync} from 'node:fs';validateHostManifest(JSON.parse(readFileSync(0,'utf8')));"],
+                        input=json.dumps(manifest), text=True, cwd=PROJECT, check=True)
                 headers = {
                     key: value for key, value in response.headers.items()
                     if key.lower() not in {"content-length", "content-encoding"}
@@ -206,10 +227,20 @@ def main() -> int:
 
             page.route("**/host-manifest.json", strip_published_ogg)
             page.route("**/release-catalog.json", lambda route: route.fulfill(status=404, body="not published in this test"))
-            page.route(
-                "**/runtime-stub/*.html*",
-                lambda route: route.fulfill(status=200, content_type="text/html", body=RUNTIME_PROTOCOL_STUB),
-            )
+            def runtime_stub(route):
+                stub = RUNTIME_PROTOCOL_STUB
+                if fault['mode'] == 'configure':
+                    stub = stub.replace('request: message.request, ok: true',
+                        'request: message.request, ok: message.command !== "configure", error: "HTTP 503 music configuration failed"')
+                if fault['mode'] == 'missing-data':
+                    stub = stub.replace('window.parent.postMessage({ protocol, game, event: "ready" }, location.origin);', '''
+                      window.parent.__eaglerPrepareManagedRuntimeDataV1({
+                        game, generation: new URLSearchParams(location.search).get('gameGeneration'),
+                      }).then(() => window.parent.postMessage({ protocol, game, event: "ready" }, location.origin))
+                        .catch(error => { window.__providerError = error.message; });
+                    ''')
+                route.fulfill(status=200, content_type='text/html', body=stub)
+            page.route("**/runtime-stub/*.html*", runtime_stub)
             page.goto(f"{origin}/", wait_until="load", timeout=30_000)
             try:
                 page.wait_for_function("() => window.__eaglerBoot?.done === true", timeout=30_000)
@@ -330,11 +361,93 @@ def main() -> int:
             if "本次改用 MIDI" not in fallback_result["toast"]:
                 raise AssertionError(f"local OGG fallback was not explained to the user: {fallback_result}")
 
+            page.goto(f'{origin}/', wait_until='load')
+            page.wait_for_function('window.__eaglerBoot?.done === true')
+            page.evaluate(SEED_LOCAL_OGG)
+            page.evaluate('''async () => {
+              const db = await new Promise((resolve, reject) => {
+                const request = indexedDB.open('eagler-touhou-package-store-v1', 2);
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => reject(request.error);
+              });
+              try { await new Promise((resolve, reject) => {
+                const tx = db.transaction('generations', 'readwrite');
+                const store = tx.objectStore('generations');
+                const key = ['th06', 'th06-music-regression-generation'];
+                const request = store.get(key);
+                request.onsuccess = () => {
+                  const generation = request.result;
+                  generation.descriptor.components.ogg.files.push('ogg-3');
+                  generation.descriptor.files['ogg-3'] = {
+                    source: 'ogg/th06_03.ogg', target: '/bgm/th06_03.ogg', revision: 'ogg-r1', bytes: 1,
+                  };
+                  generation.files['ogg-3'] = {objectId: 'missing-remaining-ogg', revision: 'ogg-r1'};
+                  store.put(generation, key);
+                };
+                tx.oncomplete = resolve; tx.onabort = () => reject(tx.error);
+              }); } finally { db.close(); }
+            }''')
+            page.reload(wait_until='load')
+            page.wait_for_function('window.__eaglerBoot?.done === true')
+            page.evaluate("document.querySelector('#changelogDialog')?.close()")
+            page.locator('.game-th06:not(.game-multiplayer)').click()
+            page.select_option('#musicSelect', 'ogg-stream')
+            page.locator('#launch').click()
+            page.wait_for_function("document.querySelector('#gameFrame')?.contentWindow?.__eaglerTestMessages?.some(m=>m.command === 'launch')")
+            page.wait_for_function("document.querySelector('#toast').textContent.includes('th06_03.ogg') && document.querySelector('#transfer').hidden", timeout=10000)
+
+            # Exercise the real import-mode launcher catches with a Runtime
+            # protocol stub. Music/Runtime HTTP errors must not replace DATA.
+            fault['mode'] = 'configure'
+            for multiplayer in (False, True):
+                page.goto(f'{origin}/', wait_until='load')
+                page.wait_for_function('window.__eaglerBoot?.done === true')
+                page.wait_for_function("document.querySelector('#serverStatusNote').textContent.includes('未配置外部游戏包下载链接')")
+                page.evaluate("document.querySelector('#changelogDialog')?.close()")
+                if multiplayer:
+                    page.locator('[data-product="th06mp"]').click()
+                    assert not page.locator('#mpShell').evaluate('el=>el.hidden'), page.locator('#toast').inner_text()
+                    page.locator('[data-mp-fold="settings"]').click()
+                    page.locator('#mpReplayViewer').click()
+                else:
+                    page.locator('.game-th06:not(.game-multiplayer)').click()
+                    page.locator('#launch').click()
+                page.wait_for_function("!document.querySelector('#startupError').hidden", timeout=10000)
+                assert 'HTTP 503 music configuration failed' in page.locator('#startupErrorText').inner_text()
+                assert page.locator('#gameDataImportWindow').evaluate('el=>el.hidden')
+                assert page.locator('#transfer').evaluate('el=>el.hidden')
+
+            fault['mode'] = 'missing-data'
+            page.goto(f'{origin}/', wait_until='load')
+            page.wait_for_function('window.__eaglerBoot?.done === true')
+            page.wait_for_function("document.querySelector('#serverStatusNote').textContent.includes('未配置外部游戏包下载链接')")
+            page.evaluate("document.querySelector('#changelogDialog')?.close()")
+            await_delete_data = '''async () => {
+              const db = await new Promise((resolve, reject) => {
+                const request = indexedDB.open('eagler-touhou-package-store-v1', 2);
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => reject(request.error);
+              });
+              try { await new Promise((resolve, reject) => {
+                const tx = db.transaction('objects', 'readwrite');
+                tx.objectStore('objects').delete('obj-local-th06-data-0001');
+                tx.oncomplete = resolve; tx.onabort = () => reject(tx.error);
+              }); } finally { db.close(); }
+            }'''
+            page.evaluate(await_delete_data)
+            page.locator('.game-th06:not(.game-multiplayer)').click()
+            page.locator('#launch').click()
+            page.wait_for_function("!document.querySelector('#gameDataImportWindow').hidden", timeout=10000)
+            assert page.locator('#transfer').evaluate('el=>el.hidden')
+
             print(json.dumps({
                 "musicSelectionBrowser": "PASS",
                 "hostPublishesOgg": False,
                 "runtimeLaunch": runtime_result,
                 "corruptLocalFallback": fallback_result,
+                "importModeRuntimeFailure": "normal and multiplayer preserve the actual error",
+                "missingDataProvider": "recovery shown within 10 seconds",
+                "missingRemainingOgg": "launch succeeds and transfer closes",
                 "products": results,
             }, ensure_ascii=False))
             browser.close()
