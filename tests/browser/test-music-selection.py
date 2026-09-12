@@ -36,7 +36,7 @@ def wait_for_server(url: str, process: subprocess.Popen[str]) -> None:
 SEED_LOCAL_OGG = """
 async () => {
   const db = await new Promise((resolve, reject) => {
-    const request = indexedDB.open('eagler-touhou-package-store-v1', 2);
+    const request = indexedDB.open('eagler-touhou-package-store-v1');
     request.onupgradeneeded = () => {
       const db = request.result;
       for (const name of ['objects', 'generations', 'installations', 'leases']) {
@@ -142,7 +142,7 @@ RUNTIME_PROTOCOL_STUB = r"""<!doctype html>
 CORRUPT_LOCAL_OGG = """
 async () => {
   const db = await new Promise((resolve, reject) => {
-    const request = indexedDB.open('eagler-touhou-package-store-v1', 2);
+    const request = indexedDB.open('eagler-touhou-package-store-v1');
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
@@ -366,7 +366,7 @@ def main() -> int:
             page.evaluate(SEED_LOCAL_OGG)
             page.evaluate('''async () => {
               const db = await new Promise((resolve, reject) => {
-                const request = indexedDB.open('eagler-touhou-package-store-v1', 2);
+                const request = indexedDB.open('eagler-touhou-package-store-v1');
                 request.onsuccess = () => resolve(request.result);
                 request.onerror = () => reject(request.error);
               });
@@ -424,7 +424,7 @@ def main() -> int:
             page.evaluate("document.querySelector('#changelogDialog')?.close()")
             await_delete_data = '''async () => {
               const db = await new Promise((resolve, reject) => {
-                const request = indexedDB.open('eagler-touhou-package-store-v1', 2);
+                const request = indexedDB.open('eagler-touhou-package-store-v1');
                 request.onsuccess = () => resolve(request.result);
                 request.onerror = () => reject(request.error);
               });

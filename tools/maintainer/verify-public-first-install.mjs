@@ -30,7 +30,7 @@ async function packageState(page, gameId) {
       request.onerror = () => reject(request.error || new Error("IndexedDB request failed"));
     });
     const db = await new Promise((resolve, reject) => {
-      const request = indexedDB.open("eagler-touhou-package-store-v1", 2);
+      const request = indexedDB.open("eagler-touhou-package-store-v1");
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error || new Error("Package Store open failed"));
     });
