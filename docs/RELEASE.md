@@ -122,6 +122,11 @@ npm run package:offline-game -- D:\Sites\eagler-touhou th07
 
 Historical `game-data-pack/1` and `offline-game-pack/1` formats are read-compatible only; new producers do not emit them.
 
+The Package Store deduplicates fully SHA-256-identified content across games.
+Shared fonts therefore download once per browser Origin when their declared
+bytes are identical. The bounded short-revision upgrade bridge and its removal
+criteria are documented in `legacy/README.md`.
+
 ## Public Web behavior
 
 The generated `site/` is an ordinary static site suitable for nginx, Caddy, Apache, IIS, object storage/CDN, containers, or other infrastructure. The project does not prescribe a server operating system or Web server.

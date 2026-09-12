@@ -23,3 +23,19 @@ The compatibility owner may be retired only in a release that simultaneously:
 
 Until those conditions are met, these modules are compatibility code rather
 than examples or a second package implementation.
+
+## Short-revision Package Store upgrade window
+
+Package ZIPs published before full per-file SHA-256 declarations may contain
+only a 16-character file revision. When such an installed generation is
+updated to a descriptor with the same revision and byte count, the installer
+hashes the existing object once, reuses it only on an exact SHA-256 match, and
+records that verified identity so another game can reuse identical content.
+New descriptors and stored objects always carry full SHA-256 identities; this
+path must not become an alternate producer format.
+
+Retire this bridge after the minimum supported upgrade baseline is newer than
+the last short-revision offline packages published before 2026-09-12 and one
+normal release cycle has elapsed after that baseline. Retirement removes the
+missing-hash branch and its regression fixture together; content-addressed
+reuse of fully identified objects remains part of the Package Store.

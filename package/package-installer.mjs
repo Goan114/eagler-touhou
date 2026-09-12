@@ -2,13 +2,17 @@ import {
   planPackageGeneration,
 } from "./package-generation.mjs";
 import {
+  attachPendingPackageObject,
+  attestPackageObjectSha256,
   cancelPendingPackageGeneration,
   commitPendingPackageGeneration,
   garbageCollectPackageStore,
   putPendingPackageObject,
   refreshPendingPackageOperation,
   packageMimeType,
+  readPackageObject,
   readCurrentPackageGeneration,
+  readVerifiedPackageObjectBySha256,
   readPackageObjectKeys,
   stagePendingPackageGeneration,
 } from "./package-store.mjs";
@@ -52,17 +56,36 @@ async function invalidReusableFileIds(current, descriptor, desiredFileIds) {
     const nextBytes = next.bytes == null ? null : Number(next.bytes);
     const previousHash = previous.sha256?.toLowerCase() || null;
     const nextHash = next.sha256?.toLowerCase() || null;
-    if (previousBytes !== nextBytes || previousHash !== nextHash) {
+    if (previousBytes !== nextBytes || (previousHash && nextHash && previousHash !== nextHash)) {
       invalid.add(fileId);
       continue;
     }
-    candidates.push({ fileId, objectId: reference.objectId });
+    candidates.push({ fileId, objectId: reference.objectId, previousHash, nextHash, bytes: nextBytes });
     objectIds.push(reference.objectId);
   }
   if (!candidates.length) return [...invalid];
   const presentObjectIds = await readPackageObjectKeys(objectIds);
   for (const candidate of candidates) {
-    if (!presentObjectIds.has(candidate.objectId)) invalid.add(candidate.fileId);
+    if (!presentObjectIds.has(candidate.objectId)) {
+      invalid.add(candidate.fileId);
+      continue;
+    }
+    // Packages published before full SHA-256 declarations used only the
+    // 16-character file revision. During their bounded upgrade window, hash
+    // the existing object instead of downloading identical bytes again.
+    if (!candidate.previousHash && candidate.nextHash) {
+      if (!Number.isSafeInteger(candidate.bytes) || candidate.bytes < 0) {
+        invalid.add(candidate.fileId);
+        continue;
+      }
+      const object = await readPackageObject(candidate.objectId);
+      const actualHash = object ? await sha256Hex(object.data || object.blob) : null;
+      if (actualHash?.toLowerCase() !== candidate.nextHash) {
+        invalid.add(candidate.fileId);
+        continue;
+      }
+      await attestPackageObjectSha256(candidate.objectId, candidate.nextHash, candidate.bytes);
+    }
   }
   return [...invalid];
 }
@@ -138,6 +161,21 @@ async function installPackageFromAcquisitionExclusive({
     for (const fileId of plan.needs) {
       throwIfAborted(signal);
       const declaration = descriptor.files[fileId];
+      const verified = declaration?.sha256 && declaration?.bytes != null
+        ? await readVerifiedPackageObjectBySha256(declaration.sha256, declaration.bytes)
+        : null;
+      if (verified) {
+        generation = await attachPendingPackageObject(
+          descriptor.game,
+          generation.id,
+          fileId,
+          verified.objectId,
+          { operationId: owner },
+        );
+        completed++;
+        onProgress?.({ completed, total: resolvedDesiredFileIds.length, fileId, found: true, reused: true });
+        continue;
+      }
       const acquired = await acquire(fileId, declaration);
       throwIfAborted(signal);
       const acquiredBytes = acquired instanceof ArrayBuffer
@@ -160,6 +198,7 @@ async function installPackageFromAcquisitionExclusive({
         }
         const stored = await putPendingPackageObject(descriptor.game, generation.id, fileId, acquired, {
           type: acquired?.type || packageMimeType(declaration.source),
+          sha256: declaration?.sha256 || null,
           operationId: owner,
         });
         generation = stored.generation;

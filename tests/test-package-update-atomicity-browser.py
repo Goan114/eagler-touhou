@@ -407,6 +407,48 @@ def main() -> int:
           const afterChangedIdentity = await store.readCurrentPackageGeneration('th06');
           const changedIdentityObject = await store.readPackageObject(afterChangedIdentity.generation.files.data.objectId);
 
+          const sharedBytes = new Uint8Array([91, 92, 93, 94]);
+          const sharedSha256 = '9fcddc31b255e23ec66fc550aefc3b127be6d3e05a3438279cf9d3afe5abf251';
+          const legacyShortRevision = makeDescriptor('r12-legacy-short-revision', null);
+          legacyShortRevision.files.data.revision = sharedSha256.slice(0, 16);
+          await installer.installPackageFromAcquisition({
+            descriptor: legacyShortRevision,
+            desiredFileIds: ['data'],
+            source: 'local',
+            reuseCurrent: false,
+            acquire: async () => sharedBytes,
+          });
+          const beforeLegacyUpgrade = await store.readCurrentPackageGeneration('th06');
+          let legacyUpgradeFetches = 0;
+          const fullHashRevision = structuredClone(legacyShortRevision);
+          fullHashRevision.revision = 'r13-full-hash';
+          fullHashRevision.files.data.sha256 = sharedSha256;
+          await installer.installPackageFromRemote(fullHashRevision, {
+            descriptorUrl: new URL('./th06.package.json', location.href).href,
+            desiredFileIds: ['data'],
+            fetchImpl: async () => {
+              legacyUpgradeFetches++;
+              throw new Error('legacy object should have been verified locally');
+            },
+          });
+          const afterLegacyUpgrade = await store.readCurrentPackageGeneration('th06');
+          const attestedLegacyObject = await store.readPackageObject(afterLegacyUpgrade.generation.files.data.objectId);
+
+          let crossGameFetches = 0;
+          const crossGameDescriptor = structuredClone(fullHashRevision);
+          crossGameDescriptor.game = 'th07';
+          crossGameDescriptor.revision = 'r1-cross-game';
+          crossGameDescriptor.runtimeRequirement.target = 'th07';
+          await installer.installPackageFromRemote(crossGameDescriptor, {
+            descriptorUrl: new URL('./th07.package.json', location.href).href,
+            desiredFileIds: ['data'],
+            fetchImpl: async () => {
+              crossGameFetches++;
+              throw new Error('verified cross-game object should have been reused');
+            },
+          });
+          const afterCrossGameInstall = await store.readCurrentPackageGeneration('th07');
+
           return {
             packageDb: store.PACKAGE_STORE_DB,
             wasmMime: store.packageMimeType('games/th08/th08.wasm'),
@@ -469,6 +511,11 @@ def main() -> int:
             selectedLanguageRequests,
             selectedLanguageFiles: Object.keys(afterSelectedLanguageUpdate.generation.files).sort(),
             selectedLanguageSource: afterSelectedLanguageUpdate.installation.source,
+            legacyUpgradeFetches,
+            legacyUpgradeObjectReused: afterLegacyUpgrade.generation.files.data.objectId === beforeLegacyUpgrade.generation.files.data.objectId,
+            legacyUpgradeAttestedSha256: attestedLegacyObject?.sha256 || null,
+            crossGameFetches,
+            crossGameObjectReused: afterCrossGameInstall.generation.files.data.objectId === afterLegacyUpgrade.generation.files.data.objectId,
           };
         }""")
             browser.close()
@@ -533,6 +580,11 @@ def main() -> int:
         assert result["selectedLanguageRequests"] == ["/th06.package.json", "/language/zh.zip"], result
         assert result["selectedLanguageFiles"] == ["data", "zh"], result
         assert result["selectedLanguageSource"] == "local", result
+        assert result["legacyUpgradeFetches"] == 0, result
+        assert result["legacyUpgradeObjectReused"] is True, result
+        assert result["legacyUpgradeAttestedSha256"] == "9fcddc31b255e23ec66fc550aefc3b127be6d3e05a3438279cf9d3afe5abf251", result
+        assert result["crossGameFetches"] == 0, result
+        assert result["crossGameObjectReused"] is True, result
         print(json.dumps({"pass": True, **result}, ensure_ascii=False))
         return 0
     finally:

@@ -10,6 +10,19 @@ export function readPackageObject(
   options?: { indexedDBFactory?: IDBFactory },
 ): Promise<StoredPackageObject | null>;
 
+export function readVerifiedPackageObjectBySha256(
+  sha256: string,
+  bytes: number,
+  options?: { indexedDBFactory?: IDBFactory },
+): Promise<(StoredPackageObject & { objectId: string }) | null>;
+
+export function attestPackageObjectSha256(
+  objectId: string,
+  sha256: string,
+  bytes: number,
+  options?: { indexedDBFactory?: IDBFactory },
+): Promise<string>;
+
 export function readPackageObjectKeys(
   objectIds: string[],
   options?: { indexedDBFactory?: IDBFactory },

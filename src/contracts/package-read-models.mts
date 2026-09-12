@@ -5,6 +5,7 @@ export interface PackageFileDeclaration {
   source: string;
   target: string;
   bytes?: number;
+  sha256?: string;
   [key: string]: unknown;
 }
 
@@ -83,6 +84,7 @@ export interface StoredPackageObject {
   blob?: Blob;
   type?: string;
   bytes?: number;
+  sha256?: string;
   [key: string]: unknown;
 }
 

@@ -2,8 +2,9 @@ import { validatePackageDescriptor } from "./package-descriptor.mjs";
 import { isGameId } from "../product-catalog.mjs";
 
 export const PACKAGE_STORE_DB = "eagler-touhou-package-store-v1";
-export const PACKAGE_STORE_DB_VERSION = 2;
+export const PACKAGE_STORE_DB_VERSION = 3;
 export const PACKAGE_OBJECTS = "objects";
+export const PACKAGE_OBJECT_SHA256_INDEX = "sha256";
 export const PACKAGE_GENERATIONS = "generations";
 export const PACKAGE_INSTALLATIONS = "installations";
 export const PACKAGE_LEASES = "leases";
@@ -67,6 +68,12 @@ export async function readPackageObjects(objectIds, { indexedDBFactory } = {}) {
     }
     return result;
   }, indexedDBFactory);
+}
+
+function normalizeSha256(value) {
+  const normalized = String(value || "").toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(normalized)) throw new Error("invalid package object SHA-256");
+  return normalized;
 }
 
 export async function readPackageObjectKeys(objectIds, { indexedDBFactory } = {}) {
@@ -149,7 +156,12 @@ export async function openPackageStore(indexedDBFactory = globalThis.indexedDB, 
     };
     request.onupgradeneeded = event => {
       const db = event.target.result;
-      if (!db.objectStoreNames.contains(PACKAGE_OBJECTS)) db.createObjectStore(PACKAGE_OBJECTS);
+      const objects = db.objectStoreNames.contains(PACKAGE_OBJECTS)
+        ? event.target.transaction.objectStore(PACKAGE_OBJECTS)
+        : db.createObjectStore(PACKAGE_OBJECTS);
+      if (!objects.indexNames.contains(PACKAGE_OBJECT_SHA256_INDEX)) {
+        objects.createIndex(PACKAGE_OBJECT_SHA256_INDEX, "sha256", { unique: false });
+      }
       if (!db.objectStoreNames.contains(PACKAGE_GENERATIONS)) db.createObjectStore(PACKAGE_GENERATIONS);
       if (!db.objectStoreNames.contains(PACKAGE_INSTALLATIONS)) db.createObjectStore(PACKAGE_INSTALLATIONS);
       if (!db.objectStoreNames.contains(PACKAGE_LEASES)) db.createObjectStore(PACKAGE_LEASES);
@@ -195,6 +207,43 @@ export async function readPackageObject(objectId, { indexedDBFactory } = {}) {
     const value = await requestResult(transaction.objectStore(PACKAGE_OBJECTS).get(objectId));
     await done;
     return normalizeStoredPackageObject(value);
+  }, indexedDBFactory);
+}
+
+export async function readVerifiedPackageObjectBySha256(sha256, bytes, { indexedDBFactory } = {}) {
+  const normalizedHash = normalizeSha256(sha256);
+  const expectedBytes = Number(bytes);
+  if (!Number.isSafeInteger(expectedBytes) || expectedBytes < 0) return null;
+  return withPackageDb(async db => {
+    const transaction = db.transaction([PACKAGE_OBJECTS], "readonly");
+    const done = transactionDone(transaction);
+    const objects = transaction.objectStore(PACKAGE_OBJECTS);
+    const objectId = await requestResult(objects.index(PACKAGE_OBJECT_SHA256_INDEX).getKey(normalizedHash));
+    const value = objectId === undefined ? null : await requestResult(objects.get(objectId));
+    await done;
+    const normalized = normalizeStoredPackageObject(value);
+    return normalized && Number(normalized.bytes) === expectedBytes
+      ? { objectId, ...normalized }
+      : null;
+  }, indexedDBFactory);
+}
+
+export async function attestPackageObjectSha256(objectId, sha256, bytes, { indexedDBFactory } = {}) {
+  if (typeof objectId !== "string" || !objectId) throw new Error("invalid package object id");
+  const normalizedHash = normalizeSha256(sha256);
+  const expectedBytes = Number(bytes);
+  if (!Number.isSafeInteger(expectedBytes) || expectedBytes < 0) throw new Error("invalid package object size");
+  return withPackageDb(async db => {
+    const transaction = db.transaction([PACKAGE_OBJECTS], "readwrite");
+    const done = transactionDone(transaction);
+    const objects = transaction.objectStore(PACKAGE_OBJECTS);
+    const value = await requestResult(objects.get(objectId));
+    if (!hasStoredPackageBytes(value) || Number(value.bytes) !== expectedBytes) {
+      throw new Error("package object changed before SHA-256 attestation");
+    }
+    objects.put({ ...value, sha256: normalizedHash }, objectId);
+    await done;
+    return objectId;
   }, indexedDBFactory);
 }
 
@@ -338,6 +387,7 @@ export async function attachPendingPackageObject(game, generationId, fileId, obj
 
 export async function putPendingPackageObject(game, generationId, fileId, value, {
   type = value?.type || "application/octet-stream",
+  sha256 = null,
   objectId = null,
   operationId,
   indexedDBFactory,
@@ -347,6 +397,7 @@ export async function putPendingPackageObject(game, generationId, fileId, value,
   const id = objectId || randomObjectId();
   if (typeof id !== "string" || !/^obj-[a-z0-9-]{16,}$/i.test(id)) throw new Error("invalid package object id");
   const object = await normalizePackageBinary(value, type);
+  if (sha256) object.sha256 = normalizeSha256(sha256);
   return withPackageDb(async db => {
     // Persist bytes and their generation reference in one transaction so GC
     // can never observe a newly written object without its owning reference.
