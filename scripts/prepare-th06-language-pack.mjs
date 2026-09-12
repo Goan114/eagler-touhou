@@ -29,9 +29,11 @@ const workspace = resolve(project, "..");
 const game = (args.get("game") || "th06").toLowerCase();
 if (!new Set(["th06", "th07"]).has(game)) throw new Error(`unsupported game: ${game}`);
 const language = args.get("language") || "lang_zh-hans";
+if (args.has("runtime-version") && String(args.get("runtime-version")).toLowerCase() !== "auto") {
+  process.stderr.write("note: --runtime-version is retained for CLI compatibility but language packs are Runtime-independent\n");
+}
 const repository = args.get("repository");
 const output = resolve(args.get("output") || "prepared/thcrap-static");
-const runtimeVersion = (args.get("runtime-version") || "auto").toLowerCase();
 const archives = (args.get("archives") || required("archive")).split(";").filter(Boolean).map(value => resolve(value));
 const fontFile = args.get("font-file")
   ? resolve(args.get("font-file"))
@@ -65,7 +67,6 @@ async function localInputFingerprint() {
     game,
     language,
     repository: repository || null,
-    runtimeVersion,
     fontName,
     archives: files,
     font: { name: basename(fontFile), bytes: fontInfo.size, mtimeMs: Math.trunc(fontInfo.mtimeMs) },
@@ -185,16 +186,17 @@ async function applyFontOverride(input) {
 }
 
 const preparedResources = await applyFontOverride(resources);
-const result = createStaticThcrapPack({ pack, resources: preparedResources, runtimeVersion });
+const result = createStaticThcrapPack({ pack, resources: preparedResources });
 const preparedRuntimeVersion = result.manifest.runtimeVersion;
-const packDirectory = resolve(output, "thcrap", game, preparedRuntimeVersion);
+const packDirectory = resolve(output, "language");
 await mkdir(packDirectory, { recursive: true });
 await writeFile(resolve(packDirectory, result.fileName), result.archive);
 await writeFile(resolve(packDirectory, `${language}.manifest.json`), `${JSON.stringify(result.manifest, null, 2)}\n`);
 let catalog = { schema: "eagler-touhou/thcrap-static-catalog/1", game, runtimeVersion: preparedRuntimeVersion, languages: [] };
 try { catalog = JSON.parse(await readFile(resolve(output, "catalog.json"), "utf8")); } catch {}
 if (catalog.schema !== "eagler-touhou/thcrap-static-catalog/1" || catalog.game !== game ||
-    (catalog.runtimeVersion && !["auto", "pending", preparedRuntimeVersion].includes(String(catalog.runtimeVersion).toLowerCase())) ||
+    (catalog.runtimeVersion && !["auto", "pending", "independent"].includes(String(catalog.runtimeVersion).toLowerCase()) &&
+      !/^[a-f0-9]{16,64}$/i.test(catalog.runtimeVersion)) ||
     !Array.isArray(catalog.languages)) {
   throw new Error(`invalid existing ${game.toUpperCase()} language catalog: ${output}`);
 }

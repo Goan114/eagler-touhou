@@ -3,12 +3,12 @@ import { cp, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:
 import { basename, dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
-import { retargetStaticThcrapPack } from "../server/thcrap-static-pack.mjs";
 import {
   PACKAGE_DESCRIPTOR_SCHEMA,
   canonicalPackagePayload,
   validatePackageDescriptor,
 } from "../package/package-descriptor.mjs";
+import { staticLanguagePackPath } from "../server/thcrap-static-pack.mjs";
 import { RELEASE_CATALOG_FILE, RELEASE_CATALOG_SCHEMA, validateReleaseCatalog } from "../lib/contracts/release-catalog.mjs";
 import { HOST_MANIFEST_FILE, HOST_MANIFEST_SCHEMA, validateHostManifest } from "../lib/contracts/host-manifest.mjs";
 import { PRODUCT_GAMES, languagePriority } from "../lib/contracts/product-catalog.mjs";
@@ -201,7 +201,7 @@ for (const game of languageGames) {
   languagePack.catalog = JSON.parse(await readFile(resolve(languagePack.source, "catalog.json"), "utf8"));
   if (languagePack.catalog.schema !== "eagler-touhou/thcrap-static-catalog/1" ||
       languagePack.catalog.game !== game || !Array.isArray(languagePack.catalog.languages) ||
-      (!["pending", "auto"].includes(String(languagePack.catalog.runtimeVersion).toLowerCase()) &&
+      (!["pending", "auto", "independent"].includes(String(languagePack.catalog.runtimeVersion).toLowerCase()) &&
        !/^[a-f0-9]{16,64}$/i.test(languagePack.catalog.runtimeVersion || ""))) {
     throw new Error(`invalid ${game.toUpperCase()} language catalog: ${languagePack.source}`);
   }
@@ -236,7 +236,9 @@ for (const game of languageGames) {
 function staticPackPath(value, game) {
   if (typeof value !== "string" || value.startsWith("/") || value.includes("\\")) throw new Error(`invalid language pack URL: ${value}`);
   const parts = value.split("/");
-  if (parts.some(part => !part || part === "." || part === "..") || !value.startsWith(`thcrap/${game}/`)) {
+  const currentPath = /^language\/lang_[a-z0-9]+(?:-[a-z0-9]+)*\.zip$/i.test(value);
+  const legacyPath = value.startsWith(`thcrap/${game}/`);
+  if (parts.some(part => !part || part === "." || part === "..") || (!currentPath && !legacyPath)) {
     throw new Error(`invalid language pack URL: ${value}`);
   }
   return value;
@@ -630,9 +632,6 @@ for (const game of preloadGames) {
   if (languagePack) {
     const { source, catalog } = languagePack;
     const catalogVersion = String(catalog.runtimeVersion).toLowerCase();
-    if (!['pending', 'auto'].includes(catalogVersion) && catalogVersion !== runtimeVersion) {
-      throw new Error(`${game.toUpperCase()} language catalog targets ${catalog.runtimeVersion}, current runtime is ${runtimeVersion}`);
-    }
     entry.languages = [];
     const allowlist = serverFeatures[game].languages;
     const catalogLanguages = allowlist
@@ -646,14 +645,16 @@ for (const game of preloadGames) {
       const archivePath = resolve(source, relativePack);
       const archiveBytes = await readFile(archivePath);
       const sourceDigest = createHash("sha256").update(archiveBytes).digest("hex");
-      const prepared = catalogVersion === "pending" || catalogVersion === "auto"
-        ? retargetStaticThcrapPack(archiveBytes, runtimeVersion) : {
-          archive: archiveBytes,
-          sha256: sourceDigest,
-          fileName: relativePack.split("/").at(-1),
-          manifest: { runtimeVersion }
-        };
-      const outputRelativePack = `thcrap/${game}/${runtimeVersion}/${prepared.fileName}`;
+      const packRuntimeVersion = String(language.pack.runtimeVersion || catalogVersion).toLowerCase();
+      if (!['pending', 'auto', 'independent'].includes(packRuntimeVersion) && !/^[a-f0-9]{16,64}$/i.test(packRuntimeVersion)) {
+        throw new Error(`invalid ${game.toUpperCase()} language Runtime compatibility marker: ${language.id}`);
+      }
+      const prepared = {
+        archive: archiveBytes,
+        sha256: sourceDigest,
+        manifest: { runtimeVersion: packRuntimeVersion },
+      };
+      const outputRelativePack = staticLanguagePackPath(language.id);
       const target = resolve(gameRoot, outputRelativePack);
       await mkdir(dirname(target), { recursive: true });
       await writeFile(target, prepared.archive);
@@ -664,7 +665,7 @@ for (const game of preloadGames) {
           url: `games/${game}/${outputRelativePack}`,
           bytes: prepared.archive.length,
           sha256: prepared.sha256,
-          runtimeVersion,
+          runtimeVersion: packRuntimeVersion,
           files: Array.isArray(prepared.manifest?.files) ? prepared.manifest.files.length : language.pack.files
         }
       });

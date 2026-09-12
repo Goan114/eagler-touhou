@@ -83,7 +83,7 @@ const remote = resolveLanguagePackSource({
   id: "lang_en",
   pack: { url: "packs/en.zip", sha256: "a".repeat(64), bytes: 42, files: 3 },
 }, "https://host.example/app/");
-assert.equal(remote.url, "https://host.example/app/packs/en.zip");
+assert.equal(remote.url, `https://host.example/app/packs/en.zip?v=${"a".repeat(64)}`);
 assert.equal(remote.language, "lang_en");
 assert.equal(remote.sha256, "a".repeat(64));
 assert.throws(() => resolveLanguagePackSource({ id: "lang_en", pack: { url: "bad.zip" } }, "https://host.example/"), /语言包清单无效/);

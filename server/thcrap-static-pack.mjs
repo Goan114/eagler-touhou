@@ -1,9 +1,8 @@
 import { createHash } from "node:crypto";
-import { unzipSync, zipSync } from "fflate";
+import { zipSync } from "fflate";
 
 const GAME_ID = /^th(?:06|07)$/;
 const LANGUAGE_ID = /^lang_[a-z0-9]+(?:-[a-z0-9]+)*$/i;
-const RUNTIME_VERSION = /^(?:auto|[a-f0-9]{16,64})$/i;
 const MAX_FILES = 256;
 
 function assertBytes(value, label) {
@@ -21,9 +20,8 @@ function assertLanguage(value) {
   return value;
 }
 
-function assertRuntimeVersion(value) {
-  if (typeof value !== "string" || !RUNTIME_VERSION.test(value)) throw new TypeError(`invalid runtime version: ${value}`);
-  return value.toLowerCase();
+export function staticLanguagePackPath(language) {
+  return `language/${assertLanguage(language)}.zip`;
 }
 
 function assertTargetPath(value, game) {
@@ -45,11 +43,10 @@ function sourceRevision(pack) {
   return sha256(Buffer.from(JSON.stringify(assets.map(asset => [asset.path, asset.crc32])))).slice(0, 24);
 }
 
-export function createStaticThcrapPack({ pack, resources, runtimeVersion }) {
+export function createStaticThcrapPack({ pack, resources }) {
   if (!pack || typeof pack !== "object" || Array.isArray(pack)) throw new TypeError("thcrap pack is required");
   const game = assertGame(pack.game);
   const language = assertLanguage(pack.language);
-  const version = assertRuntimeVersion(runtimeVersion);
   if (!Array.isArray(resources) || resources.length > MAX_FILES) throw new TypeError("invalid processed thcrap resources");
 
   const files = [];
@@ -75,7 +72,7 @@ export function createStaticThcrapPack({ pack, resources, runtimeVersion }) {
     game,
     language,
     title: typeof pack.title === "string" && pack.title ? pack.title : language,
-    runtimeVersion: version === "auto" ? "pending" : version,
+    runtimeVersion: "independent",
     sourceRevision: sourceRevision(pack),
     dependencies: Array.isArray(pack.dependencies) ? pack.dependencies.filter(value => typeof value === "string") : [],
     files
@@ -89,7 +86,7 @@ export function createStaticThcrapPack({ pack, resources, runtimeVersion }) {
   }
   const archive = zipSync(orderedEntries, { level: 6, mtime: new Date("1980-01-01T00:00:00Z") });
   const digest = sha256(archive);
-  const fileName = `${language}.${digest.slice(0, 24)}.zip`;
+  const fileName = `${language}.zip`;
   return Object.freeze({
     archive,
     sha256: digest,
@@ -99,40 +96,12 @@ export function createStaticThcrapPack({ pack, resources, runtimeVersion }) {
       id: language,
       title: manifest.title,
       pack: {
-        url: `thcrap/${game}/${version === "auto" ? "pending" : version}/${fileName}`,
+        url: staticLanguagePackPath(language),
         bytes: archive.length,
         sha256: digest,
         runtimeVersion: manifest.runtimeVersion,
         files: files.length
       }
     }
-  });
-}
-
-export function retargetStaticThcrapPack(archive, runtimeVersion) {
-  assertBytes(archive, "thcrap static pack");
-  if (typeof runtimeVersion !== "string" || !/^[a-f0-9]{16,64}$/i.test(runtimeVersion)) {
-    throw new TypeError(`invalid runtime version: ${runtimeVersion}`);
-  }
-  const entries = unzipSync(archive);
-  if (!(entries["manifest.json"] instanceof Uint8Array)) throw new TypeError("static thcrap pack manifest is missing");
-  let manifest;
-  try { manifest = JSON.parse(new TextDecoder().decode(entries["manifest.json"])); }
-  catch (error) { throw new TypeError(`invalid static thcrap pack manifest: ${error.message}`); }
-  if (manifest?.schema !== "eagler-touhou/thcrap-static-pack/1" || typeof manifest.game !== "string" ||
-      typeof manifest.language !== "string" || !Array.isArray(manifest.files)) throw new TypeError("invalid static thcrap pack manifest");
-  manifest.runtimeVersion = runtimeVersion.toLowerCase();
-  entries["manifest.json"] = Buffer.from(`${JSON.stringify(manifest)}\n`, "utf8");
-  const ordered = {};
-  for (const [name, bytes] of Object.entries(entries).sort(([a], [b]) => a.localeCompare(b))) ordered[name] = bytes;
-  const retargeted = zipSync(ordered, { level: 6, mtime: new Date("1980-01-01T00:00:00Z") });
-  const digest = sha256(retargeted);
-  const files = manifest.files.map(file => ({ ...file }));
-  return Object.freeze({
-    archive: retargeted,
-    sha256: digest,
-    fileName: `${manifest.language}.${digest.slice(0, 24)}.zip`,
-    manifest,
-    files
   });
 }

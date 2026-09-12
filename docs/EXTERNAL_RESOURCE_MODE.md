@@ -67,6 +67,11 @@ Any mismatch stops packaging. Language ZIPs remain on the resource origin;
 the External site contains metadata only and the existing `/games/**` redirect
 continues to deliver them.
 
+Current generators publish language archives at stable per-game paths. The
+manifest SHA-256 is appended by the Launcher as `v`, separating cache identity
+from the operator-facing file name. Older content-addressed language paths in
+an immutable resource index remain supported by the same compatibility check.
+
 Do not rebuild a reduced Hosted source merely to give the External site a
 different Relay URL or origin-migration setting. Relay and migration are
 deployment-owned metadata; Package DATA, music, languages, and descriptors are

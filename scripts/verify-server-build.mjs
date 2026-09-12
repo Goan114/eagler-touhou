@@ -360,7 +360,7 @@ for (const game of preloadGames) {
     if (!Array.isArray(entry.languages)) throw new Error(`invalid ${game.toUpperCase()} language catalog`);
     for (const language of entry.languages) {
       if (typeof language?.id !== "string" || !language.pack?.url || !/^[a-f0-9]{16,64}$/i.test(language.pack.sha256 || "") ||
-          !Number.isInteger(language.pack.bytes) || language.pack.runtimeVersion !== runtimeVersion) {
+          !Number.isInteger(language.pack.bytes) || typeof language.pack.runtimeVersion !== "string") {
         throw new Error(`invalid ${game.toUpperCase()} language pack: ${language?.id}`);
       }
       const url = new URL(language.pack.url, "https://eagler.invalid/");

@@ -21,6 +21,7 @@ assert.equal(staticContentCompressible("runtime/th07.data", 512), false);
 assert.equal(staticContentCompressible("assets/th06.ico", 4096), false);
 
 assert.equal(staticContentCacheControl("packs/lang.0123456789abcdef01234567.zip"), "public, max-age=31536000, immutable");
+assert.equal(staticContentCacheControl("packs/lang_en.zip"), "public, max-age=0, must-revalidate");
 assert.equal(staticContentCacheControl("runtime/th07.wasm"), "public, max-age=0, must-revalidate");
 
 console.log("Static content policy: PASS");

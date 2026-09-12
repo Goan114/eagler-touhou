@@ -113,6 +113,16 @@ Site assembly:
 
 Default self-host assembly prepares Japanese, Simplified Chinese, and English. If a formal release uses a custom language set, every non-`ja` `lang_*` entry must have a corresponding generated language pack. The Runtime downloads only the language resources selected by the player.
 
+Generated language archives use stable per-game names such as
+`games/th06/language/lang_zh-hans.zip`. Their SHA-256 remains the content
+identity in the manifest and the Launcher adds it as the `v` query parameter,
+so caches can keep immutable responses without forcing operators to upload a
+new directory and file name for every Runtime-only release. Replace the stable
+archive only when that language pack's bytes actually change. Site assembly
+does not rewrite the ZIP merely to stamp a new Runtime version: compatibility
+is defined by the language-pack schema and mounted-file contract, while the
+pack SHA-256 identifies its actual bytes.
+
 Remote installation and offline ZIPs use the same `eagler-touhou/package/1` Package Descriptor. A maintainer may generate an offline package for one game from an assembled site with:
 
 ```text

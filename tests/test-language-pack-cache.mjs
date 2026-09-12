@@ -13,7 +13,7 @@ try {
   const archive = resolve(temporary, "game.dat");
   const font = resolve(temporary, "font.otf");
   const output = resolve(temporary, "cache");
-  const packUrl = "thcrap/th06/0123456789abcdef/lang_en.test.zip";
+  const packUrl = "language/lang_en.zip";
   const packPath = resolve(output, ...packUrl.split("/"));
   const packBytes = Buffer.from("cached-language-pack-test");
   await writeFile(archive, "fixture");
@@ -41,7 +41,6 @@ try {
     game: "th06",
     language: "lang_en",
     repository: null,
-    runtimeVersion: "auto",
     fontName: "Unifont",
     archives: [{ name: basename(archive), bytes: fileInfo.size, mtimeMs: Math.trunc(fileInfo.mtimeMs) }],
     font: { name: basename(font), bytes: fontInfo.size, mtimeMs: Math.trunc(fontInfo.mtimeMs) },

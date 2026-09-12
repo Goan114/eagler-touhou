@@ -163,10 +163,12 @@ export function resolveLanguagePackSource(entry: LanguageCatalogEntry | null, ba
   if (typeof pack.url !== "string" || typeof pack.sha256 !== "string" || !Number.isInteger(pack.bytes)) {
     throw new Error("语言包清单无效");
   }
+  const url = new URL(pack.url, baseUrl);
+  url.searchParams.set("v", pack.sha256);
   return {
     ...pack,
     language: entry.id,
-    url: new URL(pack.url, baseUrl).href,
+    url: url.href,
     sha256: pack.sha256,
     bytes: Number(pack.bytes),
   };
