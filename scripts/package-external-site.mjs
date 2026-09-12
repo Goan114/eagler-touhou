@@ -22,6 +22,7 @@ const required = name => {
 const source = required("source");
 const output = required("output");
 const runtimeRelease = required("runtime-release");
+const externalResourceIndex = args["external-resource-index"] ? resolve(args["external-resource-index"]) : null;
 const candidate = resolve(dirname(output), `.${basename(output)}.external-${randomUUID()}`);
 const profile = String(args.profile || "");
 if (!/^web-(?:validation|release)-/.test(profile)) throw new Error("external packaging requires an explicit web-validation-* or web-release-* --profile=NAME");
@@ -90,6 +91,7 @@ try {
     `--games=${games.join(",")}`,
     `--profile=${profile}`,
     `--test-build=${args["test-build"] || "0"}`,
+    ...(externalResourceIndex ? [`--external-resource-index=${externalResourceIndex}`] : []),
   ], { cwd: project });
   await run(process.execPath, [resolve(project, "scripts/verify-server-build.mjs"), candidate], { cwd: project });
   await assertMatchingRuntimeTrees(source, candidate);

@@ -26,6 +26,7 @@ import { verifyRuntimeRelease, runtimeFileNames } from "../lib/runtime-release.m
 import { PRODUCT_CONTENT } from "../lib/content-definition.mjs";
 import { WORKSPACE_REPOSITORIES, workspacePath, workspaceRoot } from "../lib/workspace-layout.mjs";
 import { FRONTEND_PACKAGE_FILES, hostArtworkFiles, resolveFrontendPackageSource } from "../lib/frontend-manifest.mjs";
+import { adaptExternalResourceGame } from "../lib/external-resource-index.mjs";
 
 const project = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const args = Object.fromEntries(process.argv.slice(2).map(value => {
@@ -61,6 +62,10 @@ if (![RESOURCE_MODE_HOSTED, RESOURCE_MODE_EXTERNAL, RESOURCE_MODE_IMPORT].includ
 const serverResourceMode = configuredResourceMode;
 const hostedResources = serverResourceMode === RESOURCE_MODE_HOSTED;
 const externalResources = serverResourceMode === RESOURCE_MODE_EXTERNAL;
+const externalResourceIndexRoot = args["external-resource-index"] ? resolve(args["external-resource-index"]) : null;
+if (externalResourceIndexRoot && !externalResources) {
+  throw new Error("--external-resource-index is only valid for external resource packaging");
+}
 if (args["test-build"] !== undefined && !["0", "1"].includes(args["test-build"])) throw new Error("--test-build must be 0 or 1");
 const testBuild = args["test-build"] === "1";
 const buildProfile = args.profile;
@@ -827,16 +832,47 @@ if (hostedResources && gameIds.includes("th08")) {
 
 if (externalResources) {
   const sourceRoot = dirname(hostManifestPath);
-  for (const [game, entry] of Object.entries(manifest.games)) {
-    const pointer = entry.package;
+  const resourceManifest = externalResourceIndexRoot
+    ? validateHostManifest(JSON.parse(await readFile(resolve(externalResourceIndexRoot, HOST_MANIFEST_FILE), "utf8")))
+    : null;
+  const resourceCatalog = externalResourceIndexRoot
+    ? validateReleaseCatalog(JSON.parse(await readFile(resolve(externalResourceIndexRoot, RELEASE_CATALOG_FILE), "utf8")))
+    : null;
+  if (resourceManifest && resourceManifest.shared.resourceMode !== RESOURCE_MODE_HOSTED) {
+    throw new Error("External resource index must come from a Hosted resource publication");
+  }
+  for (const [game, originalEntry] of Object.entries(manifest.games)) {
+    let entry = originalEntry;
+    let pointer = entry.package;
     if (!pointer || typeof pointer.descriptor !== "string" || !pointer.descriptor ||
         basename(pointer.descriptor) !== pointer.descriptor) {
       throw new Error(`${game}: external publication is missing a safe Package Descriptor pointer`);
     }
-    const descriptor = validatePackageDescriptor(JSON.parse(await readFile(resolve(sourceRoot, pointer.descriptor), "utf8")));
+    let descriptor = validatePackageDescriptor(JSON.parse(await readFile(resolve(sourceRoot, pointer.descriptor), "utf8")));
     const revision = createHash("sha256").update(canonicalPackagePayload(descriptor)).digest("hex").slice(0, 16);
     if (descriptor.game !== game || descriptor.revision !== pointer.revision || descriptor.revision !== revision) {
       throw new Error(`${game}: external Package Descriptor identity mismatch`);
+    }
+    const needsExternalLanguages = (entry.languageOptions || []).some(option => option?.id !== "ja" && option?.pack);
+    if (needsExternalLanguages && externalResourceIndexRoot) {
+      const resourceEntry = resourceManifest.games?.[game];
+      const catalogPointer = resourceCatalog.games?.[game];
+      if (!resourceEntry?.package || !catalogPointer || !isDeepStrictEqual(resourceEntry.package, catalogPointer) ||
+          basename(catalogPointer.descriptor || "") !== catalogPointer.descriptor) {
+        throw new Error(`${game}: External resource index is missing a safe Package pointer`);
+      }
+      const resourceDescriptor = JSON.parse(await readFile(resolve(externalResourceIndexRoot, catalogPointer.descriptor), "utf8"));
+      const adapted = adaptExternalResourceGame({
+        game,
+        currentEntry: entry,
+        currentDescriptor: descriptor,
+        resourceEntry,
+        resourceDescriptor,
+      });
+      entry = adapted.entry;
+      descriptor = adapted.descriptor;
+      pointer = entry.package;
+      manifest.games[game] = entry;
     }
     for (const [fileId, file] of Object.entries(descriptor.files)) {
       if (!/^(?:games|shared)\//.test(file.source)) {

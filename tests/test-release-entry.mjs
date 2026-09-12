@@ -14,6 +14,7 @@ const inputDirectory = resolve("release-input-fixture");
 const normalizationOptions = { inputDirectory, workspace, windir: resolve("windows-fixture") };
 const validInput = {
   schema: "eagler-touhou/release-input/1",
+  externalResourceIndex: "external-resource-index",
   prepare: {
     RuntimeRelease: "runtime-release",
     FeatureConfig: "features.json",
@@ -28,6 +29,7 @@ assert.deepEqual(plan.games, FORMAL_RELEASE_GAMES);
 assert.equal(plan.prepare.Profile, "web-release-hosted");
 assert.deepEqual(plan.prepare.Games, FORMAL_RELEASE_GAMES);
 assert.equal(plan.prepare.RuntimeRelease, resolve(inputDirectory, "runtime-release"));
+assert.equal(plan.externalResourceIndex, resolve(inputDirectory, "external-resource-index"));
 assert.deepEqual(formalReleaseSourceOwners(), ["launcher"]);
 
 const exampleInput = JSON.parse(await readFile(new URL("../tools/maintainer/release-input.example.json", import.meta.url), "utf8"));
@@ -35,6 +37,10 @@ const examplePlan = normalizeFormalReleaseInput(exampleInput, normalizationOptio
 assert.deepEqual(examplePlan.games, FORMAL_RELEASE_GAMES);
 assert.deepEqual(examplePlan.prepare.Music, ["midi", "ogg"]);
 assert.equal(examplePlan.prepare.RuntimeRelease, resolve(inputDirectory, "runtime-release"));
+assert.equal(examplePlan.externalResourceIndex, null);
+
+assert.throws(() => normalizeFormalReleaseInput({ ...validInput, externalResourceIndex: "" }, normalizationOptions),
+  /externalResourceIndex must be a non-empty path/);
 
 assert.throws(() => normalizeFormalReleaseInput({ ...validInput, prepare: { ...validInput.prepare, RuntimeRelease: "" } }, {
   ...normalizationOptions,
