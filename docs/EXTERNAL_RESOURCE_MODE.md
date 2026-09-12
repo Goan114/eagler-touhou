@@ -56,21 +56,9 @@ The External packager first verifies the Hosted source. It copies Package
 Descriptors and their revisions from that source rather than reconstructing
 resource identities from another directory.
 
-For a resource origin whose existing immutable paths cannot be updated in the
-same cutover, maintainers may supply `--external-resource-index=DIR`. The
-directory is a captured resource-origin metadata index containing
-`host-manifest.json`, `release-catalog.json`, and the Package Descriptors they
-reference. The packager may reuse only its language-pack paths and descriptor
-revision, and only when the current Hosted generation has exactly identical
-base metadata, non-language components, DATA, fonts, and music file identities.
-Any mismatch stops packaging. Language ZIPs remain on the resource origin;
-the External site contains metadata only and the existing `/games/**` redirect
-continues to deliver them.
-
 Current generators publish language archives at stable per-game paths. The
 manifest SHA-256 is appended by the Launcher as `v`, separating cache identity
-from the operator-facing file name. Older content-addressed language paths in
-an immutable resource index remain supported by the same compatibility check.
+from the operator-facing file name.
 
 Do not rebuild a reduced Hosted source merely to give the External site a
 different Relay URL or origin-migration setting. Relay and migration are

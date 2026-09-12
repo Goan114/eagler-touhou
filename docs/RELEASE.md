@@ -31,16 +31,6 @@ credential, server address, or output path. Optional `prepare` fields are
 `url` and an optional user-facing `hint`. The release owner always supplies
 the output directory from the command line.
 
-When an immutable External resource origin still exposes language packs from
-an older compatible Package revision, the optional top-level
-`externalResourceIndex` points at a local metadata snapshot containing that
-origin's `host-manifest.json`, `release-catalog.json`, and referenced Package
-Descriptors. The release owner includes the snapshot in input provenance and
-accepts its language URLs only after proving that all non-language Package
-components and file identities exactly match the new Hosted generation. This
-changes only the derived External metadata; it never copies language payloads
-into the user-facing site.
-
 The formal entrypoint does not accept `Th08Build`, Emscripten, CMake, or Ninja. Runtime compilation belongs to the Runtime Release producer, not the site release.
 
 `tools/maintainer/assemble-site.ps1` is the low-level maintainer implementation currently reused by `npm run release`. It is neither the ordinary self-host CLI nor a server deployment interface. Ordinary operators must not depend directly on its PowerShell parameter shape.

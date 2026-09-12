@@ -74,7 +74,7 @@ async function identifySources() {
   return result;
 }
 
-async function identifyInputs(inputPath, prepare, externalResourceIndex) {
+async function identifyInputs(inputPath, prepare) {
   const files = [];
   async function visit(path, label) {
     const info = await lstat(path);
@@ -95,7 +95,6 @@ async function identifyInputs(inputPath, prepare, externalResourceIndex) {
   for (const key of RELEASE_PATH_INPUT_KEYS) {
     if (prepare[key]) await visit(prepare[key], key);
   }
-  if (externalResourceIndex) await visit(externalResourceIndex, "externalResourceIndex");
   await visit(inputPath, "release-input.json");
   return { scope: "explicit release input files", files, sha256: sha256(JSON.stringify(files)) };
 }
@@ -136,13 +135,9 @@ const plan = normalizeFormalReleaseInput(input, {
 });
 const releaseGames = plan.games;
 const prepare = { ...plan.prepare };
-const externalResourceIndex = plan.externalResourceIndex;
 for (const key of RELEASE_PATH_INPUT_KEYS) {
   if (!prepare[key]) continue;
   if (!existsSync(prepare[key])) throw new Error(`input path missing: ${key}`);
-}
-if (externalResourceIndex && !existsSync(externalResourceIndex)) {
-  throw new Error("input path missing: externalResourceIndex");
 }
 await verifyRuntimeRelease(prepare.RuntimeRelease);
 
@@ -167,7 +162,7 @@ await mkdir(incompleteRoot, { recursive: true });
 try {
 const report = [];
 const sourcesBefore = await identifySources();
-const inputsBefore = await identifyInputs(inputPath, prepare, externalResourceIndex);
+const inputsBefore = await identifyInputs(inputPath, prepare);
 prepare.OutputDirectory = resolve(scratch, "hosted-site");
 prepare.PythonEnvironmentDirectory = resolve(scratch, "python-environment");
 const parameterFile = resolve(scratch, "prepare.json");
@@ -187,16 +182,14 @@ await runStep(report, "hosted-build", "pwsh", [
 const hosted = prepare.OutputDirectory;
 await runStep(report, "hosted-verify", process.execPath, ["scripts/verify-server-build.mjs", hosted]);
 const externalSite = resolve(scratch, "external-site");
-const externalArgs = [
+await runStep(report, "external-build", process.execPath, [
   "scripts/package-external-site.mjs",
   `--source=${hosted}`,
   `--output=${externalSite}`,
   `--runtime-release=${prepare.RuntimeRelease}`,
   `--games=${releaseGames.join(",")}`,
   "--profile=web-release-external",
-];
-if (externalResourceIndex) externalArgs.push(`--external-resource-index=${externalResourceIndex}`);
-await runStep(report, "external-build", process.execPath, externalArgs);
+]);
 const importConfig = resolve(scratch, "import-features.json");
 await writeFile(importConfig, JSON.stringify({
   ...features,
@@ -223,7 +216,7 @@ for (const repository of Object.keys(sourcesBefore)) {
     throw new Error(`source changed during release: ${repository}; incomplete work retained under ${incompleteRoot}`);
   }
 }
-const inputsAfter = await identifyInputs(inputPath, prepare, externalResourceIndex);
+const inputsAfter = await identifyInputs(inputPath, prepare);
 if (inputsBefore.sha256 !== inputsAfter.sha256) {
   throw new Error(`release inputs changed during release; incomplete work retained under ${incompleteRoot}`);
 }
@@ -276,7 +269,6 @@ await writeReleaseManifest(incompleteOutput, {
   parameters: {
     inputSha256: sha256(await readFile(inputPath)),
     runtimeBuildProvenance: "verified-runtime-release",
-    externalResourceMetadata: externalResourceIndex ? "explicit-compatible-resource-index" : "derived-hosted",
     music: prepare.Music,
     games: releaseGames,
   },
