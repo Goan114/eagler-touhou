@@ -10,6 +10,7 @@ const PRECACHE_CONCURRENCY = 3;
 const scopeUrl = new URL(self.registration.scope);
 const PRECACHE_MANIFEST = self.__WB_MANIFEST;
 const cacheMetaUrl = new URL(`./__app-shell-meta__/__APP_SHELL_BUILD_ID__`, scopeUrl).href;
+const updateStatusUrl = new URL("./__app-shell-update-status__", scopeUrl).href;
 
 const manifestByPathname = new Map(PRECACHE_MANIFEST.map(entry => {
   const url = new URL(entry.url, scopeUrl);
@@ -17,6 +18,8 @@ const manifestByPathname = new Map(PRECACHE_MANIFEST.map(entry => {
 }));
 
 async function precacheShell() {
+  const existingShellCaches = (await caches.keys()).filter(name => name.startsWith(CACHE_PREFIX) && name !== CACHE_NAME);
+  const createdAt = Date.now();
   const cache = await caches.open(CACHE_NAME);
   let cursor = 0;
   await Promise.all(Array.from({ length: Math.min(PRECACHE_CONCURRENCY, PRECACHE_MANIFEST.length) }, async () => {
@@ -31,8 +34,28 @@ async function precacheShell() {
   }));
   await cache.put(cacheMetaUrl, new Response(JSON.stringify({
     build: "__APP_SHELL_BUILD_ID__",
-    createdAt: Date.now(),
-  }), { headers: { "Content-Type": "application/json" } }));
+    createdAt,
+    appliedAt: null,
+    updated: existingShellCaches.length > 0,
+  }), { headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } }));
+}
+
+async function appShellUpdateStatus() {
+  const cache = await caches.open(CACHE_NAME);
+  const response = await cache.match(cacheMetaUrl);
+  if (!response) return new Response(null, { status: 503 });
+  const status = await response.json();
+  if (status.updated === true && !(Number(status.appliedAt) > 0)) {
+    status.appliedAt = Date.now();
+    const applied = new Response(JSON.stringify(status), {
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+    });
+    await cache.put(cacheMetaUrl, applied.clone());
+    return applied;
+  }
+  return new Response(JSON.stringify(status), {
+    headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+  });
 }
 
 self.addEventListener("install", event => {
@@ -83,6 +106,10 @@ async function shellCacheFirst(request, entry) {
 }
 
 self.addEventListener("fetch", event => {
+  if (event.request.method === "GET" && event.request.url === updateStatusUrl) {
+    event.respondWith(appShellUpdateStatus());
+    return;
+  }
   const entry = manifestEntryForRequest(event.request);
   if (!entry) return;
   event.respondWith(shellCacheFirst(event.request, entry));

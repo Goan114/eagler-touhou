@@ -60,6 +60,12 @@ import { getUiLocale, initUiLocale, isUiMessageKey, t } from "./i18n.mjs";
 import type { UiMessageKey } from "./i18n.mjs";
 import { createAppShellClient } from "./app-shell-client.mjs";
 import {
+  APP_SHELL_UPDATE_STATUS_PATH,
+  appliedAppShellUpdateAt,
+  formatRelativeUpdateAge,
+  nextRelativeUpdateRefresh,
+} from "./relative-update-time.mjs";
+import {
   confirmRuntimeClose,
   createGameDataContinuation,
   gameDataContinuationMatches,
@@ -211,6 +217,40 @@ const launcherDocument = document as LauncherDocument;
 const bootWatchdog = launcherWindow.__eaglerBoot || null;
 bootWatchdog?.mark("app-module-executing");
 initUiLocale();
+
+const brandUpdateAge = document.querySelector<HTMLTimeElement>("#brandUpdateAge");
+let appliedAppShellUpdatedAt: number | null = null;
+let brandUpdateTimer: number | null = null;
+
+function renderBrandUpdateAge() {
+  if (!brandUpdateAge) return;
+  if (appliedAppShellUpdatedAt == null) {
+    brandUpdateAge.textContent = t("brand.neverUpdated");
+    brandUpdateAge.removeAttribute("datetime");
+    return;
+  }
+  const elapsed = Math.max(0, Date.now() - appliedAppShellUpdatedAt);
+  brandUpdateAge.textContent = t("brand.updatedAgo", { age: formatRelativeUpdateAge(elapsed) });
+  brandUpdateAge.dateTime = new Date(appliedAppShellUpdatedAt).toISOString();
+}
+
+function scheduleBrandUpdateAge() {
+  if (brandUpdateTimer != null) window.clearTimeout(brandUpdateTimer);
+  renderBrandUpdateAge();
+  if (appliedAppShellUpdatedAt == null) return;
+  brandUpdateTimer = window.setTimeout(scheduleBrandUpdateAge,
+    nextRelativeUpdateRefresh(Date.now() - appliedAppShellUpdatedAt));
+}
+
+async function loadAppliedAppShellUpdateTime() {
+  try {
+    const response = await fetch(APP_SHELL_UPDATE_STATUS_PATH, { cache: "no-store" });
+    if (response.ok) appliedAppShellUpdatedAt = appliedAppShellUpdateAt(await response.json());
+  } catch {}
+  scheduleBrandUpdateAge();
+}
+
+scheduleBrandUpdateAge();
 
 let appShellClient: ReturnType<typeof createAppShellClient> | null = null;
 let serverUpdateState = "unknown";
@@ -607,6 +647,9 @@ function shouldDeferAppShellReload() {
 appShellClient = createAppShellClient({
   shouldDeferReload: shouldDeferAppShellReload,
   onChange: renderServerStatusNote,
+});
+void appShellClient.ready.then(() => {
+  if (navigator.serviceWorker?.controller) return loadAppliedAppShellUpdateTime();
 });
 function maybeApplyDeferredAppShellUpdate() {
   queueMicrotask(() => appShellClient?.maybeReload());
@@ -3531,6 +3574,7 @@ function render() {
 
 window.addEventListener("eagler-ui-locale-change", () => {
   document.documentElement.lang = getUiLocale();
+  renderBrandUpdateAge();
   render();
   renderServerStatusNote();
   if (currentStatusMessage) setTranslatedStatus(currentStatusMessage.key, currentStatusMessage.params);

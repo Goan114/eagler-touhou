@@ -8,6 +8,8 @@ type UiMessageEntry = readonly [key: string, zhCN: string, english: string];
 const entries = [
   ["site.documentTitle", "网页上的东方原作 ~ EAGLER TOUHOU", "Original Touhou Games on the Web ~ EAGLER TOUHOU"],
   ["site.description", "进入网站就能玩的东方原作游戏启动器 / 联机平台，提供了高刷新率适配、触控适配、汉化、thprac 以及原版联机 Mod。", "A browser-playable launcher and multiplayer platform for original Touhou games, with high-refresh-rate support, touch controls, translations, thprac, and multiplayer mods for the original games."],
+  ["brand.neverUpdated", "尚未更新过", "No updates applied yet"],
+  ["brand.updatedAgo", "于 {age} 前更新过一次", "Updated {age} ago"],
   ["filter.aria", "游戏分类", "Game categories"],
   ["filter.all", "全部", "All"],
   ["filter.original", "原版", "Original"],
