@@ -24,6 +24,16 @@ Install the locked Node dependencies with:
 npm ci --ignore-scripts
 ```
 
+Browser lanes are optional and have a separate Python dependency owner:
+
+```bash
+python -m pip install -r tests/requirements-browser.txt
+python -m playwright install chromium webkit
+```
+
+Install Firefox separately when running a lane that explicitly requests it.
+The default `npm run check` does not require Playwright or downloaded browsers.
+
 ## Normal validation
 
 For changes contained in this repository, the default gate is:

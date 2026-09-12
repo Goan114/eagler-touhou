@@ -6,7 +6,7 @@ import {
   migrateLegacyStoredImport,
 } from "../../legacy/legacy-import-storage.mjs";
 import { PACKAGE_DESCRIPTOR_SCHEMA } from "../../package/package-descriptor.mjs";
-import { installPublishedPackage } from "../../package/package-launcher.mjs";
+import { canUseExistingInstallationAfterRemoteFailure, installPublishedPackage } from "../../package/package-launcher.mjs";
 import { componentFileIds } from "../../package/package-generation.mjs";
 import {
   garbageCollectPackageStore,
@@ -3376,10 +3376,6 @@ function render() {
     const candidate = card.dataset.product || card.dataset.game || "";
     if (!isProductId(candidate)) return;
     const product = candidate;
-    if (card instanceof HTMLAnchorElement && product === "th10") {
-      if (productEnabled(product)) card.href = "?game=th10";
-      else card.removeAttribute("href");
-    }
     card.hidden = !matchesCardFilter(product);
     const selected = state.hasSelection && product === state.product;
     card.classList.toggle("selected", selected);
@@ -4416,7 +4412,10 @@ async function ensureRuntime(show = true) {
       if (await ensureInstalledPackageRuntime(show)) return;
     } catch (error) {
       if (isCancelledDownload(error)) throw error;
-      if (!hostManifestAvailable) throw error;
+      if (!canUseExistingInstallationAfterRemoteFailure({
+        hostManifestAvailable,
+        installedGeneration: localInstalled?.generation,
+      })) throw error;
       showToast(t("package.installFailedUsingExisting", { reason: errorMessage(error) }));
     } finally {
       finishBlockingNetworkOperation(operation);

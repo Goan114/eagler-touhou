@@ -3,7 +3,7 @@
  * Does NOT prove Runtime contents, browser behavior or publication. */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtemp, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { COMPLETION_FIELDS, COMPLETION_REPORT_SCHEMA } from "../lib/completion-report.mjs";
@@ -13,6 +13,7 @@ import { verifyReleaseBundle } from "../lib/release-bundle-verifier.mjs";
 import { FORMAL_RELEASE_GAMES } from "../lib/release-plan.mjs";
 
 const root = await mkdtemp(join(tmpdir(), "eagler-release-bundle-"));
+try {
 const games = [...FORMAL_RELEASE_GAMES];
 for (const directory of ["hosted-site", "external-site", "import-site", "runtime-release", "game-package", "offline-zip"]) {
   await mkdir(join(root, directory));
@@ -62,4 +63,7 @@ const result = await verifyReleaseBundle(root);
 assert.match(result.releaseId, /^sha256-[a-f0-9]{64}$/);
 assert.deepEqual(result.games, games);
 assert.equal(result.completion.RELEASED, "no");
+} finally {
+  await rm(root, { recursive: true, force: true });
+}
 console.log("Release bundle L2: PASS");

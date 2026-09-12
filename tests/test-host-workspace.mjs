@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { inspectHostWorkspace, hostWorkspacePaths } from "../lib/host-workspace.mjs";
 import { writeSyntheticRuntimeRelease } from "../tests/support/runtime-release-fixture.mjs";
 
 const root = await mkdtemp(join(tmpdir(), "eagler-host-workspace-"));
+try {
 const layout = hostWorkspacePaths(root);
 assert.equal(layout.config, join(root, "eagler-touhou.config.json"));
 assert.equal(layout.runtimeRelease, join(root, "runtime-release"));
@@ -48,3 +49,6 @@ assert.equal(configured.hostConfig.present, true);
 assert.equal(configured.hostConfig.netplay.relay, "wss://relay.example.com/eagler-netplay/");
 assert.equal(configured.warnings.length, 1, "configured WS/external source leaves only the unverified TURN warning");
 console.log(JSON.stringify({ hostWorkspace: "PASS", games: Object.keys(full.games), music: full.music }));
+} finally {
+  await rm(root, { recursive: true, force: true });
+}

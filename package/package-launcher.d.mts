@@ -24,6 +24,11 @@ export interface InstallPublishedPackageOptions extends Omit<PublishedPackageFil
   signal?: AbortSignal | null;
 }
 
+export function canUseExistingInstallationAfterRemoteFailure(options?: {
+  hostManifestAvailable?: boolean;
+  installedGeneration?: InstalledPackageGeneration | null;
+}): boolean;
+
 export function desiredFilesForPublishedPackage(
   descriptor: PackageDescriptor,
   options?: PublishedPackageFileSelection,

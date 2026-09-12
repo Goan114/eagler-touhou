@@ -36,7 +36,8 @@ try {
     New-Item -ItemType Directory -Path $staging | Out-Null
     $copyRulesJson = & node (Join-Path $project 'scripts\list-self-host-bundle-files.mjs')
     if ($LASTEXITCODE -ne 0) { throw "Unable to read self-host bundle file manifest: $LASTEXITCODE" }
-    $copyRules = @($copyRulesJson | ConvertFrom-Json)
+    $parsedCopyRules = $copyRulesJson | ConvertFrom-Json
+    $copyRules = @($parsedCopyRules)
     if ($copyRules.Count -eq 0) { throw 'Self-host bundle file manifest is empty' }
     foreach ($rule in $copyRules) {
         $source = Join-Path $project ([string]$rule.source)

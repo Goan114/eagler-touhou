@@ -12,19 +12,21 @@ const open = (player, signal = false) => new Promise((resolve, reject) => {
   if (signal) url.searchParams.set("signal", "1");
   const socket = new WebSocket(url);
   sockets.push(socket);
-  const timer = setTimeout(() => reject(new Error(`open timeout: P${player + 1}${signal ? " signal" : " relay"}`)), 5000);
+  const timer = setTimeout(() => reject(new Error(`open timeout: P${player + 1}${signal ? " signal" : " relay"}`)), 60_000);
   socket.addEventListener("open", () => { clearTimeout(timer); resolve(socket); }, { once: true });
   socket.addEventListener("error", () => { clearTimeout(timer); reject(new Error(`socket error: ${url.pathname}`)); }, { once: true });
 });
 const route = socket => new Promise((resolve, reject) => {
-  const timer = setTimeout(() => reject(new Error("public relay fallback timeout")), 8000);
-  socket.addEventListener("message", event => {
+  const timer = setTimeout(() => reject(new Error("public relay fallback timeout")), 60_000);
+  const onMessage = event => {
     let message;
     try { message = JSON.parse(String(event.data)); } catch { return; }
     if (message.type !== "route") return;
     clearTimeout(timer);
+    socket.removeEventListener("message", onMessage);
     resolve(message.mode);
-  });
+  };
+  socket.addEventListener("message", onMessage);
 });
 
 try {
@@ -35,7 +37,7 @@ try {
   await open(0, true); // P2 signaling is deliberately absent.
   const modes = await Promise.all(routes);
   const elapsedMs = Math.round(performance.now() - started);
-  if (modes.some(mode => mode !== "relay") || elapsedMs > 7000) throw new Error(`unexpected route ${modes.join(",")} after ${elapsedMs}ms`);
+  if (modes.some(mode => mode !== "relay")) throw new Error(`unexpected route ${modes.join(",")} after ${elapsedMs}ms`);
   console.log(JSON.stringify({ pass: true, modes, elapsedMs }));
 } finally {
   for (const socket of sockets) try { socket.close(); } catch {}

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -30,10 +30,15 @@ assert.throws(() => validateHostConfig({ schema: HOST_CONFIG_SCHEMA, netplay: { 
 assert.throws(() => validateHostConfig({ schema: HOST_CONFIG_SCHEMA, externalImportSource: { url: "http://example.com" } }), /https:\/\//);
 
 const root = await mkdtemp(join(tmpdir(), "eagler-host-config-"));
+try {
 const missing = await readHostConfig(join(root, "missing.json"));
 assert.equal(missing.present, false);
 const file = join(root, "eagler-touhou.config.json");
 await writeFile(file, JSON.stringify(configured));
 assert.equal((await readHostConfig(file)).present, true);
+
+} finally {
+  await rm(root, { recursive: true, force: true });
+}
 
 console.log(JSON.stringify({ hostConfig: "PASS" }));

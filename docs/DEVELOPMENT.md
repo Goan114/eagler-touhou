@@ -47,6 +47,18 @@ npm run build:launcher
 npm run check
 ```
 
+Install the separately pinned Python browser dependencies only when running an
+explicit Browser lane:
+
+```powershell
+python -m pip install -r tests/requirements-browser.txt
+python -m playwright install chromium webkit
+```
+
+Firefox is needed only by lanes that explicitly select it. These dependencies
+do not belong in `host/requirements.txt`, which owns self-host asset/build
+tooling, and they are not required by `npm run check`.
+
 Start the local Launcher:
 
 ```powershell
@@ -97,6 +109,7 @@ npm run check
 npm run check:workspace
 npm run test:shell
 npm run test:server
+npm run test:test-build-cards:browser
 npm run audit:publish
 npm run verify:server -- D:\Sites\eagler-touhou
 npm run verify:deployed -- https://example.invalid/

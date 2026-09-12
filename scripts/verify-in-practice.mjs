@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { access, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createSecureServer } from "node:http2";
 import { tmpdir } from "node:os";
 import { basename, dirname, resolve, sep } from "node:path";
@@ -13,6 +13,7 @@ import { computeMedianRun } from "lighthouse/core/lib/median-run.js";
 import puppeteer from "puppeteer-core";
 import { buildAppShell } from "../lib/app-shell-build.mjs";
 import { APP_SHELL_OUTPUT_FILE } from "../lib/app-shell-policy.mjs";
+import { findChromiumExecutable } from "../lib/chromium-executable.mjs";
 import { ensureLauncherBuild, resolveBrowserPublicationSource } from "../lib/launcher-build.mjs";
 import { PRODUCT_GAMES } from "../lib/contracts/product-catalog.mjs";
 import { HOST_MANIFEST_SCHEMA } from "../lib/contracts/host-manifest.mjs";
@@ -47,38 +48,6 @@ if (profile === "reference") {
     rttMs: 10,
     throughputKbps: 40_960,
   };
-}
-
-async function exists(path) {
-  try { await access(path); return true; } catch { return false; }
-}
-
-async function findChromium() {
-  const explicit = process.env.EAGLER_CHROME_PATH;
-  if (explicit) {
-    if (!await exists(explicit)) throw new Error(`EAGLER_CHROME_PATH does not exist: ${explicit}`);
-    return explicit;
-  }
-  const candidates = [];
-  const localAppData = process.env.LOCALAPPDATA;
-  if (localAppData) {
-    const playwright = resolve(localAppData, "ms-playwright");
-    if (await exists(playwright)) {
-      for (const entry of (await readdir(playwright, { withFileTypes: true })).filter(item => item.isDirectory()).reverse()) {
-        candidates.push(resolve(playwright, entry.name, "chrome-win64", "chrome.exe"));
-        candidates.push(resolve(playwright, entry.name, "chrome-linux", "chrome"));
-      }
-    }
-  }
-  candidates.push(
-    "C:/Program Files/Google/Chrome/Application/chrome.exe",
-    "C:/Program Files (x86)/Google/Chrome/Application/chrome.exe",
-    "/usr/bin/google-chrome",
-    "/usr/bin/chromium",
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-  );
-  for (const candidate of candidates) if (await exists(candidate)) return candidate;
-  throw new Error("Chromium was not found; set EAGLER_CHROME_PATH to a Chrome/Chromium executable");
 }
 
 function createReferenceManifest() {
@@ -226,7 +195,7 @@ async function runAgenticChecks(browser, url) {
     try {
       await page.evaluateOnNewDocument(() => localStorage.clear());
       await page.goto(url, { waitUntil: "networkidle0", timeout: 30_000 });
-      await page.waitForSelector("button.game", { visible: true });
+      await page.waitForSelector(".game:not([hidden])", { visible: true });
       await action(page);
       assert.deepEqual(errors, [], `${name} browser errors:\n${errors.join("\n")}`);
       checks.push({ name, pass: true });
@@ -236,7 +205,7 @@ async function runAgenticChecks(browser, url) {
   }
 
   await scenario("catalog-discovery", async page => {
-    const products = await page.$$eval("button.game", elements => elements.map(element => element.innerText));
+    const products = await page.$$eval(".game:not([hidden])", elements => elements.map(element => element.innerText));
     assert.equal(products.length, 5);
     for (const expected of ["東方紅魔郷", "東方妖々夢", "東方永夜抄", "06MP", "07MP"]) {
       assert(products.some(value => value.includes(expected)), `catalog is missing ${expected}`);
@@ -245,13 +214,13 @@ async function runAgenticChecks(browser, url) {
   });
 
   await scenario("single-player-flow", async page => {
-    const clicked = await page.$$eval("button.game", elements => {
+    const clicked = await page.$$eval(".game:not([hidden])", elements => {
       const target = elements.find(element => element.innerText.includes("Perfect Cherry Blossom") && !element.innerText.includes("07MP"));
       target?.click();
       return Boolean(target);
     });
     assert(clicked);
-    await page.waitForFunction(() => document.querySelector("button.game.selected")?.getAttribute("aria-pressed") === "true");
+    await page.waitForFunction(() => document.querySelector(".game.selected")?.getAttribute("aria-current") === "page");
     const actions = await page.$$eval("button", elements => elements.filter(element => {
       const rect = element.getBoundingClientRect();
       return rect.width > 0 && rect.height > 0;
@@ -260,13 +229,13 @@ async function runAgenticChecks(browser, url) {
   });
 
   await scenario("multiplayer-flow", async page => {
-    const clicked = await page.$$eval("button.game", elements => {
+    const clicked = await page.$$eval(".game:not([hidden])", elements => {
       const target = elements.find(element => element.innerText.includes("07MP"));
       target?.click();
       return Boolean(target);
     });
     assert(clicked);
-    await page.waitForFunction(() => document.querySelector('button.game[data-product="th07mp"]')?.classList.contains("selected"));
+    await page.waitForFunction(() => document.querySelector('.game[data-product="th07mp"]')?.getAttribute("aria-current") === "page");
     const actions = (await page.$$eval("button", elements => elements.filter(element => {
       const rect = element.getBoundingClientRect();
       return rect.width > 0 && rect.height > 0;
@@ -286,7 +255,7 @@ let browser;
 try {
   const reference = await createReferenceServer(workRoot);
   server = reference.server;
-  const chromePath = await findChromium();
+  const chromePath = await findChromiumExecutable();
   browser = await puppeteer.launch({
     executablePath: chromePath,
     headless: true,

@@ -4,7 +4,7 @@
 // NOT build a host, validate Runtime semantics, or publish anything.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { FORMAL_RELEASE_GAMES, formalReleaseSourceOwners, normalizeFormalReleaseInput } from "../lib/release-plan.mjs";
@@ -30,6 +30,12 @@ assert.deepEqual(plan.prepare.Games, FORMAL_RELEASE_GAMES);
 assert.equal(plan.prepare.RuntimeRelease, resolve(inputDirectory, "runtime-release"));
 assert.deepEqual(formalReleaseSourceOwners(), ["launcher"]);
 
+const exampleInput = JSON.parse(await readFile(new URL("../tools/maintainer/release-input.example.json", import.meta.url), "utf8"));
+const examplePlan = normalizeFormalReleaseInput(exampleInput, normalizationOptions);
+assert.deepEqual(examplePlan.games, FORMAL_RELEASE_GAMES);
+assert.deepEqual(examplePlan.prepare.Music, ["midi", "ogg"]);
+assert.equal(examplePlan.prepare.RuntimeRelease, resolve(inputDirectory, "runtime-release"));
+
 assert.throws(() => normalizeFormalReleaseInput({ ...validInput, prepare: { ...validInput.prepare, RuntimeRelease: "" } }, {
   ...normalizationOptions,
 }), /requires prepare\.RuntimeRelease/);
@@ -41,6 +47,7 @@ assert.throws(() => normalizeFormalReleaseInput({ ...validInput, prepare: { ...v
 }), /belongs to maintainer Runtime compilation/);
 
 const root = await mkdtemp(join(tmpdir(), "eagler-release-entry-"));
+try {
 const input = join(root, "input.json");
 const output = join(root, "candidate");
 await writeFile(input, JSON.stringify({ schema: "eagler-touhou/release-input/1", prepare: {} }));
@@ -59,4 +66,7 @@ await writeFile(marker, "existing owner");
 result = runRelease();
 assert.notEqual(result.status, 0);
 assert.equal(await readFile(marker, "utf8"), "existing owner");
+} finally {
+  await rm(root, { recursive: true, force: true });
+}
 console.log("Release entry output ownership: PASS");

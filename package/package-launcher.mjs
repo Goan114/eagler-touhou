@@ -8,6 +8,13 @@ function unique(ids) {
   return [...new Set(ids)];
 }
 
+export function canUseExistingInstallationAfterRemoteFailure({
+  hostManifestAvailable,
+  installedGeneration,
+} = {}) {
+  return hostManifestAvailable === true && !!installedGeneration;
+}
+
 export async function fetchPublishedPackage(game, {
   catalog,
   catalogUrl,

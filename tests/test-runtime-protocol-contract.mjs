@@ -12,7 +12,10 @@ const shells = {
   th07: workspacePath("th07", "resources", "shell.html"),
   th08: workspacePath("th08", "resources", "web-shell.html"),
 };
-assert.deepEqual(Object.keys(shells).sort(), Object.keys(PRODUCT_GAMES).sort());
+const shellGames = Object.entries(PRODUCT_GAMES)
+  .filter(([, product]) => product.runtimeFileLayout !== "directory")
+  .map(([game]) => game);
+assert.deepEqual(Object.keys(shells).sort(), shellGames.sort());
 for (const [game, path] of Object.entries(shells)) {
   const source = await readFile(path, "utf8");
   for (const command of RUNTIME_PROTOCOL_COMMANDS) {

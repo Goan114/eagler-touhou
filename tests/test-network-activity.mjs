@@ -74,4 +74,68 @@ assert.ok(xhrEvents.some(event => event.active[0]?.loaded === 2 && event.active[
   "XHR-backed Package transfers must expose live byte progress without wrapping a fetch stream");
 assert.equal(xhrTracker.activeCount, 0);
 
+let fallbackFetchCalls = 0;
+const fallbackFetch = async () => {
+  fallbackFetchCalls++;
+  return new Response(new Uint8Array([9, 8, 7]), {
+    status: 200,
+    headers: { "content-length": "3" },
+  });
+};
+class NetworkErrorXhr extends FakeXhr {
+  send() { this.onerror?.(); }
+}
+const fallbackTracker = createNetworkActivityTracker({
+  fetchImpl: fallbackFetch,
+  xhrFactory: () => new NetworkErrorXhr(),
+});
+const fallbackResponse = await fallbackTracker.xhrFetch("https://example.test/large.bin", {}, { label: "PACKAGE FALLBACK" });
+assert.deepEqual([...new Uint8Array(await fallbackResponse.arrayBuffer())], [9, 8, 7]);
+assert.equal(fallbackFetchCalls, 1,
+  "an XHR transport failure must retry once through native fetch");
+assert.equal(fallbackTracker.activeCount, 0);
+
+let statusZeroFetchCalls = 0;
+class StatusZeroXhr extends FakeXhr {
+  send() {
+    this.status = 0;
+    this.statusText = "";
+    this.response = new Blob([]);
+    this.onload?.();
+  }
+}
+const statusZeroTracker = createNetworkActivityTracker({
+  fetchImpl: async () => {
+    statusZeroFetchCalls++;
+    return new Response(new Uint8Array([6, 5, 4]), {
+      status: 200,
+      headers: { "content-length": "3" },
+    });
+  },
+  xhrFactory: () => new StatusZeroXhr(),
+});
+const statusZeroResponse = await statusZeroTracker.xhrFetch("https://example.test/status-zero.bin");
+assert.deepEqual([...new Uint8Array(await statusZeroResponse.arrayBuffer())], [6, 5, 4]);
+assert.equal(statusZeroFetchCalls, 1,
+  "XHR onload with status 0 must retry once through native fetch");
+assert.equal(statusZeroTracker.activeCount, 0);
+
+let abortedFallbackFetchCalls = 0;
+const abortedController = new AbortController();
+abortedController.abort();
+const abortedTracker = createNetworkActivityTracker({
+  fetchImpl: async () => {
+    abortedFallbackFetchCalls++;
+    return new Response();
+  },
+  xhrFactory: () => new NetworkErrorXhr(),
+});
+await assert.rejects(
+  () => abortedTracker.xhrFetch("https://example.test/cancelled.bin", { signal: abortedController.signal }),
+  error => error?.name === "AbortError",
+);
+assert.equal(abortedFallbackFetchCalls, 0,
+  "a user-aborted Package transfer must never be retried through fetch");
+assert.equal(abortedTracker.activeCount, 0);
+
 console.log("Network activity contract: PASS");

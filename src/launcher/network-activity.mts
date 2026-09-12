@@ -236,6 +236,25 @@ export function createNetworkActivityTracker({
         finish(id);
         reject(error);
       };
+      const fallbackToFetch = (error: unknown) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        finish(id);
+        if (signal?.aborted) {
+          reject(abortError());
+          return;
+        }
+        // XHR is used here only to expose live byte progress for large Package
+        // downloads. Some Chromium/network-stack combinations can report a
+        // transport-level status-0/net::ERR_FAILED for a large blob XHR even
+        // though the same resource is readable through native fetch. Preserve
+        // XHR as the preferred progress path, but retry that narrow transport
+        // failure once through the already-supported native Response path.
+        void trackedFetch(input, init, meta).then(resolvePromise, fallbackError => {
+          reject(fallbackError instanceof Error ? fallbackError : error);
+        });
+      };
       const abort = () => {
         try { xhr.abort(); } catch {}
         fail(abortError());
@@ -257,11 +276,15 @@ export function createNetworkActivityTracker({
           loaded: event.loaded,
           total: event.lengthComputable ? event.total : 0,
         });
-        xhr.onerror = () => fail(new TypeError(`${url}: network request failed`));
-        xhr.ontimeout = () => fail(new TypeError(`${url}: network request timed out`));
+        xhr.onerror = () => fallbackToFetch(new TypeError(`${url}: network request failed`));
+        xhr.ontimeout = () => fallbackToFetch(new TypeError(`${url}: network request timed out`));
         xhr.onabort = () => fail(abortError());
         xhr.onload = () => {
           if (settled) return;
+          if (xhr.status === 0) {
+            fallbackToFetch(new TypeError(`${url}: network request returned status 0`));
+            return;
+          }
           settled = true;
           cleanup();
           const blob = method === "HEAD" ? null : xhr.response instanceof Blob ? xhr.response : null;

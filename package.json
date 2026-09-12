@@ -9,7 +9,7 @@
     "type": "git",
     "url": "git+https://github.com/YomotsuHisami/eagler-touhou.git"
   },
-  "homepage": "https://github.com/YomotsuHisami/eagler-touhou#readme",
+  "homepage": "https://touhou.vip/",
   "bugs": {
     "url": "https://github.com/YomotsuHisami/eagler-touhou/issues"
   },
@@ -61,6 +61,7 @@
     "test:browserstack:ios": "node tests/browser/test-playwright-webkit-gate.mjs --require-browserstack",
     "test:import-update:browser": "python tests/browser/test-import-update.py",
     "test:card-filter:browser": "python tests/test-card-filter-browser.py",
+    "test:test-build-cards:browser": "node tests/test-test-build-cards-browser.mjs",
     "test:legacy-package:browser": "python tests/test-legacy-package-app-runtime-browser.py",
     "test:offline-reload:browser": "python tests/test-offline-reload-browser.py",
     "test:legacy-mount-retirement:browser": "python tests/test-legacy-mount-retirement-browser.py",

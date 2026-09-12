@@ -39,6 +39,18 @@ checks belong in `tools/maintainer/`, not here. Fixed screenshots, local CDP
 profiles, one-machine timings and investigation transcripts are evidence for a
 specific run and should be stored outside the public source tree.
 
+Python browser lanes use the version pinned in `requirements-browser.txt`:
+
+```powershell
+python -m pip install -r tests/requirements-browser.txt
+python -m playwright install chromium webkit
+```
+
+Install Firefox only for a lane that explicitly requests it. Node browser
+lanes use the repository's locked `puppeteer-core` and discover Chrome or Edge
+through `EAGLER_CHROME_PATH` or standard installation locations. Neither set
+of browser dependencies belongs in the default repository gate.
+
 `npm run test:legacy-mount-retirement:browser` is hermetic. It installs a
 cache-first Worker at the former `/eagler-touhou/` scope, switches the server
 to the retirement Worker, and verifies that a controlled legacy page reaches

@@ -56,6 +56,24 @@ The External packager first verifies the Hosted source. It copies Package
 Descriptors and their revisions from that source rather than reconstructing
 resource identities from another directory.
 
+Do not rebuild a reduced Hosted source merely to give the External site a
+different Relay URL or origin-migration setting. Relay and migration are
+deployment-owned metadata; Package DATA, music, languages, and descriptors are
+content-generation metadata. Mixing an External manifest from one generation
+with `/games/**` or `/shared/**` redirects to a different Hosted generation is
+unsupported even when the base DATA bytes happen to match.
+
+Project maintainers who must re-derive an External deployment from an existing
+published Hosted Package generation should use
+`tools/maintainer/recover-external-site.mjs`; see
+`tools/maintainer/EXTERNAL_RECOVERY_LANE.md`. That maintainer-only recovery lane
+emits `web-validation-*` artifacts and is **not** a formal Release entrypoint;
+formal candidates remain owned by [`RELEASE.md`](RELEASE.md) and `npm run
+release`. The recovery lane permits explicit
+deployment-owned overrides while requiring the derived site to retain the
+selected Hosted generation's Package pointers, descriptors, music/language
+capabilities, and content identity.
+
 Verify both artifacts before upload:
 
 ```powershell

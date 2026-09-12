@@ -3,12 +3,13 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parsePackageZip } from "../package/package-zip.mjs";
 
 const root = await mkdtemp(join(tmpdir(), "eagler-offline-publication-"));
+try {
 const payload = Buffer.from("content");
 const identity = { bytes: payload.length, sha256: createHash("sha256").update(payload).digest("hex") };
 const descriptor = {
@@ -43,4 +44,7 @@ assert.equal(await changed.files.get("entry").blob.text(), "changed");
 assert.equal(changed.descriptor.files.entry.bytes, 7);
 assert.equal(changed.descriptor.files.entry.sha256, createHash("sha256").update("changed").digest("hex"));
 assert.notEqual(changed.descriptor.revision, descriptor.revision);
+} finally {
+  await rm(root, { recursive: true, force: true });
+}
 console.log("Offline publication input identity: PASS");

@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { cp, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 import { retargetStaticThcrapPack } from "../server/thcrap-static-pack.mjs";
 import {
   PACKAGE_DESCRIPTOR_SCHEMA,
@@ -20,7 +21,7 @@ import { assemblePreloadData } from "../lib/preload-data-assembler.mjs";
 import { assertRuntimeDataShell } from "../lib/runtime-data-provider.mjs";
 import { buildAppShell } from "../lib/app-shell-build.mjs";
 import { deploymentAppShellPatterns } from "../lib/app-shell-policy.mjs";
-import { sourceIdentity, writeReleaseManifest, fileSetIdentity } from "../lib/release-manifest.mjs";
+import { sourceIdentity, verifyReleaseManifest, writeReleaseManifest, fileSetIdentity } from "../lib/release-manifest.mjs";
 import { verifyRuntimeRelease, runtimeFileNames } from "../lib/runtime-release.mjs";
 import { PRODUCT_CONTENT } from "../lib/content-definition.mjs";
 import { WORKSPACE_REPOSITORIES, workspacePath, workspaceRoot } from "../lib/workspace-layout.mjs";
@@ -45,6 +46,10 @@ if (output === project || output === workspace || output === resolve(output, "..
 }
 const featureConfigPath = args["feature-config"] ? resolve(args["feature-config"]) : null;
 const configuredFeatures = featureConfigPath ? JSON.parse(await readFile(featureConfigPath, "utf8")) : null;
+const externalRecoveryContextPath = args["external-recovery-context"] ? resolve(args["external-recovery-context"]) : null;
+const externalRecoveryRequest = externalRecoveryContextPath
+  ? JSON.parse(await readFile(externalRecoveryContextPath, "utf8"))
+  : null;
 if (configuredFeatures && (configuredFeatures.schema !== "eagler-touhou/server-features/1" ||
     !configuredFeatures.games || typeof configuredFeatures.games !== "object")) {
   throw new Error(`invalid server feature config: ${featureConfigPath}`);
@@ -67,6 +72,25 @@ const languageGames = gameIds.filter(game => PRODUCT_GAMES[game].features.langua
 const preloadGames = gameIds.filter(game => PRODUCT_GAMES[game].dataProvider === "emscripten-preload");
 const runtimeReleaseRoot = args["runtime-release"] ? resolve(args["runtime-release"]) : null;
 const runtimeRelease = runtimeReleaseRoot ? await verifyRuntimeRelease(runtimeReleaseRoot) : null;
+if (externalRecoveryRequest) {
+  const requested = externalRecoveryRequest.requestedOverrides;
+  const requestedKeys = requested && typeof requested === "object" && !Array.isArray(requested)
+    ? Object.keys(requested).sort()
+    : [];
+  if (externalRecoveryRequest.schema !== "eagler-touhou/external-recovery-request/1" ||
+      requestedKeys.join(",") !== "netplayRelay,originMigration,testBuild" ||
+      typeof requested.netplayRelay !== "string" ||
+      typeof requested.originMigration !== "string" ||
+      !["0", "1"].includes(requested.testBuild)) {
+    throw new Error(`invalid External recovery context: ${externalRecoveryContextPath}`);
+  }
+  if (!externalResources || !/^web-validation-/.test(buildProfile)) {
+    throw new Error("External recovery provenance is restricted to web-validation-* external packaging");
+  }
+  if (!runtimeReleaseRoot) {
+    throw new Error("External recovery provenance requires --runtime-release=PATH");
+  }
+}
 if (runtimeReleaseRoot && gameIds.some(game => args[`${game}-build`] || args[`${game}-multiplayer-build`])) {
   throw new Error("--runtime-release cannot be mixed with per-game Runtime build directories");
 }
@@ -317,6 +341,25 @@ async function walk(directory, files = []) {
   return files;
 }
 
+function resolveRecoveryRelay(value, inherited) {
+  if (value === "inherit") return inherited || null;
+  if (["none", "disable"].includes(value)) return null;
+  let url;
+  try { url = new URL(value); }
+  catch { throw new Error("External recovery netplayRelay request must be inherit, none/disable, or a valid ws:// / wss:// URL"); }
+  if (!/^wss?:$/.test(url.protocol) || url.username || url.password || url.hash) {
+    throw new Error("External recovery netplayRelay request must be a plain ws:// or wss:// URL without credentials or fragment");
+  }
+  return url.href;
+}
+
+function resolveRecoveryOriginMigration(value, inherited) {
+  if (value === "inherit") return inherited || null;
+  if (["none", "disable"].includes(value)) return null;
+  if (value === "http-to-https") return { mode: "http-to-https" };
+  throw new Error("External recovery originMigration request must be inherit, none/disable, or http-to-https");
+}
+
 await mkdir(temporaryRoot, { recursive: true });
 await rm(staging, { recursive: true, force: true });
 try {
@@ -340,6 +383,40 @@ if (manifest.profile === "web-development") {
 assertProductEntriesRegistered(manifest.games, "Host Manifest games");
 if (gameIds.some(game => !manifest.games[game])) {
   throw new Error(`Host Manifest is missing selected adapters: ${hostManifestPath || "generated publication Host seed"}`);
+}
+let externalRecoveryProvenance = null;
+if (externalRecoveryRequest) {
+  const sourceRoot = dirname(hostManifestPath);
+  if (resolve(sourceRoot, HOST_MANIFEST_FILE) !== hostManifestPath) {
+    throw new Error("External recovery provenance requires the Hosted root host-manifest.json");
+  }
+  const sourceRelease = await verifyReleaseManifest(sourceRoot);
+  const sourceDeployment = JSON.parse(await readFile(resolve(sourceRoot, "deployment.json"), "utf8"));
+  if (sourceDeployment?.format !== "eagler-touhou-deployment/1" ||
+      sourceDeployment.resourceMode !== RESOURCE_MODE_HOSTED) {
+    throw new Error("External recovery provenance requires an integrity-verified Hosted deployment");
+  }
+  const requested = externalRecoveryRequest.requestedOverrides;
+  const expectedRelay = resolveRecoveryRelay(requested.netplayRelay, manifest.shared.netplayRelay);
+  const expectedOriginMigration = resolveRecoveryOriginMigration(requested.originMigration, manifest.shared.originMigration);
+  if ((serverNetplayRelay || null) !== expectedRelay ||
+      !isDeepStrictEqual(configuredFeatures?.originMigration || null, expectedOriginMigration) ||
+      (args["test-build"] || "0") !== requested.testBuild) {
+    throw new Error("External recovery requested overrides do not match the effective packaging inputs");
+  }
+  const runtimeManifestBytes = await readFile(resolve(runtimeReleaseRoot, "runtime-release.json"));
+  externalRecoveryProvenance = {
+    schema: "eagler-touhou/external-recovery-context/1",
+    sourceHostedReleaseId: sourceRelease.releaseId,
+    runtimeReleaseManifestSha256: createHash("sha256").update(runtimeManifestBytes).digest("hex"),
+    games: gameIds,
+    requestedOverrides: requested,
+    effectiveDeployment: {
+      netplayRelay: expectedRelay,
+      originMigration: expectedOriginMigration,
+      testBuild,
+    },
+  };
 }
 manifest.games = selectProductEntries(manifest.games, gameIds);
 manifest.schema = HOST_MANIFEST_SCHEMA;
@@ -835,7 +912,8 @@ await writeReleaseManifest(staging, {
   profile: buildProfile,
   sources,
   parameters: { authority: buildAuthority, resourceMode: serverResourceMode, music: deployment.music,
-    runtimeBuildProvenance: "not-verified-by-packager" },
+    runtimeBuildProvenance: externalRecoveryProvenance ? "verified-runtime-release" : "not-verified-by-packager",
+    ...(externalRecoveryProvenance ? { externalRecovery: externalRecoveryProvenance } : {}) },
 });
 await rm(output, { recursive: true, force: true });
 await rename(staging, output);

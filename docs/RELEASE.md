@@ -22,6 +22,15 @@ non-test product in canonical order and explicitly provides:
 - an explicit music mode;
 - font, language-pack, or custom artwork inputs when required.
 
+Copy [`tools/maintainer/release-input.example.json`](../tools/maintainer/release-input.example.json)
+next to the paths it will reference, then replace its relative placeholders.
+The committed template deliberately contains no private resource location,
+credential, server address, or output path. Optional `prepare` fields are
+`Th06LanguagePacks`, `Th07LanguagePacks`, `ArtworkDirectory`, `FontFile`, and
+`VanillaFontFile`; the optional top-level `gameDataFallback` contains an HTTPS
+`url` and an optional user-facing `hint`. The release owner always supplies
+the output directory from the command line.
+
 The formal entrypoint does not accept `Th08Build`, Emscripten, CMake, or Ninja. Runtime compilation belongs to the Runtime Release producer, not the site release.
 
 `tools/maintainer/assemble-site.ps1` is the low-level maintainer implementation currently reused by `npm run release`. It is neither the ordinary self-host CLI nor a server deployment interface. Ordinary operators must not depend directly on its PowerShell parameter shape.
@@ -49,6 +58,11 @@ npm run verify:release -- D:\Releases\candidate
 ```
 
 This checks the Release Manifest and checksums, fixed output layout, Package Descriptors, offline ZIPs, and completion report. It does not replace real-browser or human acceptance.
+
+After verification, generate public GitHub Release assets from that exact
+candidate with `tools/maintainer/build-github-release-assets.ps1`. Do not use
+an unrelated Runtime directory or a manually typed version as a second release
+authority; see [`tools/maintainer/PUBLIC_RELEASE_ASSETS.md`](../tools/maintainer/PUBLIC_RELEASE_ASSETS.md).
 
 A Runtime Release may contain only distributable project HTML, JavaScript, WebAssembly, and declarative layout metadata. It must not contain `.data`, original `.dat` files, original music, card artwork or icons extracted from the original games, or user data. Game Runtime source provenance belongs to the Runtime Release producer; the site release records only Launcher-side provenance.
 

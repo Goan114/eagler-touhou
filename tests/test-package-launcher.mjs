@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
-import { desiredFilesForPublishedPackage, installedComponentIds } from "../package/package-launcher.mjs";
+import {
+  canUseExistingInstallationAfterRemoteFailure,
+  desiredFilesForPublishedPackage,
+  installedComponentIds,
+} from "../package/package-launcher.mjs";
 
 const descriptor = {
   schema: "eagler-touhou/package/1",
@@ -70,4 +74,17 @@ const currentWithBothOgg = {
 };
 assert.deepEqual(desiredFilesForPublishedPackage(descriptorWithoutO2, { current: currentWithBothOgg }), ["html", "js", "wasm", "data", "o1", "zh"],
   "files removed by the new Descriptor are intentionally dropped instead of being fetched or treated as update failures");
+
+assert.equal(canUseExistingInstallationAfterRemoteFailure({
+  hostManifestAvailable: true,
+  installedGeneration: { id: "current" },
+}), true, "a remote failure may fall back only when a current local generation exists");
+for (const fallbackState of [
+  { hostManifestAvailable: false, installedGeneration: { id: "current" } },
+  { hostManifestAvailable: true, installedGeneration: null },
+  { hostManifestAvailable: false, installedGeneration: null },
+]) {
+  assert.equal(canUseExistingInstallationAfterRemoteFailure(fallbackState), false,
+    "a first-install or unavailable Host Manifest must not claim that an existing installation will be used");
+}
 console.log("Package Launcher policy contract: PASS (fetch cancellation is Browser-owned)");

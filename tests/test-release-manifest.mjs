@@ -3,7 +3,7 @@
  * identity, inventory and checksum tampering fails. Not source-build proof. */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { writeReleaseManifest, verifyReleaseManifest, fileSetIdentity } from "../lib/release-manifest.mjs";
@@ -16,6 +16,7 @@ assert.throws(() => fileSetIdentity(["track.ogg", "track.ogg"], [track, track]),
 assert.throws(() => fileSetIdentity(["track.ogg"], [{ ...track, bytes: 0 }]), /invalid content identity/);
 
 const root = await mkdtemp(join(tmpdir(), "eagler-release-manifest-"));
+try {
 const payload = Buffer.from("release fixture");
 await writeFile(join(root, "runtime.wasm"), payload);
 const deployment = {
@@ -46,4 +47,7 @@ for (const [name, replacement, pattern] of [
   await writeFile(join(root, name), original);
 }
 assert.equal((await verifyReleaseManifest(root)).releaseId, manifest.releaseId);
-console.log(`Release manifest L2: PASS (four tamper cases; fixture ${root})`);
+} finally {
+  await rm(root, { recursive: true, force: true });
+}
+console.log("Release manifest L2: PASS (four tamper cases; fixture cleaned)");

@@ -1,8 +1,9 @@
 // Browser acceptance for build-gated cards using real compiled Launcher modules.
 import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
-import {readFile,stat,writeFile,mkdir} from 'node:fs/promises';
-const {chromium}=await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
+import {readFile,stat} from 'node:fs/promises';
+import puppeteer from 'puppeteer-core';
+import {findChromiumExecutable} from '../lib/chromium-executable.mjs';
 import {FRONTEND_PACKAGE_FILES,resolveFrontendPackageSource} from '../lib/frontend-manifest.mjs';
 import {PRODUCT_GAMES} from '../lib/contracts/product-catalog.mjs';
 const files=new Map(FRONTEND_PACKAGE_FILES.map(name=>['/'+name,resolveFrontendPackageSource(name)]));
@@ -29,25 +30,31 @@ const server=createServer(async(req,res)=>{
 await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 const url=`http://127.0.0.1:${server.address().port}/`,checks=[],errors=[];let browser;
 try{
-  browser=await chromium.launch({channel:'msedge',headless:true});
+  browser=await puppeteer.launch({
+    executablePath:await findChromiumExecutable(),
+    headless:true,
+    args:['--disable-extensions','--no-first-run','--no-default-browser-check'],
+  });
   for(const scenario of [{name:'production',flag:false},{name:'test',flag:true},{name:'missing',flag:undefined},{name:'invalid-string',flag:'true'},{name:'metadata-failure',failure:true}]){
     flag=scenario.flag;metadataFailure=!!scenario.failure;
-    const context=await browser.newContext({serviceWorkers:'block',reducedMotion:'reduce'}),page=await context.newPage();
+    const context=await browser.createBrowserContext(),page=await context.newPage();
+    await page.setBypassServiceWorker(true);
+    await page.emulateMediaFeatures([{name:'prefers-reduced-motion',value:'reduce'}]);
     page.on('pageerror',error=>errors.push(String(error)));
     await page.goto(url+'?debug=card-gate&game=th10');
     await page.waitForFunction(()=>document.querySelector('.game[data-game=th06]').hasAttribute('aria-current'));
     if(flag===true)await page.waitForFunction(()=>!document.querySelector('.game[data-game=th10]').hidden);
     const expected=flag===true?['th06','th06mp','th07','th07mp','th08','th10']:['th06','th06mp','th07','th07mp','th08'];
-    const visible=()=>page.locator('.game:not([hidden])').evaluateAll(cards=>cards.map(c=>c.dataset.product||c.dataset.game).sort());
+    const visible=()=>page.$$eval('.game:not([hidden])',cards=>cards.map(c=>c.dataset.product||c.dataset.game).sort());
     assert.deepEqual(await visible(),expected);
     for(const game of ['th10']){
-      await page.locator(`.game[data-game=${game}]`).evaluate(card=>card.click());
-      assert.equal(await page.locator('.tools').getAttribute('aria-hidden'),String(flag!==true));
+      await page.$eval(`.game[data-game=${game}]`,card=>card.click());
+      assert.equal(await page.$eval('.tools',element=>element.getAttribute('aria-hidden')),String(flag!==true));
     }
-    await page.locator('.game[data-game=th08]').evaluate(card=>card.click());
-    assert.equal(await page.locator('.tools').getAttribute('aria-hidden'),'false');
-    assert.equal(await page.locator('#gameId').textContent(),'TH08');
-    await page.locator('[data-card-filter=original]').evaluate(button=>button.click());
+    await page.$eval('.game[data-game=th08]',card=>card.click());
+    assert.equal(await page.$eval('.tools',element=>element.getAttribute('aria-hidden')),'false');
+    assert.equal(await page.$eval('#gameId',element=>element.textContent),'TH08');
+    await page.$eval('[data-card-filter=original]',button=>button.click());
     await page.waitForFunction(()=>!document.querySelector('#main').classList.contains('card-filter-motion'));
     assert.deepEqual(await visible(),expected.filter(p=>!p.endsWith('mp')));
     await page.reload();await page.waitForFunction(()=>document.querySelector('.game[data-game=th06]').hasAttribute('aria-current'));
@@ -55,10 +62,10 @@ try{
     assert.deepEqual(await visible(),expected.filter(p=>!p.endsWith('mp')));
     checks.push(scenario.name+': ordinary TH08 selection, TH10 visibility, direct route, hidden click, category and reload');await context.close();
   }
-  const context=await browser.newContext({javaScriptEnabled:false}),page=await context.newPage();await page.goto(url);
-  assert.equal(await page.locator('.game[data-game=th08]').isVisible(),true);assert.equal(await page.locator('.game[data-game=th10]').isVisible(),false);
+  const context=await browser.createBrowserContext(),page=await context.newPage();await page.setJavaScriptEnabled(false);await page.goto(url);
+  const visible=selector=>page.$eval(selector,element=>!element.hidden&&element.getBoundingClientRect().width>0&&element.getBoundingClientRect().height>0);
+  assert.equal(await visible('.game[data-game=th08]'),true);assert.equal(await visible('.game[data-game=th10]'),false);
   checks.push('static HTML keeps ordinary TH08 visible and hides TH10 before JavaScript');await context.close();
   assert.deepEqual(errors,[]);
-  await mkdir('.cache/validation/test-build-cards-20260910',{recursive:true});
-  await writeFile('.cache/validation/test-build-cards-20260910/browser.json',JSON.stringify({ok:true,checks,errors},null,2));console.log(JSON.stringify({ok:true,checks,errors},null,2));
+  console.log(JSON.stringify({ok:true,checks,errors},null,2));
 }finally{await browser?.close();await new Promise(resolve=>{server.close(resolve);server.closeAllConnections();});}

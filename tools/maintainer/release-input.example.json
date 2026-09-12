@@ -1,0 +1,14 @@
+{
+  "schema": "eagler-touhou/release-input/1",
+  "prepare": {
+    "RuntimeRelease": "runtime-release",
+    "FeatureConfig": "features.json",
+    "Th06Directory": "original/th06",
+    "Th07Directory": "original/th07",
+    "Th08Directory": "original/th08",
+    "Music": [
+      "midi",
+      "ogg"
+    ]
+  }
+}
