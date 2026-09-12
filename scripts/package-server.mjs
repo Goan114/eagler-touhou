@@ -948,7 +948,7 @@ await writeReleaseManifest(staging, {
   profile: buildProfile,
   sources,
   parameters: { authority: buildAuthority, resourceMode: serverResourceMode, music: deployment.music,
-    runtimeBuildProvenance: externalRecoveryProvenance ? "verified-runtime-release" : "not-verified-by-packager",
+    runtimeBuildProvenance: runtimeRelease ? "verified-runtime-release" : "not-verified-by-packager",
     ...(externalRecoveryProvenance ? { externalRecovery: externalRecoveryProvenance } : {}) },
 });
 await rm(output, { recursive: true, force: true });
