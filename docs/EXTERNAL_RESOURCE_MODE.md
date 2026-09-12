@@ -60,6 +60,25 @@ Current generators publish language archives at stable per-game paths. The
 manifest SHA-256 is appended by the Launcher as `v`, separating cache identity
 from the operator-facing file name.
 
+### Migrating historical language URLs
+
+When an existing resource origin still serves content-addressed historical
+language filenames, migrate them during its next normal asset update rather
+than creating a Launcher-side path adapter:
+
+1. upload the same verified archive bytes at the new stable
+   `games/thXX/language/lang_*.zip` path;
+2. verify the stable URL's bytes and CORS response before publishing Package
+   Descriptors that reference it; and
+3. retain the old immutable URL only as a bounded server-side fallback for
+   already-published descriptors.
+
+New generators, catalogs, and descriptors must never emit the historical
+layout. Remove the old resource-origin objects after the minimum supported
+Launcher baseline no longer references their descriptor generation and at
+least one normal asset-update cycle has elapsed. The fallback therefore has a
+retirement condition without becoming a second repository contract.
+
 Do not rebuild a reduced Hosted source merely to give the External site a
 different Relay URL or origin-migration setting. Relay and migration are
 deployment-owned metadata; Package DATA, music, languages, and descriptors are
