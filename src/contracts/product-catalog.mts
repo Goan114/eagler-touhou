@@ -372,6 +372,7 @@ export const PRODUCT_GAMES = Object.freeze({
       musicMounts: Object.freeze({ ogg: "/music" }),
     }),
     replay: Object.freeze({ prefix: "th11" }),
+    thpracTouchExtraKeys: Object.freeze(["U"]),
     features: Object.freeze({ thprac: true, languages: true, focusHitbox: false }),
   }),
   th15: Object.freeze({
@@ -425,6 +426,7 @@ export const PRODUCT_GAMES = Object.freeze({
       musicMounts: Object.freeze({ ogg: "/music" }),
     }),
     replay: Object.freeze({ prefix: "th15" }),
+    thpracTouchExtraKeys: Object.freeze(["U"]),
     features: Object.freeze({ thprac: true, languages: true, focusHitbox: false }),
   }),
   th20: Object.freeze({
