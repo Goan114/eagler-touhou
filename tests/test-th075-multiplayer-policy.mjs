@@ -1,3 +1,5 @@
+/** L3/module. Preconditions: compiled product contracts. Mutations: none.
+ * Proves: TH075 two-seat pure-delay policy, spell bounds and spectator wire identity. */
 import assert from 'node:assert/strict';
 import {PRODUCT_GAMES} from '../lib/contracts/product-catalog.mjs';
 import {isSpectatorFrameForRoom} from '../server/spectator-frame.mjs';
