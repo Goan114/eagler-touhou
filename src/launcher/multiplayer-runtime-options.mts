@@ -118,9 +118,10 @@ export function buildMultiplayerRuntimeOptions(
   });
   if (loadouts.length !== playerCount) throw new Error('LAN 机体配置数量不足');
 
+  const th075 = product === multiplayerConfigForProduct('th075mp');
   const th11 = product === multiplayerConfigForProduct('th11mp');
   const timingPolicy = multiplayerInputTimingPolicy(product);
-  const requestedMode = input.adonisMode ?? (!timingPolicy.rollback || th11 ? 1 : 0);
+  const requestedMode = input.adonisMode ?? (!timingPolicy.rollback || th11 || th075 ? 1 : 0);
   const rollback = timingPolicy.rollback && [0, 2].includes(requestedMode);
   const adonisMode = rollback ? 0 : requestedMode;
   const measuredTitle = timingPolicy.measuredStartup;
@@ -182,18 +183,18 @@ export function buildMultiplayerRuntimeOptions(
                 : 0,
         }
       : {}),
-    ...(input.adonisMode !== undefined || th11 || !timingPolicy.rollback ? { netplayAdonisMode: adonisMode } : {}),
-    ...(th11 && rollback ? { netplayInputDelayAuto: false } : {}),
+    ...(input.adonisMode !== undefined || th11 || th075 || !timingPolicy.rollback ? { netplayAdonisMode: adonisMode } : {}),
+    ...((th11 && rollback) || th075 ? { netplayInputDelayAuto: false } : {}),
     ...(measuredTitle && adonisMode
       ? {
           netplayInputDelayAuto: input.inputDelayAuto ?? false,
           netplayPredictionReserve: input.predictionReserve ?? 2,
         }
       : {}),
-    ...(!timingPolicy.rollback || input.predictionLimit !== undefined || th11
+    ...(!timingPolicy.rollback || input.predictionLimit !== undefined || th11 || th075
       ? {
           netplayPredictionLimit:
-            !timingPolicy.rollback || (th11 && adonisMode === 1)
+            !timingPolicy.rollback || ((th11 || th075) && adonisMode === 1)
               ? 0
               : typeof input.predictionLimit === 'number' &&
                   Number.isInteger(input.predictionLimit) &&

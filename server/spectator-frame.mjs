@@ -9,9 +9,11 @@ export function isSpectatorFrameForRoom(roomId, payload, playerCount) {
   if(protocol!==undefined&&timingPolicy.measuredStartup&&policy.playerCounts.includes(playerCount)&&payload?.length===40&&
      payload[0]===69&&payload[1]===protocol&&payload[2]===84&&payload[3]===77&&payload[4]===1){
     if (!timingPolicy.rollback && (payload[5] !== 1 || payload[7] !== 0)) return false;
+    const direct=product==='th075mp'&&payload[5]===0;
+    if(product==='th075mp'&&(payload[5]>1||(direct&&(payload[7]<1||payload[7]>timingPolicy.predictionLimit))))return false;
     const v=new DataView(payload.buffer,payload.byteOffset,payload.byteLength),automatic=v.getUint32(32,true);
     return automatic<=1&&!!parseMeasuredNetplayTiming({phase:'ready',automatic:!!automatic,adonisMode:payload[5],
-      inputDelay:payload[6],predictionReserve:payload[7],fullDelay:v.getUint32(8,true),rttP95Us:v.getUint32(24,true),
+      inputDelay:payload[6],predictionReserve:direct?0:payload[7],fullDelay:v.getUint32(8,true),rttP95Us:v.getUint32(24,true),
       lost:v.getUint32(28,true),samples:v.getUint32(36,true),route:'spectator'});
   }
   if(roomId.startsWith('th09mp-') && playerCount===2 && payload?.length===40 &&

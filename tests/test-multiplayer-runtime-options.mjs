@@ -126,4 +126,4 @@ assert.equal(duelOptions.netplayAdonisMode,1);
 assert.equal(duelOptions.netplayPredictionLimit,0);
 assert.equal(duelOptions.netplayInputDelay,2);
 assert.deepEqual(duelOptions.netplayLoadouts,duel.loadouts);
-for(const adonisMode of [0,2])assert.throws(()=>buildMultiplayerRuntimeOptions({...duel,adonisMode},fighting));
+for(const adonisMode of [0,2]){const rollback=buildMultiplayerRuntimeOptions({...duel,adonisMode},fighting);assert.equal(rollback.netplayAdonisMode,0);assert.equal(rollback.netplayPredictionLimit,8);assert.equal(rollback.netplayInputDelay,0);assert.equal(rollback.netplayInputDelayAuto,false);}

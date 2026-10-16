@@ -200,7 +200,7 @@ export const PRODUCT_GAMES = Object.freeze({
     multiplayerRuntime: "./runtime/th075/multiplayer/th075.html",
     multiplayer: Object.freeze({
       titleKey:"game.title.th075mp", gameplay:"versus",
-      inputTiming:Object.freeze({rollbackLimit:0,measuredStartup:true,manualDelayLimit:9}),
+      inputTiming:Object.freeze({rollbackLimit:8,sendPredictionLimit:8,rollbackDefault:false,measuredStartup:true,manualDelayLimit:9}),
       playerCounts:Object.freeze([2] as const), difficulties:TH09_MULTIPLAYER_DIFFICULTIES,
       loadouts:TH075_MULTIPLAYER_LOADOUTS, peerTransportGlobal:"__th075PeerTransport",
       loadoutFields:Object.freeze([
@@ -555,6 +555,8 @@ export interface MultiplayerLoadoutConfig {
 export interface MultiplayerInputTimingConfig {
   /** Zero permits confirmed input only: no prediction, rollback or hybrid mode. */
   rollbackLimit: number;
+  /** Preserve a title's existing delay default while exposing an opt-in. */
+  rollbackDefault?: boolean;
   sendPredictionLimit?: number;
   measuredStartup?: boolean;
   manualDelayLimit?: number;
@@ -579,6 +581,7 @@ export function multiplayerInputTimingPolicy(product: Pick<MultiplayerProductCon
   return {
     measuredStartup,
     rollback,
+    rollbackDefault: rollback && timing?.rollbackDefault !== false,
     manualDelayLimit: timing?.manualDelayLimit ?? (measuredStartup ? 9 : 8),
     predictionLimit: rollback ? timing?.sendPredictionLimit ?? 8 : 0,
   };

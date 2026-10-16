@@ -680,7 +680,7 @@ export function createMultiplayerRoom(ports: MultiplayerRoomPorts) {
     state.spectatorRequested = spectatorEntry || !!saved?.spectatorRequested;
     state.roomSettingsOpen = !!saved?.roomSettingsOpen;
     state.timingChoice = 'auto';
-    state.rollbackEnabled = multiplayerInputTimingPolicy(config).rollback;
+    state.rollbackEnabled = multiplayerInputTimingPolicy(config).rollbackDefault;
     ports.routes.restore({ product: restoredProduct, code, fromDirectory: state.fromDirectory });
     publish();
     connect();
@@ -697,7 +697,7 @@ export function createMultiplayerRoom(ports: MultiplayerRoomPorts) {
     autoSeat = false;
     state.fromDirectory = false;
     state.timingChoice = 'auto';
-    state.rollbackEnabled = multiplayerInputTimingPolicy(policy()).rollback;
+    state.rollbackEnabled = multiplayerInputTimingPolicy(policy()).rollbackDefault;
     room = {
       code,
       playerCount: policy()!.playerCounts[0],

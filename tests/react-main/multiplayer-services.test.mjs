@@ -586,3 +586,15 @@ test('TH09 directory admits full and starting rooms before spectator history is 
       seats:[{initial:'A',online:true},{initial:'B',online:true}]}),true,phase);
   }
 });
+
+
+test('TH075 retains delay by default and offers bounded D0/P8 rollback with identical character/spell indices',async()=>{
+ const f=roomFixture();f.service.enterRoom('th075mp','1234',true);await flush();assert.equal(f.service.getSnapshot().rollbackEnabled,false);
+ const socket=f.sockets[0];socket.open();const id=f.identity.lobbyClientId('th075mp');
+ const seats=[{clientId:id,name:'A',loadout:98,ready:true},{clientId:'guest12345',name:'B',loadout:4,ready:true}];
+ socket.message({type:'state',room:roomState(id,{seats,predictionLimit:8,adonisMode:1})});
+ f.service.setRollbackEnabled(true);f.service.start();const start=socket.sent.findLast(m=>m.type==='start');assert.equal(start.adonisMode,0);assert.equal(start.predictionLimit,8);assert.equal(start.inputDelay,0);
+ socket.message({type:'state',room:roomState(id,{seats,phase:'running',predictionLimit:8,adonisMode:0,inputDelay:0,inputDelayAuto:false})});
+ const options=f.service.runtimeOptions();assert.equal(options.netplayAdonisMode,0);assert.equal(options.netplayPredictionLimit,8);assert.equal(options.netplayInputDelayAuto,false);assert.deepEqual(options.netplayLoadouts,[{character:10,shot:8},{character:0,shot:4}]);f.service.dispose();
+ const restored=roomFixture();assert.equal(restored.service.restoreInvite('https://launcher.invalid/?j='+fOwnerInvite('th075mp'),'th075mp'),true);assert.equal(restored.service.getSnapshot().rollbackEnabled,false);restored.service.dispose();
+});
