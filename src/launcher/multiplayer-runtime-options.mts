@@ -119,8 +119,8 @@ export function buildMultiplayerRuntimeOptions(
   if (loadouts.length !== playerCount) throw new Error('LAN 机体配置数量不足');
 
   const th11 = product === multiplayerConfigForProduct('th11mp');
-  const requestedMode = input.adonisMode ?? (th11 ? 1 : 0);
   const timingPolicy = multiplayerInputTimingPolicy(product);
+  const requestedMode = input.adonisMode ?? (!timingPolicy.rollback || th11 ? 1 : 0);
   const rollback = timingPolicy.rollback && [0, 2].includes(requestedMode);
   const adonisMode = rollback ? 0 : requestedMode;
   const measuredTitle = timingPolicy.measuredStartup;
@@ -145,6 +145,7 @@ export function buildMultiplayerRuntimeOptions(
     !Number.isInteger(requestedMode) ||
     requestedMode < 0 ||
     requestedMode > 2 ||
+    (!timingPolicy.rollback && requestedMode !== 1) ||
     (requestedMode !== 0 && !measuredTitle)
   )
     throw new Error('该多人 Runtime 不支持 Adonis 时序');
@@ -181,7 +182,7 @@ export function buildMultiplayerRuntimeOptions(
                 : 0,
         }
       : {}),
-    ...(input.adonisMode !== undefined || th11 ? { netplayAdonisMode: adonisMode } : {}),
+    ...(input.adonisMode !== undefined || th11 || !timingPolicy.rollback ? { netplayAdonisMode: adonisMode } : {}),
     ...(th11 && rollback ? { netplayInputDelayAuto: false } : {}),
     ...(measuredTitle && adonisMode
       ? {

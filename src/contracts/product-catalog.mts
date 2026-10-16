@@ -70,6 +70,9 @@ const TH09_MULTIPLAYER_DIFFICULTIES = Object.freeze(["Easy", "Normal", "Hard", "
 const TH09_MULTIPLAYER_GLYPHS = Object.freeze(["霊", "魔", "咲", "妖", "鈴", "チ", "リ", "ミ", "て", "幽", "文", "メ", "小", "映", "メ", "ル"]);
 const TH09_MULTIPLAYER_LOADOUTS = Object.freeze(Array.from({ length: 16 }, (_, character) =>
   Object.freeze({ labelKey: `multiplayer.loadout.th09_${character}`, glyph: TH09_MULTIPLAYER_GLYPHS[character], character, shot: 0 })));
+const TH075_MULTIPLAYER_GLYPHS = Object.freeze(["霊","魔","咲","愛","パ","妖","蕾","幽","紫","萃","美"]);
+const TH075_MULTIPLAYER_LOADOUTS = Object.freeze(TH075_MULTIPLAYER_GLYPHS.flatMap((glyph, character) =>
+  Array.from({length:9}, (_,shot) => Object.freeze({labelKey:`multiplayer.loadout.th075_${character}_${shot}`,glyph,character,shot}))));
 const STANDARD_MULTIPLAYER_PLAYER_COUNTS = Object.freeze([2, 3] as const);
 const TOGGLE_TOUCH_FIRE = Object.freeze({ mode: "toggle", labelKey: "touch.tapToggle" } as const);
 const CHARGE_TOUCH_FIRE = Object.freeze({
@@ -188,6 +191,14 @@ export const PRODUCT_GAMES = Object.freeze({
     package: Object.freeze({dataFileId:"game-data",dataTarget:"/th075.data",maxImportBytes:512 * 1024 * 1024,
       musicSourceDirectories:Object.freeze({ogg:"music"}),musicMounts:Object.freeze({ogg:"/music"})}),
     replay: Object.freeze({prefix:"th075",extensions:Object.freeze(["rep"]),naming:"filename"}),
+    multiplayerRuntime: "./runtime/th075/multiplayer/th075.html",
+    multiplayer: Object.freeze({
+      titleKey:"game.title.th075mp", gameplay:"versus",
+      inputTiming:Object.freeze({rollbackLimit:0,measuredStartup:true,manualDelayLimit:9}),
+      playerCounts:Object.freeze([2] as const), difficulties:TH09_MULTIPLAYER_DIFFICULTIES,
+      loadouts:TH075_MULTIPLAYER_LOADOUTS, peerTransportGlobal:"__th075PeerTransport",
+      spectator:true, titleRoomEntry:false,
+    }),
     features: Object.freeze({thprac:false,languages:true,focusHitbox:false}),
   }),
   th08: Object.freeze({

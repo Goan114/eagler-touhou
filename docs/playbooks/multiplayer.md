@@ -17,11 +17,11 @@ worktree separate from upstream tracking and the canonical Eagler integration
 worktree. Promotion follows
 [Adaptation Worktree Isolation](adaptation-worktrees.md).
 
-- TH08 and TH10 keep ordinary `eagler` and Multiplayer implementation histories
-  permanently separate. Both repositories use `eagler-mp` as their persistent
+- TH075, TH08 and TH10 keep ordinary `eagler` and Multiplayer implementation histories
+  permanently separate. These repositories use `eagler-mp` as their persistent
   MP source branch. Keep this branch separate from `eagler` and retain it after
   shared fixes have been transferred. Their Runtime owners remain the
-  canonical `th08-eagler` / `th10-eagler` repositories. Select the branch for the
+  canonical title repositories (`th075-mp`, `th08-eagler`, `th10-eagler`). Select the branch for the
   requested product before changing or building source. Carry shared fixes
   across with individually reviewed commits where applicable, preserving each
   target's ancestor and gameplay contract. Never merge the complete MP

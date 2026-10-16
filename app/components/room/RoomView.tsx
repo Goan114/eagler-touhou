@@ -123,7 +123,7 @@ export function RoomView(props: RoomViewProps) {
         </h2>
         <div className="mp-room-tags">
           <span id="mpRoomMode">
-            {t(state.product === 'th09mp' ? 'room.versus' : 'room.coop', {
+            {t(config.gameplay === 'versus' ? 'room.versus' : 'room.coop', {
               count: room.playerCount,
             })}
           </span>

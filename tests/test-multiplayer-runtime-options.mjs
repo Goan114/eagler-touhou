@@ -116,3 +116,14 @@ console.log(JSON.stringify({
   productConstraints: ["playerCounts", "difficulties", "loadouts"],
   spectator: "explicit-role",
 }));
+
+const fighting = PRODUCT_GAMES.th075.multiplayer;
+const duel={...base,url:base.url.replace('th06mp','th075mp'),difficulty:1,
+  loadouts:[{character:10,shot:8},{character:0,shot:4}],inputDelay:2};
+assert.equal(fighting.loadouts.length,99);
+const duelOptions=buildMultiplayerRuntimeOptions(duel,fighting);
+assert.equal(duelOptions.netplayAdonisMode,1);
+assert.equal(duelOptions.netplayPredictionLimit,0);
+assert.equal(duelOptions.netplayInputDelay,2);
+assert.deepEqual(duelOptions.netplayLoadouts,duel.loadouts);
+for(const adonisMode of [0,2])assert.throws(()=>buildMultiplayerRuntimeOptions({...duel,adonisMode},fighting));
