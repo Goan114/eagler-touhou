@@ -1869,3 +1869,11 @@ body:has(#touchLayoutEditor:not([hidden]))>.mizuki-select-menu .mizuki-select-it
 .player.touch-enabled #touchJoystick.native-joystick .touch-joystick-knob{width:48px;height:48px;border:0;background:#3a3e37;box-shadow:0 4px 12px rgba(0,0,0,.48),inset 0 0 0 1px rgba(255,255,255,.09);}
 .player.touch-enabled #touchJoystick.native-joystick.active .touch-joystick-knob{border-color:transparent;background:#a53a47;box-shadow:0 4px 14px rgba(0,0,0,.5),0 0 0 5px rgba(217,77,85,.12);}
 @media(max-width:760px){.player.touch-enabled:not(.touch-layout-custom) #touchJoystick.native-joystick{left:max(10px,env(safe-area-inset-left));bottom:max(10px,env(safe-area-inset-bottom));width:112px;height:112px;}.player.touch-enabled #touchJoystick.native-joystick .touch-joystick-knob{width:44px;height:44px;}}
+
+#mpRoomView .mp-loadout-fields{display:grid;gap:12px;min-width:0}
+#mpRoomView .mp-loadout-fields[hidden],#mpRoomView .mp-seated-loadout[hidden]{display:none!important}
+#mpRoomView .mp-loadout-fields .mp-music-card{display:grid;gap:8px;margin:0;min-width:0}
+#mpRoomView .mp-loadout-fields .mp-music-card>span{font-size:13px;color:var(--room-muted)}
+#mpRoomView .mp-loadout-fields .mizuki-select-trigger{min-width:0;min-height:48px;padding:10px 12px;background:var(--room-raised);font:500 14px/1.5 var(--ui-font);text-align:left}
+#mpRoomView .mp-loadout-fields .mizuki-select-value{white-space:normal;overflow-wrap:anywhere}
+#mpRoomPanel[data-panel="personal"]:has(.mp-loadout-fields) .mizuki-select-item{font-size:14px;white-space:normal;line-height:1.5}

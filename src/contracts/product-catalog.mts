@@ -72,7 +72,13 @@ const TH09_MULTIPLAYER_LOADOUTS = Object.freeze(Array.from({ length: 16 }, (_, c
   Object.freeze({ labelKey: `multiplayer.loadout.th09_${character}`, glyph: TH09_MULTIPLAYER_GLYPHS[character], character, shot: 0 })));
 const TH075_MULTIPLAYER_GLYPHS = Object.freeze(["霊","魔","咲","愛","パ","妖","蕾","幽","紫","萃","美"]);
 const TH075_MULTIPLAYER_LOADOUTS = Object.freeze(TH075_MULTIPLAYER_GLYPHS.flatMap((glyph, character) =>
-  Array.from({length:9}, (_,shot) => Object.freeze({labelKey:`multiplayer.loadout.th075_${character}_${shot}`,glyph,character,shot}))));
+  Array.from({length:9}, (_,shot) => Object.freeze({labelKey:`multiplayer.loadout.th075_${character}_${shot}`,glyph,character,shot,
+    selection:Object.freeze([
+      Object.freeze({value:character,labelKey:`multiplayer.character.th075_${character}`}),
+      Object.freeze({value:shot%3,labelKey:`multiplayer.spell.th075_${character}_${shot%3}`}),
+      Object.freeze({value:Math.floor(shot/3),labelKey:`multiplayer.spell.th075_${character}_${3+Math.floor(shot/3)}`}),
+    ]),
+  }))));
 const STANDARD_MULTIPLAYER_PLAYER_COUNTS = Object.freeze([2, 3] as const);
 const TOGGLE_TOUCH_FIRE = Object.freeze({ mode: "toggle", labelKey: "touch.tapToggle" } as const);
 const CHARGE_TOUCH_FIRE = Object.freeze({
@@ -197,6 +203,11 @@ export const PRODUCT_GAMES = Object.freeze({
       inputTiming:Object.freeze({rollbackLimit:0,measuredStartup:true,manualDelayLimit:9}),
       playerCounts:Object.freeze([2] as const), difficulties:TH09_MULTIPLAYER_DIFFICULTIES,
       loadouts:TH075_MULTIPLAYER_LOADOUTS, peerTransportGlobal:"__th075PeerTransport",
+      loadoutFields:Object.freeze([
+        Object.freeze({labelKey:"multiplayer.character"}),
+        Object.freeze({labelKey:"multiplayer.firstSpell",dependsOn:Object.freeze([0])}),
+        Object.freeze({labelKey:"multiplayer.secondSpell",dependsOn:Object.freeze([0])}),
+      ]),
       spectator:true, titleRoomEntry:false,
     }),
     features: Object.freeze({thprac:false,languages:true,focusHitbox:false}),
@@ -539,6 +550,7 @@ export interface MultiplayerLoadoutConfig {
   glyph: string;
   character: number;
   shot: number;
+  selection?: readonly Readonly<{value: number; labelKey: string}>[];
 }
 export interface MultiplayerInputTimingConfig {
   /** Zero permits confirmed input only: no prediction, rollback or hybrid mode. */
@@ -554,6 +566,8 @@ export interface MultiplayerProductConfig {
   playerCounts: readonly (2 | 3)[];
   difficulties: readonly string[];
   loadouts: readonly MultiplayerLoadoutConfig[];
+  /** Independent selectors over the same synchronized loadout indices. */
+  loadoutFields?: readonly Readonly<{labelKey: string; dependsOn?: readonly number[]}>[];
   peerTransportGlobal: string;
 }
 
