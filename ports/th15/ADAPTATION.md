@@ -172,3 +172,11 @@
 ## 运行验收记录
 
 按检查编号附[验证记录](../../docs/adaptation/record-template.md)，写明源码身份、模式、环境、操作与结果。自动更新保留本节内容。
+
+## 铃仙护盾受击时保持触点
+
+沿用本地提交 `4ec052163901946e30b366ce2b5c866bfdb1968a` 的护盾修复。护盾吸收伤害时，暂存移动手势并停止该帧位移；恢复正常状态后继续使用原来的手指。三层护盾均适用，真正死亡、抬手和暂停仍释放手势。
+
+2026-10-18 在上游 monorepo `85a86bb9` 上合入。普通版此前遗漏 `retain_motion`；MP 已有等价实现，保留本地席位判断。
+
+执行 `EAGLER_WASI_CXX=<WASI clang++> node ports/th15/portable/input/touch-shield-check.mjs`：普通版与 MP 的护盾、Deathbomb、移动表示共六项 WASI 检查通过。对应 TOUCH-01、TOUCH-02、TOUCH-09、TOUCH-16；手机实机与发布 Runtime 尚未复测。
