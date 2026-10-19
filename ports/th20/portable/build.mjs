@@ -34,7 +34,7 @@ if(game==='th20'){
  sources.push(...walk(recon));
  // Module headers reference each other with bare quoted includes (the native
  // CMake wires these per-target); expose every module dir plus src.
- for(const dir of readdirSync(recon,{withFileTypes:true}))if(dir.isDirectory())common.push('-I'+resolve(recon,dir.name));
+ for(const name of readdirSync(recon,{withFileTypes:true}).filter(dir=>dir.isDirectory()).map(dir=>dir.name).sort())common.push('-I'+resolve(recon,name));
  common.push('-I'+resolve(workspace,'src'));
 }
 sources.push(...readdirSync(resolve(root,'cpp/platform')).filter(n=>n.endsWith('.cpp')).map(n=>'cpp/platform/'+n));
@@ -51,7 +51,7 @@ const hash=createHash('sha256');for(const path of [...headers(resolve(root,'cpp'
 // th20 game code genuinely throws (archive/verify paths, D3DX loader errors)
 // and uses dynamic_cast once, so the wasm build keeps exceptions and RTTI.
 const flags=[...common,game==='th20'?'-std=c++20':'-std=c++17',...(game==='th20'?['-fexceptions','-frtti','-include',resolve(root,'cpp/shim/msvc_compat.h'),'-I'+resolve(workspace,'include'),'-I'+resolve(root,'cpp'),'-msimd128','-msse','-msse2','-mavx']:['-fno-exceptions','-fno-rtti'])],prefix=JSON.stringify([flags,hash.digest('hex')]);
-if(printingRuntimeInputs)printRuntimeInputs({workspace,root,sources:[...sources,renderer,resolve(root,game==='th10'?'cpp/rebuild/third_party/softfloat.c':'cpp/third_party/softfloat.c')],headers:headerInputs(resolve(root,'cpp'),resolve(workspace,'portable/sdl'),resolve(workspace,'portable/numeric'),resolve(workspace,'portable/input'),resolve(workspace,'src'),imgui),flags});
+if(printingRuntimeInputs)await printRuntimeInputs({workspace,root,sources:[...sources,renderer,resolve(root,game==='th10'?'cpp/rebuild/third_party/softfloat.c':'cpp/third_party/softfloat.c')],headers:headerInputs(resolve(root,'cpp'),resolve(workspace,'portable/sdl'),resolve(workspace,'portable/numeric'),resolve(workspace,'portable/input'),resolve(workspace,'src'),imgui),flags});
 const objects=resolve(out,'objects');if(!printingRuntimeInputs)mkdirSync(objects,{recursive:true});
 async function compile(source,name,c=false){const experiment=replayClockExperiments&&source.endsWith('ReplayVerifier.cpp')?['-DTH20_REPLAY_CLOCK_EXPERIMENTS=1']:[];const object=resolve(objects,name+'.o'),key=createHash('sha256').update(prefix).update(experiment.join()).update(observed(source)).digest('hex');if(existsSync(object)&&existsSync(object+'.key')&&readFileSync(object+'.key','utf8')===key)return object;
  await run([...(c?[...common,'-std=c11','-DSOFTFLOAT_FAST_INT64','-DINLINE_LEVEL=5']:flags),...experiment,'-c',source,'-o',object]);writeFileSync(object+'.key',key);return object;

@@ -38,11 +38,13 @@ const source=[...files('cpp/game'),...files('cpp/sdl'),...(release?[]:[resolve(r
 if(thprac)source.push(...['imgui.cpp','imgui_draw.cpp','imgui_tables.cpp','imgui_widgets.cpp','imgui_freetype.cpp'].map(p=>resolve(imgui,p)));
 const headerFiles=dir=>readdirSync(dir,{withFileTypes:true}).flatMap(e=>e.isDirectory()?headerFiles(resolve(dir,e.name)):/\.(h|hpp|inc)$/.test(e.name)?[resolve(dir,e.name)]:[]);
 const headers=[...headerFiles(resolve(root,'cpp')),...headerFiles(imgui),...headerFiles(resolve(workspace,'portable/sdl')),...headerFiles(resolve(workspace,'portable/input')),...commonThpracHeaders,resolve(process.env.EAGLER_COMMON_ROOT||resolve(workspace,'../../common'),'include/eagler/input/DialogueGesture.hpp'),resolve(commonInclude,'eagler/text/RuntimeFontRaster.hpp'),resolve(commonInclude,'eagler/audio/WebSfx.hpp')].sort();
-printRuntimeInputs({workspace,root,sources:source,headers,flags:common});
+await printRuntimeInputs({workspace,root,sources:source,headers,flags:common});
 const sha=b=>createHash('sha256').update(b).digest('hex');
 const headerHash=sha(headers.map(p=>p+sha(readFileSync(p))).join('\n'));
 const settings=JSON.stringify([common,headerHash]);
 async function compile(file){const name=relative(workspace,file).replaceAll('\\','_').replaceAll('/','_'),object=resolve(objects,name+'.o'),key=sha(settings+sha(readFileSync(file)));if(existsSync(object)&&existsSync(object+'.key')&&readFileSync(object+'.key','utf8')===key)return object;await run([...common,'-c',file,'-o',object]);writeFileSync(object+'.key',key);return object;}
+// Prepare SDK ports once, including when all game objects are already cached.
+await run([...common,'-x','c++','-fsyntax-only','-']);
 const buildJobs=Math.max(1,Math.min(16,Number.parseInt(process.env.TH_BUILD_JOBS||'4',10)||4));
 const objectsBuilt=[];let cursor=0;await Promise.all(Array.from({length:buildJobs},async()=>{while(cursor<source.length){const i=cursor++;objectsBuilt[i]=await compile(source[i]);}}));
 const loader=resolve(out,release?'th15.mjs':'th15-application.mjs');

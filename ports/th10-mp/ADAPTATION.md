@@ -15,8 +15,8 @@
 | 编号 | 检查项 | multiplayer | 记录 |
 | --- | --- | --- | --- |
 | BUILD-01 | [源码目录与普通版／MP归属](../../docs/adaptation/build.md#build-01) | 已验证 | multiplayer：[source-inputs](../../docs/adaptation/status.json) |
-| BUILD-02 | [工具链与外部依赖](../../docs/adaptation/build.md#build-02) | 已验证 | multiplayer：[compiled-runtime](../../docs/adaptation/status.json) |
-| BUILD-03 | [对应模式独立构建](../../docs/adaptation/build.md#build-03) | 已验证 | multiplayer：[compiled-runtime](../../docs/adaptation/status.json) |
+| BUILD-02 | [工具链与外部依赖](../../docs/adaptation/build.md#build-02) | 待核对 | multiplayer：按本项步骤执行，结果写入验证记录 |
+| BUILD-03 | [对应模式独立构建](../../docs/adaptation/build.md#build-03) | 待核对 | multiplayer：按本项步骤执行，结果写入验证记录 |
 | BUILD-04 | [Runtime 文件与来源记录](../../docs/adaptation/build.md#build-04) | 待核对 | multiplayer：按本项步骤执行，结果写入验证记录 |
 | BUILD-05 | [前端搭配单个游戏运行](../../docs/adaptation/build.md#build-05) | 待核对 | multiplayer：按本项步骤执行，结果写入验证记录 |
 | BUILD-06 | [源码与素材来源](../../docs/adaptation/build.md#build-06) | 待核对 | multiplayer：按本项步骤执行，结果写入验证记录 |
@@ -172,3 +172,5 @@
 ## 运行验收记录
 
 按检查编号附[验证记录](../../docs/adaptation/record-template.md)，写明源码身份、模式、环境、操作与结果。自动更新保留本节内容。
+
+本轮桌面协议、输入、文件持久化与实际 MP 房间结果见[逐作运行记录](../../docs/adaptation/desktop-20261018.md)。按作品、模式和分项读取通过、失败及待复验结果，原始报告身份见同页机器记录。
