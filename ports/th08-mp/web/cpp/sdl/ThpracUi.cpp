@@ -1,4 +1,5 @@
 #include "ThpracUi.hpp"
+#include <eagler/thprac/PracticeSdlKeyboard.hpp>
 #include "../platform/BrowserRuntime.hpp"
 #include "../game/PracticeSectionCatalog.hpp"
 #include "Renderer.hpp"
@@ -157,11 +158,8 @@ void render(BrowserRuntime& runtime,touhou::sdl::Renderer& renderer){if(!initial
 #endif
  if(rendered_generation==input_generation){if(frame_drawn)renderer.render_imgui(ImGui::GetDrawData(),runtime.backbuffer());return;}
  rendered_generation=input_generation;auto& io=ImGui::GetIO();io.DeltaTime=1.f/60.f;io.DisplaySize={640,480};io.MousePos={mouse_x,mouse_y};io.MouseDown[0]=mouse_down;io.KeyCtrl=key_down[VK_CONTROL];io.KeyShift=key_down[VK_SHIFT];io.KeyAlt=key_down[VK_MENU];io.ConfigDragClickToInputText=desktop_pointer;for(int i=0;i<256;i++)io.KeysDown[i]=key_down[i];
- // Desktop thprac numeric fields should be directly editable: ImGui's drag
- // widgets can now switch to TempInputText on a click-release without a drag.
- // Queue numeric characters for the whole practice-menu frame; ImGui clears
- // unused characters at EndFrame, while an active TempInputText consumes them.
- if(runtime.app.session.practice.menu){for(int vk=48;vk<=57;vk++)if(pressed(vk))io.AddInputCharacter(ImWchar('0'+vk-48));for(int vk=96;vk<=105;vk++)if(pressed(vk))io.AddInputCharacter(ImWchar('0'+vk-96));if(pressed(189)||pressed(109))io.AddInputCharacter('-');if(pressed(190)||pressed(110))io.AddInputCharacter('.');}
+ // Numeric editing also applies to advanced tools outside the practice menu.
+ eagler::thprac::sdl_keyboard_frame(io);
  io.NavInputs[ImGuiNavInput_DpadUp]=key_down[VK_UP];io.NavInputs[ImGuiNavInput_DpadDown]=key_down[VK_DOWN];io.NavInputs[ImGuiNavInput_DpadLeft]=key_down[VK_LEFT];io.NavInputs[ImGuiNavInput_DpadRight]=key_down[VK_RIGHT];io.NavInputs[ImGuiNavInput_Activate]=key_down[VK_Z]||key_down[VK_RETURN];io.NavInputs[ImGuiNavInput_Cancel]=key_down[VK_X]||key_down[VK_ESCAPE];ImGui::NewFrame();frame_open=true;
  if(runtime.app.session.practice.menu)draw_practice(runtime);else if(!(key_down[VK_X]||key_down[VK_Z]||key_down[VK_ESCAPE]||key_down[VK_RETURN]))practice_was_open=false;draw_overlay(runtime);ImGui::Render();frame_open=false;renderer.render_imgui(ImGui::GetDrawData(),runtime.backbuffer());frame_drawn=true;
 }
