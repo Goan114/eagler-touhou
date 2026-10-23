@@ -153,7 +153,7 @@ void draw_practice(Application& runtime){
  // Extra is its own difficulty. Every other stage needs a non-Extra difficulty,
  // otherwise returning from an Extra run leaves difficulty 4 and the normal
  // stages expose no valid sections (thprac's Extra names are empty for them).
- static int non_extra_difficulty=1;int difficulty=runtime.state.game.difficulty;
+ static int non_extra_difficulty=1;static i32 previous_menu_difficulty=-1;int difficulty=runtime.state.game.difficulty;
  if(difficulty<4)non_extra_difficulty=difficulty;
  difficulty=(p.stage==6)?4:non_extra_difficulty;
  if(!practice_was_open){practice_was_open=true;practice_keys_armed=false;practice_section_index=0;select_current_section(p,difficulty);}
@@ -164,6 +164,8 @@ void draw_practice(Application& runtime){
   ImGui::PushItemWidth(locale==1?-80.f:locale==2?-65.f:-60.f);ImGui::TextUnformatted(tr("练习选项","Option","オプション"));ImGui::Separator();
   const char* modes[]={tr("原版练习","Original","オリジナル"),tr("自定义练习","Custom","カスタム")};int mode=p.mode?1:0;if(ImGui::Combo(tr("模式","Mode","モード"),&mode,modes,2))p.mode=mode;
   const char* stages[]={"1","2","3","4","5","6","Extra"};if(ImGui::Combo(tr("关卡","Stage","ステージ"),&p.stage,stages,7)){p.section=0;practice_section_index=0;}
+  difficulty=p.stage==6?4:non_extra_difficulty;
+  p.update_menu_difficulty(difficulty,previous_menu_difficulty);
   if(p.mode==1){
    const char* warps[]={tr("无","None","なし"),tr("道中","Stage Portion","道中"),tr("道中Boss","Mid Boss","道中ボス"),tr("关底Boss","End Boss","ボス"),tr("非符","Non Spell","通常"),tr("符卡","Spell Card","スペカ")};
    // Stage 6 (zero-based 5) has no midboss: warp 2 is unavailable, like upstream.
@@ -175,7 +177,7 @@ void draw_practice(Application& runtime){
    else if(p.warp>=2&&p.warp<=5){auto matches=matching_sections(p,difficulty);if(!matches.empty()){select_current_section(p,difficulty);std::vector<const char*> names;for(auto* s:matches)names.push_back(s->names[std::clamp(difficulty,0,4)][locale]);if(ImGui::Combo(warps[p.warp],&practice_section_index,names.data(),int(names.size()))){p.section=matches[practice_section_index]->id;p.phase=0;}if(section_has_dialogue(p.section))ImGui::Checkbox(tr("对话","Dialog","会話"),reinterpret_cast<bool*>(&p.dlg));}}
    // thprac_th10.cpp:253-264: section-specific widgets.
    if(p.section==TH10_ST4_MID1||p.section==10408){const char* phases[]={tr("正常","Normal","普通"),p.section==TH10_ST4_MID1?tr("无限时间","Infinite Time","時間無限"):tr("无限模式","Infinite Mode","無限モード")};ImGui::Combo(tr("阶段","Phase","段階"),&p.phase,phases,2);}
-   else if(p.section==TH10_ST6_BOSS9)ImGui::SliderInt(tr("延迟","Delay","ディレイ"),&p.st6_boss9_spd,0,160);
+   else if(p.section==TH10_ST6_BOSS9)ImGui::SliderInt(tr("延迟","Delay","ディレイ"),&p.st6_boss9_spd,0,PracticeConfig::divine_virtues_delay_max(difficulty));
    else if(p.section==TH10_ST6_BOSS4||p.section==TH10_ST6_BOSS8)ImGui::Checkbox(tr("真实子弹贴图","Real bullet sprites","弾の見た目を変えない"),reinterpret_cast<bool*>(&p.real_bullet_sprite));
    else if(p.section==TH10_ST7_END_S10){const char* phases[]={tr("正常","Normal","普通"),tr("发狂","Rage","発狂")};int phase=std::clamp(p.phase,0,1);if(ImGui::Combo(tr("阶段","Phase","段階"),&phase,phases,2))p.phase=phase;}
    ImGui::SliderInt(tr("残机","Life","残機"),&p.life,0,9);
