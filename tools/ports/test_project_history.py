@@ -160,7 +160,8 @@ class ProjectionTests(unittest.TestCase):
         files.update({"ports/th12-mp/" + path: value for path, value in normal_files.items()})
         copied = self.commit(files, [normal_join], "stage independent source directory")
         files.update({"ports/th12-mp/" + path: value for path, value in mp_files.items()})
-        mp_join = self.commit(files, [copied, fork],
+        implemented = self.commit(files, [copied], "implement multiplayer before source join")
+        mp_join = self.commit(files, [implemented, fork],
             "join MP\n\ngit-subtree-dir: ports/th12-mp\ngit-subtree-split: " + fork)
         files["docs/migration/import-sources.json"] = json.dumps({"imports": []})
         files["docs/migration/move-sources-20261018.json"] = json.dumps({"sources": []})

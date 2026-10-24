@@ -148,6 +148,7 @@ def project(git, head, game, write_refs=False, track_normal=False):
         legacy = prefix.replace("ports/", "runtimes/", 1)
         initial = next((row for row in imports if row["target"] == legacy), None)
         subtree_source = subtree_sources.get(prefix) if initial is None else None
+        subtree_imports = {}
         if initial is None:
             if subtree_source is None:
                 raise RuntimeError("No imported repository anchor for " + prefix)
@@ -160,8 +161,11 @@ def project(git, head, game, write_refs=False, track_normal=False):
                     raise RuntimeError("Invalid subtree source trailers for " + prefix)
                 if git.run("rev-parse", join + ":" + prefix) != git.commit(split)[0]:
                     raise RuntimeError("Subtree snapshot differs from original source tree")
+                subtree_imports[join] = split
             if not git.ancestor(source["upstreamCommit"], source["initialSplit"]):
                 raise RuntimeError("Subtree split lost its upstream ancestor")
+            if not git.ancestor(source["initialSplit"], source["currentSplit"]):
+                raise RuntimeError("Subtree split lost its initial source ancestor")
             initial = {"head": source["initialSplit"], "importCommit": source["initialJoin"]}
             latest = source["currentSplit"]
         else:
@@ -200,6 +204,13 @@ def project(git, head, game, write_refs=False, track_normal=False):
                 continue
             if identity in foreign:
                 mapping[identity] = None
+                continue
+            if identity in subtree_imports:
+                # The validated export already contains pre-join directory
+                # commits. Reusing it preserves the original parent chain
+                # instead of creating duplicate projections beside it.
+                mapping[identity] = subtree_imports[identity]
+                namespace.add(identity)
                 continue
             tree, fields, message = git.commit(identity)
             subtree = git.subtree(tree, prefix) or git.subtree(tree, legacy)

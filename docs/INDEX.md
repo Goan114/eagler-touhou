@@ -1,6 +1,6 @@
 # 文档总表
 
-共 261 份可读文档，包含贡献入口、适配说明、服务文档、生成报告、许可证和历史记录。由 `npm run docs:index` 更新。
+共 285 份可读文档，包含贡献入口、适配说明、服务文档、生成报告、许可证和历史记录。由 `npm run docs:index` 更新。
 
 项目说明按当前目录重写；许可证保留原文，生成报告由各自工具更新。原有 498 份 Markdown 的逐篇去向见[旧文档去向](history/INDEX.md)。
 
@@ -42,6 +42,7 @@
 | 作品入口 | [ports/th10/README.md](../ports/th10/README.md) | 東方風神録 TH10 |
 | 作品入口 | [ports/th11-mp/README.md](../ports/th11-mp/README.md) | 東方地霊殿 TH11 多人版 |
 | 作品入口 | [ports/th11/README.md](../ports/th11/README.md) | 東方地霊殿 TH11 |
+| 作品入口 | [ports/th12-mp/README.md](../ports/th12-mp/README.md) | 东方星莲船多人合作版 |
 | 作品入口 | [ports/th12/README.md](../ports/th12/README.md) | 东方星莲船网页版与行为还原 |
 | 作品入口 | [ports/th15-mp/README.md](../ports/th15-mp/README.md) | 東方紺珠伝 TH15 多人版 |
 | 作品入口 | [ports/th15/README.md](../ports/th15/README.md) | 東方紺珠伝 TH15 |
@@ -57,6 +58,7 @@
 | 作品适配表 | [ports/th10/ADAPTATION.md](../ports/th10/ADAPTATION.md) | th10 适配检查 |
 | 作品适配表 | [ports/th11-mp/ADAPTATION.md](../ports/th11-mp/ADAPTATION.md) | th11 MP 适配检查 |
 | 作品适配表 | [ports/th11/ADAPTATION.md](../ports/th11/ADAPTATION.md) | th11 适配检查 |
+| 作品适配表 | [ports/th12-mp/ADAPTATION.md](../ports/th12-mp/ADAPTATION.md) | th12 MP 适配检查 |
 | 作品适配表 | [ports/th12/ADAPTATION.md](../ports/th12/ADAPTATION.md) | th12 适配检查 |
 | 作品适配表 | [ports/th15-mp/ADAPTATION.md](../ports/th15-mp/ADAPTATION.md) | th15 MP 适配检查 |
 | 作品适配表 | [ports/th15/ADAPTATION.md](../ports/th15/ADAPTATION.md) | th15 适配检查 |
@@ -75,6 +77,24 @@
 | 作品源码文档 | [ports/th10/docs/DEVELOPMENT.md](../ports/th10/docs/DEVELOPMENT.md) | TH10 开发指南 |
 | 作品源码文档 | [ports/th11-mp/docs/DEVELOPMENT.md](../ports/th11-mp/docs/DEVELOPMENT.md) | TH11 多人版开发指南 |
 | 作品源码文档 | [ports/th11/docs/DEVELOPMENT.md](../ports/th11/docs/DEVELOPMENT.md) | TH11 开发指南 |
+| 作品源码文档 | [ports/th12-mp/decompiled/README.md](../ports/th12-mp/decompiled/README.md) | TH12 1.00b 反编译索引 |
+| 作品源码文档 | [ports/th12-mp/docs/BUILD.md](../ports/th12-mp/docs/BUILD.md) | 本地构建与原版输入 |
+| 作品源码文档 | [ports/th12-mp/docs/CONTENT_PREPARATION.md](../ports/th12-mp/docs/CONTENT_PREPARATION.md) | 准备自己的 TH12 游戏资源 |
+| 作品源码文档 | [ports/th12-mp/docs/CPP-RESTORATION.md](../ports/th12-mp/docs/CPP-RESTORATION.md) | C++ runtime |
+| 作品源码文档 | [ports/th12-mp/docs/FULL_GAME_FLOW.md](../ports/th12-mp/docs/FULL_GAME_FLOW.md) | TH12 完整游戏流程 |
+| 作品源码文档 | [ports/th12-mp/docs/HIGH_REFRESH.md](../ports/th12-mp/docs/HIGH_REFRESH.md) | TH12 fixed-tick / high-refresh presentation draft |
+| 作品源码文档 | [ports/th12-mp/docs/LAUNCHER_INTEGRATION.md](../ports/th12-mp/docs/LAUNCHER_INTEGRATION.md) | 真实 Launcher 接入 |
+| 作品源码文档 | [ports/th12-mp/docs/LOCALIZATION.md](../ports/th12-mp/docs/LOCALIZATION.md) | thcrap 本地化 |
+| 作品源码文档 | [ports/th12-mp/docs/WEB_ADAPTATION.md](../ports/th12-mp/docs/WEB_ADAPTATION.md) | TH12 Web 适配现状与交付边界 |
+| 作品源码文档 | [ports/th12-mp/docs/behavior/animation.md](../ports/th12-mp/docs/behavior/animation.md) | 动画、场景与界面行为 |
+| 作品源码文档 | [ports/th12-mp/docs/behavior/combat.md](../ports/th12-mp/docs/behavior/combat.md) | 战斗行为与原版接口 |
+| 作品源码文档 | [ports/th12-mp/docs/behavior/ufo.md](../ports/th12-mp/docs/behavior/ufo.md) | UFO 与道具行为 |
+| 作品源码文档 | [ports/th12-mp/src/audio/README.md](../ports/th12-mp/src/audio/README.md) | Streaming OGG music |
+| 作品源码文档 | [ports/th12-mp/src/practice/DAMAGE-SOURCES.md](../ports/th12-mp/src/practice/DAMAGE-SOURCES.md) | ReimuA damage-source compatibility |
+| 作品源码文档 | [ports/th12-mp/src/practice/INTEGRATION.md](../ports/th12-mp/src/practice/INTEGRATION.md) | TH12 Purple THPrac integration |
+| 作品源码文档 | [ports/th12-mp/third_party/stb_vorbis/README.md](../ports/th12-mp/third_party/stb_vorbis/README.md) | stb_vorbis README |
+| 作品源码文档 | [ports/th12-mp/tools/frame-inspector/README.md](../ports/th12-mp/tools/frame-inspector/README.md) | TH12 原版逐帧检查 |
+| 作品源码文档 | [ports/th12-mp/tools/replay-verifier/README.md](../ports/th12-mp/tools/replay-verifier/README.md) | TH12 Replay verification |
 | 作品源码文档 | [ports/th12/decompiled/README.md](../ports/th12/decompiled/README.md) | TH12 1.00b 反编译索引 |
 | 作品源码文档 | [ports/th12/docs/BUILD.md](../ports/th12/docs/BUILD.md) | 本地构建与原版输入 |
 | 作品源码文档 | [ports/th12/docs/CONTENT_PREPARATION.md](../ports/th12/docs/CONTENT_PREPARATION.md) | 准备自己的 TH12 游戏资源 |
@@ -164,6 +184,7 @@
 | 历史记录 | [docs/history/port-sync-20261023.md](history/port-sync-20261023.md) | 普通版到 MP 全量同步 ｜ 2026-10-23 |
 | 历史记录 | [docs/history/port-sync-audit.md](history/port-sync-audit.md) | 普通版与 MP 提交对账 |
 | 历史记录 | [docs/history/th12-audio-20261024.md](history/th12-audio-20261024.md) | th12 菜单音效 ｜ Edge A/B ｜ 2026-10-24 |
+| 历史记录 | [docs/history/th12-multiplayer-20261024.md](history/th12-multiplayer-20261024.md) | TH12 多人合作 ｜ 共享飞碟与独立源码 |
 | 历史记录 | [docs/history/th12-performance-20261024.md](history/th12-performance-20261024.md) | th12 性能测量 ｜ 2026-10-24 |
 | 历史记录 | [ports/th15-mp/web/CHANGELOG.txt](../ports/th15-mp/web/CHANGELOG.txt) | [2026-10-05] 绀珠传 WEB 1.0.3 |
 | 历史记录 | [ports/th15/web/CHANGELOG.txt](../ports/th15/web/CHANGELOG.txt) | [2026-10-05] 绀珠传 WEB 1.0.3 |
@@ -244,6 +265,10 @@
 | 许可证与声明 | [ports/th11/THIRD-PARTY-NOTICES.txt](../ports/th11/THIRD-PARTY-NOTICES.txt) | Original game and assets: Team Shanghai Alice / ZUN. |
 | 许可证与声明 | [ports/th11/portable/sdl/third_party/miniaudio.LICENSE](../ports/th11/portable/sdl/third_party/miniaudio.LICENSE) | miniaudio |
 | 许可证与声明 | [ports/th11/web/cpp/game/THPRAC-LICENSE.txt](../ports/th11/web/cpp/game/THPRAC-LICENSE.txt) | MIT License |
+| 许可证与声明 | [ports/th12-mp/LICENSE](../ports/th12-mp/LICENSE) | LICENSE |
+| 许可证与声明 | [ports/th12-mp/NOTICE.md](../ports/th12-mp/NOTICE.md) | Copyright and license scope |
+| 许可证与声明 | [ports/th12-mp/src/practice/THPRAC-LICENSE.txt](../ports/th12-mp/src/practice/THPRAC-LICENSE.txt) | MIT License |
+| 许可证与声明 | [ports/th12-mp/third_party/stb_vorbis/LICENSE](../ports/th12-mp/third_party/stb_vorbis/LICENSE) | LICENSE |
 | 许可证与声明 | [ports/th12/LICENSE](../ports/th12/LICENSE) | LICENSE |
 | 许可证与声明 | [ports/th12/NOTICE.md](../ports/th12/NOTICE.md) | Copyright and license scope |
 | 许可证与声明 | [ports/th12/src/practice/THPRAC-LICENSE.txt](../ports/th12/src/practice/THPRAC-LICENSE.txt) | MIT License |
