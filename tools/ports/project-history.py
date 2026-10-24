@@ -7,6 +7,7 @@ a Monorepo-Source trailer. No checkout, staging, push or merge is performed.
 import argparse
 import json
 import pathlib
+import re
 import subprocess
 
 
@@ -109,6 +110,16 @@ def project(git, head, game, write_refs=False, track_normal=False):
     imports = load("docs/migration/import-sources.json")["imports"]
     moves = load("docs/migration/move-sources-20261018.json")["sources"]
     layout = load("launcher/config/workspace.json")["repositories"]
+    subtree_sources = {}
+    for name in git.run("ls-tree", "--name-only", head + ":docs/migration").splitlines():
+        if not re.fullmatch(r"th[0-9]+(?:mp|-mp)?-eagler-[0-9]+\.json", name):
+            continue
+        record = load("docs/migration/" + name)
+        if record.get("currentMode") == "git-subtree":
+            prefix = record["destination"]
+            if prefix in subtree_sources:
+                raise RuntimeError("Duplicate subtree source for " + prefix)
+            subtree_sources[prefix] = record
     titles = [game, game + "mp"]
     if any(title not in layout for title in titles):
         raise RuntimeError("Game requires separate normal and multiplayer directories")
@@ -136,15 +147,31 @@ def project(git, head, game, write_refs=False, track_normal=False):
         prefix = layout[title]
         legacy = prefix.replace("ports/", "runtimes/", 1)
         initial = next((row for row in imports if row["target"] == legacy), None)
+        subtree_source = subtree_sources.get(prefix) if initial is None else None
         if initial is None:
-            raise RuntimeError("No imported repository anchor for " + prefix)
-        latest = next((row["head"] for row in moves if row["target"] == prefix), initial["head"])
+            if subtree_source is None:
+                raise RuntimeError("No imported repository anchor for " + prefix)
+            source = subtree_source["subtree"]
+            for join, split in ((source["initialJoin"], source["initialSplit"]), (source["latestJoin"], source["currentSplit"])):
+                if not git.ancestor(join, head) or split not in git.run("rev-list", "--parents", "-n", "1", join).split()[1:]:
+                    raise RuntimeError("Invalid subtree source parents for " + prefix)
+                _, _, body = git.commit(join)
+                if ("git-subtree-dir: " + prefix).encode() not in body.splitlines() or ("git-subtree-split: " + split).encode() not in body.splitlines():
+                    raise RuntimeError("Invalid subtree source trailers for " + prefix)
+                if git.run("rev-parse", join + ":" + prefix) != git.commit(split)[0]:
+                    raise RuntimeError("Subtree snapshot differs from original source tree")
+            if not git.ancestor(source["upstreamCommit"], source["initialSplit"]):
+                raise RuntimeError("Subtree split lost its upstream ancestor")
+            initial = {"head": source["initialSplit"], "importCommit": source["initialJoin"]}
+            latest = source["currentSplit"]
+        else:
+            latest = next((row["head"] for row in moves if row["target"] == prefix), initial["head"])
         original_roots = {initial["head"], latest}
         join_tips = joins.get(prefix, set()) | joins.get(legacy, set())
         source_roots = original_roots | join_tips
         if any(not git.ancestor(origin, head) for origin in source_roots):
             raise RuntimeError("Source anchor is not an ancestor of selected HEAD")
-        imported_tree = git.run("rev-parse", initial["importCommit"] + ":" + legacy)
+        imported_tree = git.run("rev-parse", initial["importCommit"] + ":" + (prefix if subtree_source else legacy))
         if imported_tree != git.commit(initial["head"])[0]:
             raise RuntimeError("Imported snapshot differs from original source tree")
         # A later import may contain normal-side ancestors. Recognize its tip
@@ -184,6 +211,13 @@ def project(git, head, game, write_refs=False, track_normal=False):
                 subtree = empty_tree
             namespace.add(identity)
             if not projected_parents:
+                # A staged directory copy can precede its source join. Its
+                # first authoritative export is the validated source split;
+                # only that pre-join interval may lack projected ancestry.
+                if subtree_source and git.ancestor(identity, initial["importCommit"]):
+                    mapping[identity] = None
+                    namespace.discard(identity)
+                    continue
                 raise RuntimeError("Unanchored directory history: " + identity + " " + prefix)
             projected_parents = [parent for parent in projected_parents if not any(
                 parent != other and git.ancestor(parent, other) for other in projected_parents

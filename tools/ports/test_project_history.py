@@ -150,6 +150,37 @@ class ProjectionTests(unittest.TestCase):
         for result in before["results"].values():
             self.assertEqual(self.run_git("rev-parse", result["ref"]).decode().strip(), result["head"])
 
+    def test_new_subtree_fork_retains_source_and_merge_roundtrip(self):
+        normal_files = {**self.base_files, "normal.txt": "normal feature\n"}
+        mp_files = {**normal_files, "mp.txt": "multiplayer\n"}
+        fork = self.commit(mp_files, [self.normal], "independent MP source")
+        files = {"ports/th12/" + path: value for path, value in normal_files.items()}
+        normal_join = self.commit(files, [self.launcher, self.normal],
+            "join normal\n\ngit-subtree-dir: ports/th12\ngit-subtree-split: " + self.normal)
+        files.update({"ports/th12-mp/" + path: value for path, value in normal_files.items()})
+        copied = self.commit(files, [normal_join], "stage independent source directory")
+        files.update({"ports/th12-mp/" + path: value for path, value in mp_files.items()})
+        mp_join = self.commit(files, [copied, fork],
+            "join MP\n\ngit-subtree-dir: ports/th12-mp\ngit-subtree-split: " + fork)
+        files["docs/migration/import-sources.json"] = json.dumps({"imports": []})
+        files["docs/migration/move-sources-20261018.json"] = json.dumps({"sources": []})
+        files["launcher/config/workspace.json"] = json.dumps({"repositories": {"th12": "ports/th12", "th12mp": "ports/th12-mp"}})
+        for title, prefix, split, join in (("th12", "ports/th12", self.normal, normal_join), ("th12mp", "ports/th12-mp", fork, mp_join)):
+            files["docs/migration/" + title + "-eagler-20261024.json"] = json.dumps({
+                "destination": prefix, "currentMode": "git-subtree", "subtree": {
+                    "upstreamCommit": self.base, "initialSplit": split, "currentSplit": split,
+                    "initialJoin": join, "latestJoin": join}})
+        head = self.commit(files, [mp_join], "record sources")
+        report = module.project(self.reader, head, "th12")
+        self.assertEqual(report["results"]["th12"]["head"], self.normal)
+        self.assertEqual(report["results"]["th12mp"]["head"], fork)
+        self.assertEqual(report["mergeBases"], [self.normal])
+        merged_tree = self.run_git("merge-tree", "--write-tree", fork, self.normal).decode().splitlines()[0]
+        self.assertEqual(merged_tree, self.tree(mp_files))
+        prepared = module.prepare_writeback(self.reader, report, fork, create_commit=True)
+        after = module.project(self.reader, prepared["candidateCommit"], "th12")
+        self.assertEqual(after["results"]["th12mp"]["head"], fork)
+
 
 if __name__ == "__main__":
     unittest.main()
