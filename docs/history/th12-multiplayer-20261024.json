@@ -107,5 +107,16 @@
   "historyToolTests": {
     "projection": 6,
     "sourceValidation": 10
+  },
+  "projectedHistory": {
+    "scope": "temporary shared clone, source trees, ancestor merge, native tracking and writeback roundtrip",
+    "normal": "5e5081a1d2a434b2f8d785ebbd6b965f1058d828",
+    "multiplayer": "d9db2805b449cc5415b17ae1e76a75e684df6ba3",
+    "mergeBases": [
+      "5e5081a1d2a434b2f8d785ebbd6b965f1058d828"
+    ],
+    "aheadBehind": "0\t2",
+    "roundtrip": true,
+    "unrelatedChanges": []
   }
 }
