@@ -229,6 +229,19 @@
           ]
         }
       }
+    },
+    "th12": {
+      "normal": "ports/th12",
+      "multiplayer": "ports/th12-mp",
+      "base": "db0db42c2f494459f15ef286818478d4782e1f7b",
+      "history": [],
+      "origin": {
+        "normalCommit": "5e5081a1d2a434b2f8d785ebbd6b965f1058d828",
+        "multiplayerCommit": "02e3a62a7ff38ca5ec1f3ad2007c117534e9ba26",
+        "mergeBases": [
+          "5e5081a1d2a434b2f8d785ebbd6b965f1058d828"
+        ]
+      }
     }
   }
 }
