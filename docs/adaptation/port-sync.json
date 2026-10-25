@@ -233,8 +233,30 @@
     "th12": {
       "normal": "ports/th12",
       "multiplayer": "ports/th12-mp",
-      "base": "db0db42c2f494459f15ef286818478d4782e1f7b",
-      "history": [],
+      "base": "f5c9fc0670599190c6ed17783fe179c385ed23a0",
+      "history": [
+        {
+          "kind": "git-merge",
+          "base": "db0db42c2f494459f15ef286818478d4782e1f7b",
+          "source": "f5c9fc0670599190c6ed17783fe179c385ed23a0",
+          "targetHead": "89a8331d887395890dc9f1f6d57c58a704df1894",
+          "paths": [
+            "ports/th12-mp/docs/behavior/animation.md",
+            "ports/th12-mp/src/game/AnmScene.cpp",
+            "ports/th12-mp/src/game/AnmScene.hpp",
+            "ports/th12-mp/src/game/EnemyCallbacks.cpp",
+            "ports/th12-mp/src/game/Presentation.cpp",
+            "ports/th12-mp/src/game/PresentationGeometry.cpp",
+            "ports/th12-mp/src/game/PresentationMotion.cpp",
+            "ports/th12-mp/src/presentation-interpolation.mjs",
+            "ports/th12-mp/src/stage-background.mjs"
+          ],
+          "note": "同步飞钵半径、相邻帧展示匹配缓存、动画遍历缓冲、子弹绘制索引与背景旋转复用；保留多人席位作用域，目录合并节点 9256bc2ab1f22238a79e4e34146451d307b74f59，写回节点 89a8331d887395890dc9f1f6d57c58a704df1894。",
+          "integration": "committed",
+          "normalHistory": "5ea4831e98d6b3124d57240ab85af1e6839c3abb",
+          "multiplayerHistory": "9256bc2ab1f22238a79e4e34146451d307b74f59"
+        }
+      ],
       "origin": {
         "normalCommit": "5e5081a1d2a434b2f8d785ebbd6b965f1058d828",
         "multiplayerCommit": "02e3a62a7ff38ca5ec1f3ad2007c117534e9ba26",
