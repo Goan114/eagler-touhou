@@ -103,6 +103,6 @@ export function installManagedShell(api,environment=window,{announceReady=true}=
     }
     queue=queue.then(async()=>{try{if(!announced)throw Error('运行资源尚未准备');const result=await command(message);if(typeof message.request==='string')emit({request:message.request,ok:true,...result});}catch(error){if(typeof message.request==='string')emit({request:message.request,ok:false,error:error.message});else emit({event:'error',message:error.message});}});
   });
-  emit.ready=()=>{if(announced)return;announced=true;emit({event:'ready',saveRoot:'/savesth12'});};
+  emit.ready=()=>{if(announced)return;announced=true;emit({event:'ready',saveRoot:'/savesth12',roomPreview:true,roomReturn:true});};
   if(announceReady)emit.ready();return emit;
 }
