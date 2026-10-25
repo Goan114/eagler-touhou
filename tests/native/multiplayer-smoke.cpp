@@ -14,7 +14,45 @@ namespace mp=th12::multiplayer;
 void check(bool ok,const char* name){if(!ok){std::fprintf(stderr,"FAIL: %s\n",name);std::exit(1);}}
 void begin(unsigned count=3){selectStage(1);mp::Options o;o.count=count;o.selections={0,3,5};check(mp::begin(o),"begin");}
 void rules(unsigned held){mp::pilots[0].input.held=held;mp::tickRules();}
+void powerItems(unsigned count) {
+  begin(count);
+  for (unsigned s=0;s<count;++s) {
+    auto& p=mp::pilots[s];p.px=int(s)*100*128;p.py=300*128;p.playerState=1;
+  }
+  auto& resources=mp::pilots[0].resources;
+  const auto collect=[&](int type,int power,int bucket=0) {
+    itemManager.reset();resources.power=power;
+    for(unsigned s=1;s<count;++s)mp::pilots[s].resources.power=400;
+    item_system::SpawnRequest request;request.type=type;request.position={0,300};request.speed=0;
+    request.bucketA=bucket;
+    auto* item=itemManager.spawn(request);check(item!=nullptr,"spawn power test item");
+    item->recipient=0;
+    tickItems(false);
+    check(!item->active(),"world actually collects power item");
+  };
+  collect(1,100);check(resources.power==100+int(count),"small P awards 0.02/0.03");
+  const int rank=resources.rank;
+  collect(1,199);check(resources.power==199+int(count)&&resources.rank==rank+12,"small P crosses power tier once");
+  collect(1,399);check(resources.power==400,"small P clamps at max power");
+  const int score=resources.scoreStored;
+  collect(1,400);check(resources.power==400&&resources.scoreStored==score+1,"full power retains original small P score");
+  collect(3,100);check(resources.power==200,"large P still awards one tier");
+  collect(8,100);check(resources.power==400,"full power item retains original award");
+  collect(16,100,4);check(resources.power==100+4*int(count),"UFO aggregate values each small P consistently");
+  mp::pilots[count-1].ghost=true;
+  collect(1,100);check(resources.power==100+int(count),"small P value uses room seats even with a ghost");
+  itemManager.reset();
+  Enemy enemy;enemy.x=12;enemy.y=120;enemy.drop=1;enemy.dropCounts[0]=2;enemy.dropCounts[2]=2;
+  const auto calls=th12::random.calls;
+  dropItems(enemy);
+  int small=0,large=0;
+  for(const auto& item:itemManager.entities)if(item.active()){small+=item.type==1;large+=item.type==3;}
+  check(small==3&&large==2&&itemManager.activeCount()==5,"enemy P drop counts do not multiply by room seats");
+  // One initial angle and two floats per counted drop; each float draws two words.
+  check(th12::random.calls-calls==18,"enemy drops preserve original RNG draw count");
+}
 int main(){
+  powerItems(2);powerItems(3);
   mp::Options o;check(o.valid(),"options");o.count=1;check(!o.valid(),"reject single player");
   begin();check(mp::pilots[0].character==0&&mp::pilots[1].character==1&&mp::pilots[2].character==2,"six loadouts");
   check(mp::pilots[0].px<mp::pilots[1].px&&mp::pilots[1].px<mp::pilots[2].px,"separate spawn positions");
@@ -29,8 +67,15 @@ int main(){
   auto gift=std::find_if(itemManager.entities.begin(),itemManager.entities.end(),[](const auto& e){return e.gift;});
   check(gift!=itemManager.entities.end()&&gift->type==3&&gift->recipient==1,"gift targets lowest relative power");
   {mp::Scope seat(1);mp::pilots[1].resources.lives=-1;mp::becameGhost();}
-  for(int i=0;i<5;++i){rules(8);rules(0);}
+  for(int i=0;i<4;++i){
+    rules(8);rules(8);rules(0);
+    check(mp::pilots[1].ghost&&mp::pilots[0].resources.lives==2,
+          "four Shift taps and held frames cannot donate a life");
+  }
+  rules(8);
   check(!mp::pilots[1].ghost&&mp::pilots[0].resources.lives==1,"rescue consumes donor life");
+  rules(8);rules(0);
+  check(mp::pilots[0].resources.lives==1,"holding fifth Shift tap cannot donate again");
   check(mp::deathbombFrames()==16,"double deathbomb window");
   Enemy boss;boss.id=101;boss.boss=true;int damage=0;for(int i=0;i<12;++i)damage+=mp::bossDamage(boss,1);
   check(damage==8,"three-player boss damage uses fractional remainder");

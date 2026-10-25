@@ -393,18 +393,19 @@ RewardDelta difference(const ResourceState& before, const ResourceState& after) 
           after.rank - before.rank};
 }
 
-void smallPower(ResourceState& r) {
+void smallPower(ResourceState& r, int amount) {
   if (r.power >= r.maxPower) {
     r.score(10);
     return;
   }
   const int previous = r.power;
-  r.power = std::min(r.maxPower, r.power + 1);
+  r.power = std::min(r.maxPower, r.power + amount);
   if (previous / r.powerStep != r.power / r.powerStep)
     r.addRank(12);
 }
 
-RewardDelta collectOrdinary(ResourceState& r, const Entity& item, const PlayerView& player) {
+RewardDelta collectOrdinary(ResourceState& r, const Entity& item, const PlayerView& player,
+                            int smallPowerAmount) {
   const ResourceState before = r;
   const auto increasePower = [&](int amount, int rank) {
     const int previous = r.power;
@@ -414,7 +415,7 @@ RewardDelta collectOrdinary(ResourceState& r, const Entity& item, const PlayerVi
   };
   switch (item.type) {
   case 1:
-    smallPower(r);
+    smallPower(r, smallPowerAmount);
     break;
   case 2: {
     int value = r.pointValue();
@@ -479,10 +480,10 @@ RewardDelta collectOrdinary(ResourceState& r, const Entity& item, const PlayerVi
   return difference(before, r);
 }
 
-RewardDelta collectAggregate(ResourceState& r, const Entity& item) {
+RewardDelta collectAggregate(ResourceState& r, const Entity& item, int smallPowerAmount) {
   const ResourceState before = r;
   for (int i = 0; i < item.bucketA; i++)
-    smallPower(r);
+    smallPower(r, smallPowerAmount);
   const int value = r.pointValue();
   int displayed;
   if (item.aggregateKind == 1)

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {runInNewContext} from 'node:vm';
-import {PresentationCadence} from '../src/presentation-cadence.mjs';
+import {PresentationCadence,PresentationLimiter,needsPresentationCapture} from '../src/presentation-cadence.mjs';
 import {installManagedShell,runtimeOptions} from '../src/managed-shell.mjs';
 import {ManagedInput} from '../src/managed-input.mjs';
 
@@ -18,6 +18,7 @@ test('managed protocol: authenticates navigation, serializes resources and confi
     data:{protocol:'eagler-touhou/1',game:'th12',epoch:7,request:command,command,...extra},...envelope});
   send('launch');await flush();assert.equal(messages.at(-1).ok,false);assert.deepEqual(calls,[]);
   emit.ready();assert.equal(messages.at(-1).event,'ready');
+  assert.equal(messages.at(-1).roomPreview,true);assert.equal(messages.at(-1).roomReturn,true);
   send('launch');await flush();assert.equal(messages.at(-1).ok,false);
   send('keyboard',{epoch:6});send('keyboard',{}, {origin:'https://other.test'});send('keyboard',{}, {source:{}});
   await flush();assert.deepEqual(calls,[]);
@@ -30,6 +31,20 @@ test('managed protocol: authenticates navigation, serializes resources and confi
 test('managed touch: accepts shared sensitivity bounds and rejects invalid values',()=>{
   for(const touchSensitivity of [100,180,300])assert.equal(runtimeOptions({touchSensitivity}).touchSensitivity,touchSensitivity);
   for(const touchSensitivity of [99,301,NaN,Infinity,'100'])assert.throws(()=>runtimeOptions({touchSensitivity}));
+});
+
+test('room Start cannot announce gameplay while its native launch is still pending',async()=>{
+  const source=readFileSync(new URL('../site/game.mjs',import.meta.url),'utf8');
+  const start=source.indexOf('async function launchRuntime('),end=source.indexOf('\nasync function bootstrap()',start);
+  let finish;const pending=new Promise(resolve=>{finish=resolve;}),scenes=[];
+  const context={terminated:false,multiplayer:{active:false,launch:()=>pending},initializeMultiplayer:async()=>{},
+    runtimeOptions:{},multiplayerResult:false,roomPreview:true,launched:false,firstFrame:true,launchSerial:0,clearKeys(){},
+    model:{enter:scene=>scenes.push(scene),actions:[]},audio:{},core:{_th12_music_serial:()=>1},stageMusic:{1:'stage1'},session:{stage:1},
+    playMusic:async()=>{},captureGamePresentation(){},emit(){},localization:{language:'ja'},console};
+  runInNewContext(source.slice(start,end)+';globalThis.launchRuntime=launchRuntime;',context);
+  const launch=context.launchRuntime({launchSerial:4});await Promise.resolve();await Promise.resolve();
+  assert.equal(context.launched,false,'a loading/title frame cannot acknowledge the new launch');assert.equal(context.launchSerial,4);
+  finish();await launch;assert.equal(context.launched,true);assert.deepEqual(scenes,['playing']);
 });
 
 test('managed gamepad: maps every semantic action and rejects retired owners',()=>{
@@ -49,9 +64,10 @@ test('managed presentation: actual browser loop keeps 60 Hz logic at 60, 120 and
   for(const hz of [60,120,144]){
     let ticks=0,draws=0;
     const context={terminated:false,backgrounded:false,fatalError:false,last:0,lastPresentation:0,accumulator:0,presentationInterval:1000/60,presentationCadence:new PresentationCadence(),
-      runtimeOptions:{limitPresentationTo60:false},TICK:1000/60,meter:{frame(){}},loadingScreen:{advance(){},renderOverlay(){}},
+      runtimeOptions:{limitPresentationTo60:false},presentationLimiter:new PresentationLimiter(),TICK:1000/60,meter:{frame(){}},loadingScreen:{advance(){},renderOverlay(){}},
       ready:true,busy:false,session:null,model:{actions:[],state:{scene:'playing'}},profile:{settings:{keyMap:{}}},
-      keyDown:()=>false,previousPadUI:0,logicalStep:1000/60,captureThisTick:false,launched:false,
+      keyDown:()=>false,previousPadUI:0,logicalStep:1000/60,captureThisTick:false,launched:false,multiplayer:null,
+      needsPresentationCapture,interpolateGamePresentation:()=>false,
       tick:()=>{ticks++;},present:()=>{draws++;},requestAnimationFrame(){},fail:error=>{throw error;}};
     runInNewContext(source.slice(start,end)+';globalThis.frame=frame;',context);
     for(let index=1;index<=hz*10;index++)context.frame(index*1000/hz);

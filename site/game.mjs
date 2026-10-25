@@ -538,7 +538,11 @@ async function initialize(){
   const [atlases,menus,index,music,sounds]=await Promise.all(['/assets/atlases.json','/assets/menu-resources.json','/replays/index.json','/assets/music-index.json','/assets/sound-index.json'].map(async url=>{if(assets.managed&&url==='/replays/index.json')return {fixtures:[]};const r=url.startsWith('/assets/')?await assets.fetch(url):await fetch(url);if(!r.ok)throw Error('资源清单加载失败');return r.json();}));
   resources=validateMenuResources(localization?.applyMenuResources(menus)??menus);musicIndex=music;soundIndex=sounds;Object.assign(atlases,resources.atlases);
   Object.assign(renderer.atlases,atlases);await renderer.prepare();await renderer.loadAtlases(['title','title_v','staff',...resources.endings.map(e=>e.bank)]);
-  core=await createCore();if(!core._th12_start_full_game||!core._th12_load_spell_history)throw Error('请更新完整游戏核心');loader=new StageLoader(core,atlases,file=>bytes('/assets/'+file));
+  core=await createCore();if(!core._th12_start_full_game||!core._th12_load_spell_history)throw Error('请更新完整游戏核心');
+  // The Launcher reads the same Module/peer transport contract as TH10/11/15
+  // before revealing gameplay and routing input to the retained room Runtime.
+  window.Module=core;
+  loader=new StageLoader(core,atlases,file=>bytes('/assets/'+file));
   corpus=await Promise.all(index.fixtures.filter(r=>!/^demo/.test(r.id)).map(async fixture=>{
     //The local fixture index describes inputs. Its menu metadata must come
     //from the actual retail header, as it does for imported/saved replays.
@@ -614,7 +618,7 @@ async function launchRuntime(message={}){
   if(terminated)throw Error('此运行会话已结束，请从启动器重新打开');
   if(multiplayer?.active)throw Error('游戏已启动');
   launchSerial=Number(message.launchSerial)||0;await initializeMultiplayer();
-  multiplayerResult=false;roomPreview=false;launched=true;firstFrame=false;clearKeys();
+  multiplayerResult=false;roomPreview=false;launched=false;firstFrame=false;clearKeys();
   try{
     if(runtimeOptions.replayViewer){
       if(!runtimeOptions.replayPath){notice('请在启动器录像列表选择多人录像');return;}
@@ -623,6 +627,7 @@ async function launchRuntime(message={}){
     model.enter('playing',0,{readyAt:0});model.actions.length=0;
     audio.musicSerial=core._th12_music_serial();await playMusic(stageMusic[session.stage]);captureGamePresentation();
     emit({event:'runtime-info',renderer:'WebGL2',architecture:'C++20 / WebAssembly',multiplayer:true,language:localization.language});
+    launched=true;
   }catch(error){launched=false;console.error(error);throw error;}
 }
 async function bootstrap(){

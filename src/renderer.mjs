@@ -479,17 +479,21 @@ export class Renderer {
     add('front',0,fps.hudAge??frame,0,0,0,1,null,{alpha:1,clipped:false});
     for(const rectangle of bossHealthRectangles(bossHud))poses.push({rectangle,drawPriority:44,clip:2,order:poses.length});
     if(fps.multiplayer){
-      const text=(value,x,y,font=2,alignX=1)=>poses.push({nativeText:{text:value,x,y,font,alignX},drawPriority:69,clip:0,order:poses.length});
+      const text=(value,x,y,font=2,alignX=1,style={})=>poses.push({nativeText:{text:value,x,y,font,alignX,...style},drawPriority:69,clip:0,order:poses.length});
       text(groupedNumber(h[3]),620,72,3,2);text(groupedNumber(h[40]??h[3]),620,48,3,2);
       for(const p of fps.multiplayer.players){
         const y=104+p.seat*80;
-        text((p.seat===fps.localSeat?'* ':'')+(p.seat+1)+'P'+(p.ghost?' GHOST':''),428,y-14,1);
+        text((p.seat+1)+'P'+(p.ghost?' GHOST':''),428,y-14,1,1,{colorARGB:p.seat===fps.localSeat?0xffffff00:0xffffffff});
         for(const [script,dy]of [[8,y-102],[10,y+24-126],[9,y+48-150]])add('front',script,frame,0,dy,0,1,null,{alpha:p.ghost ? .55 : 1,drawPriority:59,clipped:false,entityId:'label-'+p.seat+'-'+script});
         for(let i=0;i<8;i++){
           add('front',13+i,frame,0,y-102,0,1,null,{alpha:p.ghost ? .55 : 1,drawPriority:59,clipped:false,interrupt:fragmentInterrupt(i,Math.max(0,p.lives),p.lifeFragments),entityId:'life-'+p.seat+'-'+i});
           add('front',21+i,frame,0,y+24-126,0,1,null,{alpha:p.ghost ? .55 : 1,drawPriority:59,clipped:false,interrupt:fragmentInterrupt(i,p.bombs,p.bombFragments),entityId:'bomb-'+p.seat+'-'+i});
         }
-        text((p.power/100).toFixed(2)+' / '+(p.maxPower/100).toFixed(2),620,y+50,2,2);
+        const powerStyle={colorARGB:0xffff8030},decimalStyle={...powerStyle,scaleX:.6,scaleY:.6};
+        text(Math.floor(p.power/100)+'.',540,y+50,4,1,powerStyle);
+        text(String(p.power%100).padStart(2,'0'),560,y+57,4,1,decimalStyle);
+        text('/'+Math.floor(p.maxPower/100)+'.',574,y+50,4,1,powerStyle);
+        text(String(p.maxPower%100).padStart(2,'0'),606,y+57,4,1,decimalStyle);
         const transfer=p.lifeTaps>=3?'L '+p.lifeTaps+'/5':p.powerTaps>=3?'P '+p.powerTaps+'/5':null;
         if(transfer)poses.push({nativeText:{text:transfer,x:p.x+224,y:p.y,alignX:0,font:2},drawPriority:45,clip:2,order:poses.length});
       }
