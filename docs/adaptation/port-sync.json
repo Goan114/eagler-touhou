@@ -233,7 +233,7 @@
     "th12": {
       "normal": "ports/th12",
       "multiplayer": "ports/th12-mp",
-      "base": "f5c9fc0670599190c6ed17783fe179c385ed23a0",
+      "base": "54ab65c1307833ec728125fb32c3f8c04d495854",
       "history": [
         {
           "kind": "git-merge",
@@ -255,6 +255,24 @@
           "integration": "committed",
           "normalHistory": "5ea4831e98d6b3124d57240ab85af1e6839c3abb",
           "multiplayerHistory": "9256bc2ab1f22238a79e4e34146451d307b74f59"
+        },
+        {
+          "kind": "git-merge",
+          "base": "f5c9fc0670599190c6ed17783fe179c385ed23a0",
+          "source": "54ab65c1307833ec728125fb32c3f8c04d495854",
+          "targetHead": "fa420cf5f329e4e0a1760f940f2e2e1e677b6073",
+          "paths": [
+            "ports/th12-mp/src/draw-scheduler.mjs",
+            "ports/th12-mp/src/mesh-vertices.mjs",
+            "ports/th12-mp/src/presentation-interpolation.mjs",
+            "ports/th12-mp/src/renderer.mjs",
+            "ports/th12-mp/src/sound-player.mjs",
+            "ports/th12-mp/src/stage-background.mjs"
+          ],
+          "note": "同步连续网格顶点快照、双精度坐标插值、背景裁剪缓冲与静态实例缓存、音效处理节点复用；保留多人角色绘制和输入行为。",
+          "integration": "committed",
+          "normalHistory": "b106ecd3d7102d4e9c3bf910ef6a32291d7e54e9",
+          "multiplayerHistory": "c94e00793ef3fd1aecbf59816a72aae30bca55a2"
         }
       ],
       "origin": {
