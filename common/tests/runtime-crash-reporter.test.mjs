@@ -96,6 +96,7 @@ test('sample gaps expose main-thread stalls before connection recovery expires',
   api.fatal('connection recovery exhausted');const samples=api.report().samples;
   assert.equal(samples[0].sampleGapMs,null);assert.equal(samples[1].sampleGapMs,1000);
   assert.equal(samples[2].sampleGapMs,6500);
+  assert.equal(api.report().summary.maximumSampleGapMs,6500);assert.equal(api.report().summary.maximumLongTaskMs,0);
 });
 
 test('TH12 reports named world, UFO, boss, spell and authoritative player state',()=>{

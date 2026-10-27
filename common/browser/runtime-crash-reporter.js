@@ -87,7 +87,7 @@
     if (stopped || !core) return;
     const now=clock();
     const value = {time:new Date().toISOString(), sampleGapMs:lastSampleAt===undefined?null:Math.max(0,now-lastSampleAt)};
-    if(lastSampleAt!==undefined&&now-lastSampleAt>1500)append(stalls,{kind:'sample-gap',startMs:lastSampleAt,durationMs:now-lastSampleAt},120);
+    if(lastSampleAt!==undefined&&now-lastSampleAt>1500)append(stalls,{kind:'sample-gap',startMs:lastSampleAt,durationMs:now-lastSampleAt,visibility:document.visibilityState},120);
     lastSampleAt=now;
     try {
       const heap = core.HEAPU8;
@@ -230,7 +230,7 @@
       report.capture={uptimeMs:Math.max(0,clock()-startedAt),lastSampleAgeMs:lastSampleAt===undefined?null:Math.max(0,clock()-lastSampleAt),sampleIntervalMs:1000,historyLimit:60,rtcIntervalMs:5000,wasmReadsAfterFatal:false};
       const last=samples.at(-1);report.summary={stage:last?.stage??last?.gameState?.session?.stage,frame:last?.netplay?.nextFrame??last?.frame,phase:last?.phase,localSeat:last?.netplay?.localSeat,playerCount:last?.netplay?.playerCount,
         nativeError:last?.nativeError,unconfirmedFrames:last?.netplay?.unconfirmedFrames,rollback:last?.rollback,
-        maximumSampleGapMs:Math.max(0,...samples.map(v=>v.sampleGapMs??0)),maximumLongTaskMs:Math.max(0,...stalls.map(v=>v.durationMs??0)),lastSampleAgeMs:report.capture.lastSampleAgeMs};
+        maximumSampleGapMs:Math.max(0,...samples.map(v=>v.sampleGapMs??0)),maximumLongTaskMs:Math.max(0,...stalls.filter(v=>v.kind!=='sample-gap').map(v=>v.durationMs??0)),lastSampleAgeMs:report.capture.lastSampleAgeMs};
       report.runtime.build=plain(build);
       if (core?.HEAPU8) report.wasmMemoryBytes=core.HEAPU8.byteLength;
       report.environment.serviceWorker=trim(navigator.serviceWorker?.controller?.scriptURL||'');
