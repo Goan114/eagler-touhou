@@ -53,3 +53,47 @@ test('TH12 native gameplay getters wait until a session exists',()=>{
   api.bindCore(core,{context:()=>({session})});assert.equal(reads,0);
   session={stage:1};api.sample();assert.equal(reads,1);
 });
+
+test('TH12 uses its eight-word rollback ABI without reading TH15 fields',()=>{
+  const {api}=fixture('th12');
+  const heap=new Uint8Array(160),words=new Uint32Array(heap.buffer);
+  words.set([1,1,0,25705,25692,2,1,0,12],4);
+  words.set([1,4577,0,25693,0,0xffffffff,25705,1],32);
+  api.bindCore({HEAPU8:heap,_th12_mp_status:()=>16,_th12_mp_rollback_status:()=>128});
+  api.fatal('connection lost');const r=api.report().samples[0].rollback;
+  assert.equal(r.enabled,true);assert.equal(r.corrections,4577);assert.equal(r.replayedFrames,0);
+  assert.equal(r.committedFrames,25693);assert.equal(r.rollbackRequest,null);assert.equal(r.frontier,25705);
+  assert.equal(r.correcting,false);assert.equal(r.worldReady,true);
+  for(const name of ['lastDepth','peakDepth','replayRemaining','fenceFrame','presentationFps'])assert.equal(r[name],undefined);
+});
+test('TH15 keeps its separate nine-word rollback ABI',()=>{
+  const {api}=fixture('th15');const heap=new Uint8Array(128);
+  new Uint32Array(heap.buffer).set([1,1,50,75,3,12,4,101,5990],4);
+  api.bindCore({HEAPU8:heap,_th15_mp_rollback_status:()=>16});api.fatal('failure');
+  const r=api.report().samples[0].rollback;
+  assert.equal(r.corrections,50);assert.equal(r.peakDepth,12);assert.equal(r.presentationFps,59.9);
+});
+test('transport history and final recovery state omit connection credentials',()=>{
+  const {api,world}=fixture('th12');
+  const peer={pc:{connectionState:'connected',iceConnectionState:'disconnected',configuration:{credential:'private-turn'}},
+    inputDc:{readyState:'open',bufferedAmount:12},controlDc:{readyState:'open',bufferedAmount:32},
+    lastReceivedAt:Date.now()-6000,lastInputSentAt:Date.now(),restartAttempts:1,restartInFlight:true,
+    adaptive:{snapshot:()=>({selected:'primary',epoch:0,standbyReady:false})}};
+  world.__eaglerPeerTransport={route:'rtc',received:[],receivedHead:0,peers:new Map([[0,peer]]),iceServers:[{credential:'private-turn'}]};
+  api.bindCore({HEAPU8:new Uint8Array(128)});peer.restartAttempts=2;
+  api.fatal('RTC peer P1 ICE restart exhausted');const r=api.report();
+  assert.equal(r.samples[0].transport.peers[0].restartAttempts,1);
+  assert.equal(r.transport.peers[0].restartAttempts,2);
+  assert.equal(r.transport.peers[0].iceConnectionState,'disconnected');
+  assert.ok(r.transport.peers[0].receivedAgeMs>=6000);
+  assert.equal(r.transport.peers[0].adaptive.selected,'primary');
+  assert.ok(!JSON.stringify(r).includes('private-turn'));
+});
+
+test('sample gaps expose main-thread stalls before connection recovery expires',()=>{
+  const {api,world}=fixture('th12');let time=0;world.performance.now=()=>time;
+  api.bindCore({HEAPU8:new Uint8Array(128)});time=1000;api.sample();time=7500;api.sample();
+  api.fatal('connection recovery exhausted');const samples=api.report().samples;
+  assert.equal(samples[0].sampleGapMs,null);assert.equal(samples[1].sampleGapMs,1000);
+  assert.equal(samples[2].sampleGapMs,6500);
+});

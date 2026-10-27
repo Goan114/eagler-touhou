@@ -8,7 +8,7 @@
   const multiplayer = location.pathname.includes('/multiplayer/');
   const generation = /\/([a-f0-9]{64})\//.exec(location.pathname)?.[1] || '';
   const logs = [], events = [], samples = [];
-  let core, context, report, build, stopped = false;
+  let core, context, report, build, stopped = false, lastSampleAt;
   const append = (list, value, limit) => { list.push(value); if (list.length > limit) list.shift(); };
   const trim = value => String(value).slice(0, 12000).replace(/https?:\/\/[^\s"<>]+/g, url => {
     try { const parsed = new URL(url); parsed.search = ''; parsed.hash = ''; return parsed.href; } catch { return url; }
@@ -40,9 +40,26 @@
       return original.apply(this, args);
     };
   }
+  function transportSnapshot() {
+    const transport=globalThis.__eaglerPeerTransport;
+    if(!transport)return undefined;
+    const now=Date.now(), age=value=>Number.isFinite(value)&&value>0?Math.max(0,now-value):null;
+    return plain({route:transport.route,failed:transport.failed,disconnected:transport.disconnected,
+      receivedQueued:transport.received?.length-(transport.receivedHead||0),
+      peers:Array.from(transport.peers||[]).slice(0,3).map(([seat,p])=>{
+        let adaptive;try{adaptive=p.adaptive?.snapshot();}catch{}
+        return {seat,connectionState:p.pc?.connectionState,iceConnectionState:p.pc?.iceConnectionState,
+          inputState:p.inputDc?.readyState,controlState:p.controlDc?.readyState,
+          inputBufferedBytes:p.inputDc?.bufferedAmount,controlBufferedBytes:p.controlDc?.bufferedAmount,
+          receivedAgeMs:age(p.lastReceivedAt),inputSentAgeMs:age(p.lastInputSentAt),
+          restartAttempts:p.restartAttempts,restartInFlight:p.restartInFlight,recoveryPending:p.recoveryPending,adaptive};
+      })});
+  }
   function sample() {
     if (stopped || !core) return;
-    const value = {time:new Date().toISOString()};
+    const now=performance.now?.() ?? Date.now();
+    const value = {time:new Date().toISOString(), sampleGapMs:lastSampleAt===undefined?null:Math.max(0,now-lastSampleAt)};
+    lastSampleAt=now;
     try {
       const heap = core.HEAPU8;
       if (heap) value.wasmMemoryBytes = heap.byteLength;
@@ -57,8 +74,14 @@
       value.frame = scalar('_' + prefix + '_frame');
       value.phase = scalar('_' + prefix + '_phase');
       value.netplayStatus = words('_' + prefix + '_mp_status', 24);
-      const rollback = words('_' + prefix + '_mp_rollback_status', 9);
-      if (rollback) value.rollback = {version:rollback[0], enabled:!!rollback[1], corrections:rollback[2], replayedFrames:rollback[3], lastDepth:rollback[4], peakDepth:rollback[5], replayRemaining:rollback[6], fenceFrame:rollback[7], presentationFps:rollback[8]/100};
+      const rollback = words('_' + prefix + '_mp_rollback_status', prefix === 'th12' ? 8 : 9);
+      if (rollback) value.rollback = prefix === 'th12'
+        ? {version:rollback[0], enabled:(value.netplayStatus?.[8] ?? 0)>0,
+          corrections:rollback[1], replayedFrames:rollback[2], committedFrames:rollback[3],
+          correcting:!!rollback[4], rollbackRequest:rollback[5]===0xffffffff?null:rollback[5],
+          frontier:rollback[6], worldReady:!!rollback[7]}
+        : {version:rollback[0], enabled:!!rollback[1], corrections:rollback[2], replayedFrames:rollback[3], lastDepth:rollback[4], peakDepth:rollback[5], replayRemaining:rollback[6], fenceFrame:rollback[7], presentationFps:rollback[8]/100};
+      value.transport = transportSnapshot();
       if (context) value.gameState = plain(context());
       if (prefix === 'th12' && value.gameState?.session) {
         if (typeof core._th12_stage_flow === 'function' && typeof core._th12_stage_flow_size === 'function') {
@@ -146,8 +169,7 @@
       report.runtime.build=plain(build);
       if (core?.HEAPU8) report.wasmMemoryBytes=core.HEAPU8.byteLength;
       const memory=performance.memory; if(memory)report.browserMemory={usedBytes:memory.usedJSHeapSize,totalBytes:memory.totalJSHeapSize,limitBytes:memory.jsHeapSizeLimit};
-      const transport=globalThis.__eaglerPeerTransport;
-      if(transport)report.transport=plain({route:transport.route,connectionState:transport.connectionState,receivedQueued:transport.received?.length-(transport.receivedHead||0)});
+      report.transport=transportSnapshot();
       let host=window;try{if(parent!==window&&parent.location.origin===location.origin)host=parent;}catch{}
       try{hostUI(host).show(report);}catch{hostUI(window).show(report);}
     } catch {}
