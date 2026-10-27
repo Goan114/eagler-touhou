@@ -42,9 +42,9 @@ test('warnings stay nonfatal; unhandled rejection and native errors retain origi
 test('rolling history stays bounded and circular values serialize safely',()=>{
   const {api,world}=fixture();const cyclic={};cyclic.self=cyclic;
   api.bindCore({HEAPU8:new Uint8Array(1024)});
-  for(let n=0;n<150;n++){world.console.error(n,cyclic);api.sample();}
+  for(let n=0;n<300;n++){world.console.error(n,cyclic);api.sample();}
   api.fatal('failure');const report=api.report();
-  assert.equal(report.logs.length,100);assert.equal(report.samples.length,30);
+  assert.equal(report.logs.length,200);assert.equal(report.samples.length,60);
   assert.match(JSON.stringify(report),/circular/);
 });
 test('TH12 native gameplay getters wait until a session exists',()=>{
@@ -96,4 +96,50 @@ test('sample gaps expose main-thread stalls before connection recovery expires',
   api.fatal('connection recovery exhausted');const samples=api.report().samples;
   assert.equal(samples[0].sampleGapMs,null);assert.equal(samples[1].sampleGapMs,1000);
   assert.equal(samples[2].sampleGapMs,6500);
+});
+
+test('TH12 reports named world, UFO, boss, spell and authoritative player state',()=>{
+  const {api}=fixture('th12');const heap=new Uint8Array(8192),w=new Uint32Array(heap.buffer),f=new Float32Array(heap.buffer);
+  w.set([1,1,1,100,95,2,1,0,12,1],4);
+  f.set([50,20,30,1000,400,5,2,20,1234,99,30,200,1,0,0,0,0,2,1,3,100000,2,1,1,2,3,-1,8,.5,2,6,7,2000,10,1500,4,120,800,0,3,1000],64);
+  const put=(at,v)=>{heap.set(new TextEncoder().encode(JSON.stringify(v)+'\0'),at);return at;};
+  const state=put(1024,{stage:3,players:[{seat:0,selection:5,held:9},{seat:1,selection:0,held:1}]});
+  const spell=put(2048,{active:true,name:'test spell',id:17});
+  api.bindCore({HEAPU8:heap,_th12_mp_status:()=>16,_th12_mp_state:()=>state,_th12_hud:()=>256,_th12_hud_size:()=>41,_th12_spell:()=>spell},
+    {context:()=>({session:{stage:3}})});api.fatal('failed');const r=api.report(),last=r.samples[0];
+  assert.equal(last.world.ufoKind,-1);assert.equal(last.world.bulletCount,200);assert.equal(last.world.bossLife,1500);
+  assert.equal(last.spell.name,'test spell');assert.equal(last.multiplayer.players[0].selection,5);
+  assert.equal(r.summary.stage,3);assert.equal(r.summary.localSeat,1);assert.equal(r.summary.unconfirmedFrames,4);
+  assert.equal(r.reporterVersion,2);
+});
+test('TH15 reports live stage, audio queue, pause and native error with no simulation calls',()=>{
+  const {api}=fixture('th15');const heap=new Uint8Array(2048),w=new Uint32Array(heap.buffer);
+  w.set([101,500,0,6,1,0],4);w.set([1,30,900,0,4410,12,0,0,0,123,0],16);
+  new Int32Array(heap.buffer).set([2,1,0,3,0,0,120],40);heap.set(new TextEncoder().encode('native failure\0'),512);
+  api.bindCore({HEAPU8:heap,_th15_frame:()=>101,_th15_phase:()=>1,_eagler_replay_state:()=>16,_th15_audio_statistics:()=>64,
+    _th15_mp_result_status:()=>160,_th15_mp_error:()=>512,_th15_mp_pump:()=>assert.fail('must not pump')});
+  api.fatal('failed');const r=api.report(),last=r.samples[0];assert.equal(r.summary.stage,6);
+  assert.equal(last.audio.queuedFrames,4410);assert.equal(last.pause.age,120);assert.equal(last.nativeError,'native failure');
+});
+test('RTC statistics retain link quality without candidate addresses or credentials',async()=>{
+  const {api,world}=fixture('th15');let calls=0;
+  const reports=new Map([['t',{type:'transport',selectedCandidatePairId:'p'}],['p',{type:'candidate-pair',state:'succeeded',localCandidateId:'l',remoteCandidateId:'r',currentRoundTripTime:.12,bytesReceived:600}],
+    ['l',{candidateType:'relay',protocol:'udp',address:'192.0.2.1',usernameFragment:'private-user'}],['r',{candidateType:'host',protocol:'udp',address:'198.51.100.1'}],
+    ['d',{type:'data-channel',messagesReceived:44,bytesReceived:300}]]);
+  const peer={pc:{async getStats(){++calls;return reports;}}};world.__eaglerPeerTransport={route:'rtc',received:[],peers:new Map([[0,peer]])};
+  api.bindCore({HEAPU8:new Uint8Array(128)});await new Promise(r=>setImmediate(r));api.sample();api.fatal('lost');
+  const r=api.report(),rtc=r.transport.peers[0].rtc;
+  assert.equal(rtc.pair.currentRoundTripTime,.12);assert.equal(rtc.local.type,'relay');assert.equal(rtc.channels[0].messagesReceived,44);assert.equal(calls,1);
+  for(const value of ['192.0.2.1','198.51.100.1','private-user'])assert.ok(!JSON.stringify(r).includes(value));
+});
+test('progress and sampling metadata distinguish a stalled world from a responsive browser',()=>{
+  const {api,world,listeners}=fixture('th15');let time=0,frame=100;world.performance.now=()=>time;
+  api.bindCore({HEAPU8:new Uint8Array(128),_th15_frame:()=>frame});time=1000;frame=160;api.sample();time=2000;api.sample();
+  listeners.get('offline')({});api.fatal('lost');const r=api.report();
+  assert.equal(r.samples[1].progress.simulationFps,60);assert.equal(r.samples[2].progress.simulationFps,0);
+  assert.equal(r.capture.lastSampleAgeMs,0);assert.equal(r.lifecycle[0].type,'offline');assert.equal(r.capture.wasmReadsAfterFatal,false);
+});
+test('WebSocket credentials are removed from error text',()=>{
+  const {api}=fixture();api.fatal('failed wss://user:pass@example.test/path?member=private#secret');
+  const text=JSON.stringify(api.report());for(const secret of ['user:pass','member=private','#secret'])assert.ok(!text.includes(secret));
 });

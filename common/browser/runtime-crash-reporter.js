@@ -7,11 +7,15 @@
   const game = /\bth(?:12|15)\b/.exec(location.pathname)?.[0] || '';
   const multiplayer = location.pathname.includes('/multiplayer/');
   const generation = /\/([a-f0-9]{64})\//.exec(location.pathname)?.[1] || '';
-  const logs = [], events = [], samples = [];
+  const logs = [], events = [], samples = [], stalls = [], lifecycle = [], resourceErrors = [];
+  const rtcStats=new Map(), rtcPending=new Set(); let lastRtcPoll=-Infinity;
+  const clock=()=>performance.now?.() ?? Date.now();
+  const named=(keys,values)=>values&&Object.fromEntries(keys.map((key,i)=>[key,values[i]]));
   let core, context, report, build, stopped = false, lastSampleAt;
+  const startedAt=clock(); let previousSample;
   const append = (list, value, limit) => { list.push(value); if (list.length > limit) list.shift(); };
-  const trim = value => String(value).slice(0, 12000).replace(/https?:\/\/[^\s"<>]+/g, url => {
-    try { const parsed = new URL(url); parsed.search = ''; parsed.hash = ''; return parsed.href; } catch { return url; }
+  const trim = value => String(value).slice(0, 12000).replace(/(?:https?|wss?):\/\/[^\s"<>]+/g, url => {
+    try { const parsed = new URL(url); parsed.search = ''; parsed.hash = ''; parsed.username=''; parsed.password=''; return parsed.href; } catch { return url; }
   });
   function plain(value, depth = 0, seen = new Set()) {
     if (value == null || typeof value === 'boolean' || typeof value === 'number') return value;
@@ -36,10 +40,34 @@
   for (const level of ['warn', 'error']) {
     const original = console[level];
     console[level] = function(...args) {
-      try { append(logs, {time:new Date().toISOString(), level, values:args.slice(0, 8).map(v => plain(v))}, 100); } catch {}
+      try { append(logs, {time:new Date().toISOString(), level, values:args.slice(0, 8).map(v => plain(v))}, 200); } catch {}
       return original.apply(this, args);
     };
   }
+  function pollRtc() {
+    if(stopped||clock()-lastRtcPoll<5000)return;lastRtcPoll=clock();
+    for(const [seat,peer] of globalThis.__eaglerPeerTransport?.peers||[]){
+      if(rtcPending.has(peer)||typeof peer.pc?.getStats!=='function')continue;
+      rtcPending.add(peer);Promise.resolve().then(()=>stopped?null:peer.pc.getStats()).then(stats=>{
+        if(stopped||!stats||globalThis.__eaglerPeerTransport?.peers?.get(seat)!==peer)return;
+        let pair;
+        for(const r of stats.values())if(r.type==='transport'&&r.selectedCandidatePairId)pair=stats.get(r.selectedCandidatePairId);
+        if(!pair)for(const r of stats.values())if(r.type==='candidate-pair'&&r.nominated&&r.state==='succeeded'){pair=r;break;}
+        const local=pair&&stats.get(pair.localCandidateId),remote=pair&&stats.get(pair.remoteCandidateId);
+        rtcStats.set(peer,{sampledAt:new Date().toISOString(),pair:pair&&named(
+          ['state','currentRoundTripTime','totalRoundTripTime','availableOutgoingBitrate','bytesSent','bytesReceived','packetsSent','packetsReceived','requestsSent','responsesReceived','consentRequestsSent'],
+          [pair.state,pair.currentRoundTripTime,pair.totalRoundTripTime,pair.availableOutgoingBitrate,pair.bytesSent,pair.bytesReceived,pair.packetsSent,pair.packetsReceived,pair.requestsSent,pair.responsesReceived,pair.consentRequestsSent]),
+          local:local&&{type:local.candidateType,protocol:local.protocol,relayProtocol:local.relayProtocol},remote:remote&&{type:remote.candidateType,protocol:remote.protocol},
+          channels:[...stats.values()].filter(r=>r.type==='data-channel').slice(0,4).map(r=>({state:r.state,messagesSent:r.messagesSent,messagesReceived:r.messagesReceived,bytesSent:r.bytesSent,bytesReceived:r.bytesReceived}))});
+      }).catch(e=>{if(!stopped)rtcStats.set(peer,{error:errorValue(e)});}).finally(()=>rtcPending.delete(peer));
+    }
+  }
+  function recordLifecycle(type,extra={}) { append(lifecycle,{time:new Date().toISOString(),type,visibility:document.visibilityState,online:navigator.onLine,...extra},60); }
+  for(const type of ['online','offline','focus','blur','pageshow','pagehide'])addEventListener(type,e=>recordLifecycle(type,{persisted:!!e?.persisted}));
+  document.addEventListener('visibilitychange',()=>recordLifecycle('visibilitychange'));
+  try { if(typeof PerformanceObserver==='function')new PerformanceObserver(list=>{
+    for(const entry of list.getEntries())append(stalls,{kind:entry.entryType,startMs:entry.startTime,durationMs:entry.duration},120);
+  }).observe({type:'longtask',buffered:true}); } catch {}
   function transportSnapshot() {
     const transport=globalThis.__eaglerPeerTransport;
     if(!transport)return undefined;
@@ -52,13 +80,14 @@
           inputState:p.inputDc?.readyState,controlState:p.controlDc?.readyState,
           inputBufferedBytes:p.inputDc?.bufferedAmount,controlBufferedBytes:p.controlDc?.bufferedAmount,
           receivedAgeMs:age(p.lastReceivedAt),inputSentAgeMs:age(p.lastInputSentAt),
-          restartAttempts:p.restartAttempts,restartInFlight:p.restartInFlight,recoveryPending:p.recoveryPending,adaptive};
+          restartAttempts:p.restartAttempts,restartInFlight:p.restartInFlight,recoveryPending:p.recoveryPending,adaptive,rtc:rtcStats.get(p)};
       })});
   }
   function sample() {
     if (stopped || !core) return;
-    const now=performance.now?.() ?? Date.now();
+    const now=clock();
     const value = {time:new Date().toISOString(), sampleGapMs:lastSampleAt===undefined?null:Math.max(0,now-lastSampleAt)};
+    if(lastSampleAt!==undefined&&now-lastSampleAt>1500)append(stalls,{kind:'sample-gap',startMs:lastSampleAt,durationMs:now-lastSampleAt},120);
     lastSampleAt=now;
     try {
       const heap = core.HEAPU8;
@@ -74,6 +103,20 @@
       value.frame = scalar('_' + prefix + '_frame');
       value.phase = scalar('_' + prefix + '_phase');
       value.netplayStatus = words('_' + prefix + '_mp_status', 24);
+      value.netplay=named(['version','configured','canAdvance','nextFrame','confirmedFrame','playerCount','localSeat','inputDelayFrames','predictionLimitFrames','networked','spectator','playback','runGeneration','retired','publicationPending','packetsSent','packetsReceived','repairsSent','packetsIgnored','transportOpen','transportKind','frameZeroReady','publicationFailed','hasError'],value.netplayStatus);
+      if(value.netplay){const n=value.netplay;n.confirmedFrame=n.confirmedFrame===0xffffffff?null:n.confirmedFrame;n.unconfirmedFrames=Math.max(0,n.nextFrame-(n.confirmedFrame??-1)-1);}
+      value.calibrationRaw=words('_'+prefix+'_mp_calibration_status',32);
+      if(value.calibrationRaw){const c=value.calibrationRaw;value.calibration={version:c[0],phase:c[1],playerCount:c[4],localSeat:c[5],mode:c[6],automatic:!!c[7],inputDelay:c[8],fullDelay:c[9],predictionReserve:c[10],attempt:c[30]&255,reason:c[30]>>>8,
+        players:Array.from({length:Math.min(3,c[4])},(_,seat)=>named(['seat','p95Us','samples','lost','minUs','maxUs','meanUs'],[seat,...c.slice(12+seat*6,18+seat*6)]))};}
+      value.capabilities={rollback:typeof core['_'+prefix+'_mp_rollback_status']==='function',calibration:typeof core['_'+prefix+'_mp_calibration_status']==='function',world:typeof core._th12_hud==='function',spell:typeof core._th12_spell==='function',audio:typeof core._th15_audio_statistics==='function',liveStage:typeof core._eagler_replay_state==='function'};
+      const string=(name,limit=16384)=>{if(!heap||typeof core[name]!=='function')return undefined;const at=core[name]()>>>0;if(!at||at>=core.HEAPU8.length)return undefined;const data=core.HEAPU8,end=data.indexOf(0,at),stop=end<0?Math.min(at+limit,data.length):Math.min(end,at+limit);return new TextDecoder().decode(data.subarray(at,stop));};
+      value.nativeError=trim(string('_'+prefix+'_mp_error')||string('_'+prefix+'_error')||'');
+      if(prefix==='th12'&&value.netplay?.configured){try{value.multiplayer=plain(JSON.parse(string('_th12_mp_state',32768)));}catch{}}
+      if(prefix==='th15'){
+        value.replayRaw=words('_eagler_replay_state',6);if(value.replayRaw)value.stage=value.replayRaw[3];
+        value.pause=named(['screen','phase','cursor','count','nameCursor','nameLength','age'],words('_th15_mp_result_status',7,true));
+        value.audio=named(['ready','callbacks','renderedFrames','errorCode','queuedFrames','track','reserved6','reserved7','reserved8','cursor','reserved10'],words('_th15_audio_statistics',11));
+      }
       const rollback = words('_' + prefix + '_mp_rollback_status', prefix === 'th12' ? 8 : 9);
       if (rollback) value.rollback = prefix === 'th12'
         ? {version:rollback[0], enabled:(value.netplayStatus?.[8] ?? 0)>0,
@@ -90,11 +133,23 @@
             value.stageFlow = plain(JSON.parse(new TextDecoder().decode(heap.subarray(pointer, pointer + length))));
         }
         const pointer = scalar('_th12_hud') >>> 0, length = Math.min(scalar('_th12_hud_size') >>> 0, 64);
-        if (pointer && length && pointer + length * 4 <= heap?.length)
-          value.hud = Array.from(new Float32Array(heap.buffer, pointer, length));
+        if (pointer && length && pointer + length * 4 <= core.HEAPU8.length) {
+          value.hud = Array.from(new Float32Array(core.HEAPU8.buffer, pointer, length));
+          value.world=named(['frame','x','y','score','power','lives','bombs','graze','rngSeed','rngCalls','enemyCount','bulletCount','spellActive','ended','eventBits','unsupportedCount','bombTimer','character','shot','difficulty','pointValue','lifeFragments','bombFragments','ufoColor0','ufoColor1','ufoColor2','ufoKind','ufoAge','ufoFill','rank','ufoBucketA','ufoBucketB','bossMaxLife','bossPhaseAge','bossLife','ufoRewardMultiplier','ufoRewardFrames','ufoRewardScore','dialogue','stage','scoreExact'],value.hud);
+          value.frame=value.world.frame;value.stage=value.world.stage;
+          try { const spell=string('_th12_spell',16384);if(spell)value.spell=plain(JSON.parse(spell)); }catch{}
+        }
       }
     } catch (e) { value.sampleError = errorValue(e); }
-    append(samples, value, 30);
+    if(previousSample){const elapsed=now-previousSample.at,current=value.netplay?.nextFrame??value.frame,prior=previousSample.frame;
+      value.progress={elapsedMs:elapsed,frameDelta:Number.isFinite(current)&&Number.isFinite(prior)?current-prior:null,
+        wasmGrowthBytes:(value.wasmMemoryBytes??0)-(previousSample.memory??0)};
+      if(value.progress.frameDelta!==null&&elapsed>0)value.progress.simulationFps=Math.max(0,value.progress.frameDelta)*1000/elapsed;
+    }
+    const memory=performance.memory;if(memory)value.browserMemory={usedBytes:memory.usedJSHeapSize,totalBytes:memory.totalJSHeapSize,limitBytes:memory.jsHeapSizeLimit};
+    previousSample={at:now,frame:value.netplay?.nextFrame??value.frame,memory:value.wasmMemoryBytes};
+    value.samplingCostMs=Math.max(0,clock()-now);
+    append(samples, value, 60);pollRtc();
   }
   function hostUI(target) {
     if (target.__eaglerCrashReportHostV1) return target.__eaglerCrashReportHostV1;
@@ -144,10 +199,15 @@
         }).observe(doc.body,{attributes:true,subtree:true,attributeFilter:['open']});
       }
       description.textContent=`${(value.game||'游戏').toUpperCase()} · ${value.multiplayer?'多人':'单人'} · ${value.createdAt} · 报告 ${value.id}`;
-      const last=value.samples.at(-1),stage=last?.gameState?.session?.stage;
+      const last=value.samples.at(-1),stage=value.summary?.stage??last?.gameState?.session?.stage;
       summary.textContent=[value.runtime.build?.version,stage&&`第 ${stage} 面`,last?.frame!==undefined&&`帧 ${last.frame}`,value.wasmMemoryBytes&&`WASM 内存 ${(value.wasmMemoryBytes/1048576).toFixed(1)} MiB`].filter(v=>v!==false&&v!==undefined&&v!==null&&v!=='').join(' · ');
       const messages=value.errors.map(e=>`[${e.source}] ${e.error.stack||e.error.message}`).join('\n\n');
-      detail.textContent=messages.slice(0,16000)+(value.logs.length?'\n\n最近错误日志：\n'+value.logs.slice(-12).map(l=>l.values.map(v=>typeof v==='string'?v:JSON.stringify(v)).join(' ')).join('\n').slice(-8000):'');
+      const facts=value.summary||{},network=last?.netplay;
+      const overview=[facts.frame!==undefined&&`游戏帧：${facts.frame}`,network&&`玩家：P${network.localSeat+1}/${network.playerCount}；已确认帧：${network.confirmedFrame??'无'}；未确认：${network.unconfirmedFrames}`,
+        facts.rollback&&`回滚：${facts.rollback.enabled?'开':'关'}；修正 ${facts.rollback.corrections??0} 次；补算 ${facts.rollback.replayedFrames??0} 帧`,
+        `最长采样间隔：${(facts.maximumSampleGapMs??0).toFixed(0)}ms；最长阻塞：${(facts.maximumLongTaskMs??0).toFixed(0)}ms`,
+        facts.nativeError&&`原生错误：${facts.nativeError}`,`已保存 ${value.samples.length} 份状态、${value.events.length} 条事件；详细内容见下载报告`].filter(Boolean).join('\n');
+      detail.textContent=overview+'\n\n'+messages.slice(0,16000)+(value.logs.length?'\n\n最近错误日志：\n'+value.logs.slice(-12).map(l=>l.values.map(v=>typeof v==='string'?v:JSON.stringify(v)).join(' ')).join('\n').slice(-8000):'');
       if(!panel.isConnected)doc.body.append(panel);
       if(panel.open)panel.close();panel.style.display='flex';panel.showModal?.();download.focus();
     }
@@ -158,7 +218,7 @@
       stopped=true;
       if (!report) {
         const when=new Date();
-        report={schema:'eagler-touhou/crash-report/1',reporterVersion:1,id:when.toISOString().replace(/[^0-9TZ]/g,'')+'-'+Math.random().toString(16).slice(2,8),createdAt:when.toISOString(),game,multiplayer,generation,
+        report={schema:'eagler-touhou/crash-report/1',reporterVersion:2,id:when.toISOString().replace(/[^0-9TZ]/g,'')+'-'+Math.random().toString(16).slice(2,8),createdAt:when.toISOString(),game,multiplayer,generation,
           runtime:{url:location.origin+location.pathname,build:plain(build)},
           environment:{userAgent:navigator.userAgent,language:navigator.language,languages:navigator.languages,platform:navigator.platform,hardwareConcurrency:navigator.hardwareConcurrency,deviceMemoryGiB:navigator.deviceMemory,online:navigator.onLine,visibility:document.visibilityState,viewport:{width:innerWidth,height:innerHeight,pixelRatio:devicePixelRatio},timezone:Intl.DateTimeFormat().resolvedOptions().timeZone},
           errors:[],logs:[],events:[],samples:[]};
@@ -166,8 +226,16 @@
       const entry={time:new Date().toISOString(),source:fields.source||'runtime-fatal',error:errorValue(error)};
       if (!report.errors.some(e=>e.source===entry.source&&e.error.message===entry.error.message)) append(report.errors,entry,12);
       report.logs=logs.slice();report.events=events.slice();report.samples=samples.slice();
+      report.lifecycle=lifecycle.slice();report.stalls=stalls.slice();report.resourceErrors=resourceErrors.slice();
+      report.capture={uptimeMs:Math.max(0,clock()-startedAt),lastSampleAgeMs:lastSampleAt===undefined?null:Math.max(0,clock()-lastSampleAt),sampleIntervalMs:1000,historyLimit:60,rtcIntervalMs:5000,wasmReadsAfterFatal:false};
+      const last=samples.at(-1);report.summary={stage:last?.stage??last?.gameState?.session?.stage,frame:last?.netplay?.nextFrame??last?.frame,phase:last?.phase,localSeat:last?.netplay?.localSeat,playerCount:last?.netplay?.playerCount,
+        nativeError:last?.nativeError,unconfirmedFrames:last?.netplay?.unconfirmedFrames,rollback:last?.rollback,
+        maximumSampleGapMs:Math.max(0,...samples.map(v=>v.sampleGapMs??0)),maximumLongTaskMs:Math.max(0,...stalls.map(v=>v.durationMs??0)),lastSampleAgeMs:report.capture.lastSampleAgeMs};
       report.runtime.build=plain(build);
       if (core?.HEAPU8) report.wasmMemoryBytes=core.HEAPU8.byteLength;
+      report.environment.serviceWorker=trim(navigator.serviceWorker?.controller?.scriptURL||'');
+      report.environment.crossOriginIsolated=globalThis.crossOriginIsolated===true;
+      report.environment.timeOrigin=performance.timeOrigin;
       const memory=performance.memory; if(memory)report.browserMemory={usedBytes:memory.usedJSHeapSize,totalBytes:memory.totalJSHeapSize,limitBytes:memory.jsHeapSizeLimit};
       report.transport=transportSnapshot();
       let host=window;try{if(parent!==window&&parent.location.origin===location.origin)host=parent;}catch{}
@@ -182,7 +250,7 @@
   globalThis.__eaglerCrashReporterV1={fatal,bindCore,sample,report:()=>report};
   addEventListener('error',event=>{
     if(event.error||event.message)fatal(event.error||new Error(event.message),{source:'uncaught-error'});
-    else if(event.target?.tagName==='SCRIPT')fatal(new Error('游戏脚本加载失败：'+(event.target.src||'')),{source:'script-load'});
+    else if(event.target?.tagName){const resource={time:new Date().toISOString(),tag:event.target.tagName,url:trim(event.target.src||event.target.href||'')};append(resourceErrors,resource,40);if(event.target.tagName==='SCRIPT')fatal(new Error('游戏脚本加载失败：'+resource.url),{source:'script-load'});}
   },true);
   addEventListener('unhandledrejection',event=>fatal(event.reason,{source:'unhandled-rejection'}));
   function observe() {
@@ -197,12 +265,12 @@
     if(event.origin!==location.origin||event.source!==window&&event.source!==parent)return;
     const data=event.data;
     if(data?.protocol!=='eagler-touhou/1')return;
-    if(data.command==='configure')append(events,{time:new Date().toISOString(),type:'configure',options:plain(data.options),language:data.language},60);
+    if(data.command==='configure')append(events,{time:new Date().toISOString(),type:'configure',options:plain(data.options),language:data.language},180);
   });
   // postMessage to the parent does not dispatch in the child; retain emitted
   // health events at the parent without collecting other Runtime instances.
   try { if(parent!==window&&parent.location.origin===location.origin) {
-    const source=window, receive=event=>{if(event.source!==source||event.origin!==location.origin)return;const d=event.data;if(d?.protocol==='eagler-touhou/1'&&['frame-health','audio-health','runtime-info','error','peer-connection'].includes(d.event))append(events,{time:new Date().toISOString(),...plain(d)},60);};
+    const source=window, receive=event=>{if(event.source!==source||event.origin!==location.origin)return;const d=event.data;if(d?.protocol==='eagler-touhou/1'&&['frame-health','audio-health','runtime-info','error','peer-connection'].includes(d.event))append(events,{time:new Date().toISOString(),...plain(d)},180);};
     parent.addEventListener('message',receive); addEventListener('pagehide',()=>parent.removeEventListener('message',receive),{once:true});
   }} catch {}
   setInterval(()=>{if(!core&&globalThis.Module)bindCore(globalThis.Module);else sample();},1000);
