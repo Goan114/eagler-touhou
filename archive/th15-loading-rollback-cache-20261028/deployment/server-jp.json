@@ -1,0 +1,13 @@
+{
+  "edge": {
+    "published": "th15-loading-88b5a614d-20261028",
+    "fingerprint": "0450a9f850b195fdf00ae9f620d0de117c2546fd5bf2158e3d46510df88339c4",
+    "verifiedFiles": 76,
+    "verifiedResourceRoutes": 3
+  },
+  "timer": "eagler-edge-sync-online.timer",
+  "timerState": "active",
+  "current": "/var/www/eagler-touhou/releases/th15-loading-88b5a614d-20261028",
+  "testCurrent": "/var/www/eagler-touhou-test/current",
+  "onlineMirror": "/var/www/eagler-touhou-online/current"
+}

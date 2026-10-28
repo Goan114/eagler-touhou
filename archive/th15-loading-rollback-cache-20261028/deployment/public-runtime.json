@@ -1,0 +1,398 @@
+[
+  {
+    "origin": "https://touhouonline.com/",
+    "generation": "94db993f3f2fd1652a1b6d6e32e078361dd793fcf9e208465ee27ed0ee7185ba",
+    "releaseId": "sha256-8a1829dccb39916486d3c80027d33edca4e332de516a5f0db3a7d55f04a8e25d",
+    "runtime": "runtime/th15/multiplayer/94db993f3f2fd1652a1b6d6e32e078361dd793fcf9e208465ee27ed0ee7185ba/th15.html?hosted=1",
+    "valid": true,
+    "files": [
+      {
+        "path": "adonis-calibration.mjs",
+        "bytes": 4062,
+        "status": 200,
+        "contentType": "text/javascript"
+      },
+      {
+        "path": "crash-code-identities.json",
+        "bytes": 326,
+        "status": 200,
+        "contentType": "application/json"
+      },
+      {
+        "path": "directory-keyboard.mjs",
+        "bytes": 11600,
+        "status": 200,
+        "contentType": "text/javascript"
+      },
+      {
+        "path": "fonts/cp932.bin",
+        "bytes": 131072,
+        "status": 200,
+        "contentType": "application/octet-stream"
+      },
+      {
+        "path": "keyboard.mjs",
+        "bytes": 1298,
+        "status": 200,
+        "contentType": "text/javascript"
+      },
+      {
+        "path": "managed.css",
+        "bytes": 733,
+        "status": 200,
+        "contentType": "text/css"
+      },
+      {
+        "path": "manifest.json",
+        "bytes": 1424,
+        "status": 200,
+        "contentType": "application/json"
+      },
+      {
+        "path": "multiplayer.mjs",
+        "bytes": 7382,
+        "status": 200,
+        "contentType": "text/javascript"
+      },
+      {
+        "path": "resources.json",
+        "bytes": 183,
+        "status": 200,
+        "contentType": "application/json"
+      },
+      {
+        "path": "runtime-crash-reporter.js",
+        "bytes": 15727,
+        "status": 200,
+        "contentType": "text/javascript"
+      },
+      {
+        "path": "shell.mjs",
+        "bytes": 35577,
+        "status": 200,
+        "contentType": "text/javascript"
+      },
+      {
+        "path": "startup-branding.mjs",
+        "bytes": 38126,
+        "status": 200,
+        "contentType": "text/javascript"
+      },
+      {
+        "path": "th15.html",
+        "bytes": 555,
+        "status": 200,
+        "contentType": "text/html"
+      },
+      {
+        "path": "th15.mjs",
+        "bytes": 286523,
+        "status": 200,
+        "contentType": "text/javascript"
+      },
+      {
+        "path": "th15.wasm",
+        "bytes": 3593078,
+        "status": 200,
+        "contentType": "application/wasm"
+      }
+    ]
+  },
+  {
+    "origin": "https://jp-site.touhouonline.com/",
+    "generation": "94db993f3f2fd1652a1b6d6e32e078361dd793fcf9e208465ee27ed0ee7185ba",
+    "releaseId": "sha256-8a1829dccb39916486d3c80027d33edca4e332de516a5f0db3a7d55f04a8e25d",
+    "runtime": "runtime/th15/multiplayer/94db993f3f2fd1652a1b6d6e32e078361dd793fcf9e208465ee27ed0ee7185ba/th15.html?hosted=1",
+    "valid": true,
+    "files": [
+      {
+        "path": "adonis-calibration.mjs",
+        "bytes": 4062,
+        "status": 200,
+        "contentType": "application/octet-stream"
+      },
+      {
+        "path": "crash-code-identities.json",
+        "bytes": 326,
+        "status": 200,
+        "contentType": "application/json"
+      },
+      {
+        "path": "directory-keyboard.mjs",
+        "bytes": 11600,
+        "status": 200,
+        "contentType": "application/octet-stream"
+      },
+      {
+        "path": "fonts/cp932.bin",
+        "bytes": 131072,
+        "status": 200,
+        "contentType": "application/octet-stream"
+      },
+      {
+        "path": "keyboard.mjs",
+        "bytes": 1298,
+        "status": 200,
+        "contentType": "application/octet-stream"
+      },
+      {
+        "path": "managed.css",
+        "bytes": 733,
+        "status": 200,
+        "contentType": "text/css"
+      },
+      {
+        "path": "manifest.json",
+        "bytes": 1424,
+        "status": 200,
+        "contentType": "application/json"
+      },
+      {
+        "path": "multiplayer.mjs",
+        "bytes": 7382,
+        "status": 200,
+        "contentType": "application/octet-stream"
+      },
+      {
+        "path": "resources.json",
+        "bytes": 183,
+        "status": 200,
+        "contentType": "application/json"
+      },
+      {
+        "path": "runtime-crash-reporter.js",
+        "bytes": 15727,
+        "status": 200,
+        "contentType": "application/javascript"
+      },
+      {
+        "path": "shell.mjs",
+        "bytes": 35577,
+        "status": 200,
+        "contentType": "application/octet-stream"
+      },
+      {
+        "path": "startup-branding.mjs",
+        "bytes": 38126,
+        "status": 200,
+        "contentType": "application/octet-stream"
+      },
+      {
+        "path": "th15.html",
+        "bytes": 555,
+        "status": 200,
+        "contentType": "text/html"
+      },
+      {
+        "path": "th15.mjs",
+        "bytes": 286523,
+        "status": 200,
+        "contentType": "application/octet-stream"
+      },
+      {
+        "path": "th15.wasm",
+        "bytes": 3593078,
+        "status": 200,
+        "contentType": "application/wasm"
+      }
+    ]
+  },
+  {
+    "origin": "https://cn-site.touhouonline.com:8443/",
+    "generation": "94db993f3f2fd1652a1b6d6e32e078361dd793fcf9e208465ee27ed0ee7185ba",
+    "releaseId": "sha256-8a1829dccb39916486d3c80027d33edca4e332de516a5f0db3a7d55f04a8e25d",
+    "runtime": "runtime/th15/multiplayer/94db993f3f2fd1652a1b6d6e32e078361dd793fcf9e208465ee27ed0ee7185ba/th15.html?hosted=1",
+    "valid": true,
+    "files": [
+      {
+        "path": "adonis-calibration.mjs",
+        "bytes": 4062,
+        "status": 200,
+        "contentType": "application/octet-stream"
+      },
+      {
+        "path": "crash-code-identities.json",
+        "bytes": 326,
+        "status": 200,
+        "contentType": "application/json"
+      },
+      {
+        "path": "directory-keyboard.mjs",
+        "bytes": 11600,
+        "status": 200,
+        "contentType": "application/octet-stream"
+      },
+      {
+        "path": "fonts/cp932.bin",
+        "bytes": 131072,
+        "status": 200,
+        "contentType": "application/octet-stream"
+      },
+      {
+        "path": "keyboard.mjs",
+        "bytes": 1298,
+        "status": 200,
+        "contentType": "application/octet-stream"
+      },
+      {
+        "path": "managed.css",
+        "bytes": 733,
+        "status": 200,
+        "contentType": "text/css"
+      },
+      {
+        "path": "manifest.json",
+        "bytes": 1424,
+        "status": 200,
+        "contentType": "application/json"
+      },
+      {
+        "path": "multiplayer.mjs",
+        "bytes": 7382,
+        "status": 200,
+        "contentType": "application/octet-stream"
+      },
+      {
+        "path": "resources.json",
+        "bytes": 183,
+        "status": 200,
+        "contentType": "application/json"
+      },
+      {
+        "path": "runtime-crash-reporter.js",
+        "bytes": 15727,
+        "status": 200,
+        "contentType": "application/javascript"
+      },
+      {
+        "path": "shell.mjs",
+        "bytes": 35577,
+        "status": 200,
+        "contentType": "application/octet-stream"
+      },
+      {
+        "path": "startup-branding.mjs",
+        "bytes": 38126,
+        "status": 200,
+        "contentType": "application/octet-stream"
+      },
+      {
+        "path": "th15.html",
+        "bytes": 555,
+        "status": 200,
+        "contentType": "text/html"
+      },
+      {
+        "path": "th15.mjs",
+        "bytes": 286523,
+        "status": 200,
+        "contentType": "application/octet-stream"
+      },
+      {
+        "path": "th15.wasm",
+        "bytes": 3593078,
+        "status": 200,
+        "contentType": "application/wasm"
+      }
+    ]
+  },
+  {
+    "origin": "https://touhou.vip/",
+    "generation": "94db993f3f2fd1652a1b6d6e32e078361dd793fcf9e208465ee27ed0ee7185ba",
+    "releaseId": "sha256-2151f71658bd039da5b027676400d8381228b0e154a3c0a207a73e2da88b0c67",
+    "runtime": "runtime/th15/multiplayer/94db993f3f2fd1652a1b6d6e32e078361dd793fcf9e208465ee27ed0ee7185ba/th15.html?hosted=1",
+    "valid": true,
+    "files": [
+      {
+        "path": "adonis-calibration.mjs",
+        "bytes": 4062,
+        "status": 200,
+        "contentType": "text/javascript"
+      },
+      {
+        "path": "crash-code-identities.json",
+        "bytes": 326,
+        "status": 200,
+        "contentType": "application/json"
+      },
+      {
+        "path": "directory-keyboard.mjs",
+        "bytes": 11600,
+        "status": 200,
+        "contentType": "text/javascript"
+      },
+      {
+        "path": "fonts/cp932.bin",
+        "bytes": 131072,
+        "status": 200,
+        "contentType": "application/octet-stream"
+      },
+      {
+        "path": "keyboard.mjs",
+        "bytes": 1298,
+        "status": 200,
+        "contentType": "text/javascript"
+      },
+      {
+        "path": "managed.css",
+        "bytes": 733,
+        "status": 200,
+        "contentType": "text/css"
+      },
+      {
+        "path": "manifest.json",
+        "bytes": 1424,
+        "status": 200,
+        "contentType": "application/json"
+      },
+      {
+        "path": "multiplayer.mjs",
+        "bytes": 7382,
+        "status": 200,
+        "contentType": "text/javascript"
+      },
+      {
+        "path": "resources.json",
+        "bytes": 183,
+        "status": 200,
+        "contentType": "application/json"
+      },
+      {
+        "path": "runtime-crash-reporter.js",
+        "bytes": 15727,
+        "status": 200,
+        "contentType": "text/javascript"
+      },
+      {
+        "path": "shell.mjs",
+        "bytes": 35577,
+        "status": 200,
+        "contentType": "text/javascript"
+      },
+      {
+        "path": "startup-branding.mjs",
+        "bytes": 38126,
+        "status": 200,
+        "contentType": "text/javascript"
+      },
+      {
+        "path": "th15.html",
+        "bytes": 555,
+        "status": 200,
+        "contentType": "text/html"
+      },
+      {
+        "path": "th15.mjs",
+        "bytes": 286523,
+        "status": 200,
+        "contentType": "text/javascript"
+      },
+      {
+        "path": "th15.wasm",
+        "bytes": 3593078,
+        "status": 200,
+        "contentType": "application/wasm"
+      }
+    ]
+  }
+]

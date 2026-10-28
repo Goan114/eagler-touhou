@@ -1,0 +1,24 @@
+{
+  "edge": {
+    "published": "th15-loading-88b5a614d-20261028",
+    "fingerprint": "ac321cce2ef10f288605d22125125f9473a48cd4970ed160d5851482d5a9fc66",
+    "verifiedFiles": 76,
+    "verifiedResourceRoutes": 3
+  },
+  "timer": "eagler-edge-sync.timer",
+  "timerState": "active",
+  "current": "/var/www/eagler-touhou/releases/th15-loading-88b5a614d-20261028",
+  "testCurrent": "/var/www/eagler-touhou-test/releases/relay-session-d48252551-20261028",
+  "onlineMirror": "/var/www/eagler-touhou-online/releases/th15-loading-88b5a614d-20261028-mirror-387f3249454a",
+  "syncStampAudit": {
+    "releaseId": "sha256-ffec105f10b5cc6c14b8a8124e6e4c8574087d5dd5cdfb6ffc6eb1ff7ab1a4e0",
+    "mismatches": [
+      {
+        "path": "sync-version.json",
+        "declared": "37b2f7e7f1db6adfdb124791454be673e660ecbb3cb6c002a76fbb8768e8f5ef",
+        "actual": "b95fbdb47cd0b6e8185600843630f9e4adf8af5860118ce420824b2624a2c3e8",
+        "deploymentSha256": "56ebf9b8524de57e47b49f7c56815807a896ac25a6a509ec4e8018e6d49828e6"
+      }
+    ]
+  }
+}

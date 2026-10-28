@@ -1,0 +1,31 @@
+[
+  {
+    "origin": "https://touhou.vip/",
+    "status": 200,
+    "loaderImported": true,
+    "generation": "94db993f3f2fd1652a1b6d6e32e078361dd793fcf9e208465ee27ed0ee7185ba",
+    "runtime": "runtime/th15/multiplayer/94db993f3f2fd1652a1b6d6e32e078361dd793fcf9e208465ee27ed0ee7185ba/th15.html?hosted=1",
+    "files": [
+      "adonis-calibration.mjs",
+      "crash-code-identities.json",
+      "directory-keyboard.mjs",
+      "fonts/cp932.bin",
+      "keyboard.mjs",
+      "managed.css",
+      "manifest.json",
+      "multiplayer.mjs",
+      "resources.json",
+      "runtime-crash-reporter.js",
+      "shell.mjs",
+      "startup-branding.mjs",
+      "th15.html",
+      "th15.mjs",
+      "th15.wasm"
+    ],
+    "wasmCompiled": true,
+    "title": "东方Project 原作 STG ~ EAGLER TOUHOU",
+    "bodyCharacters": 1227,
+    "errors": [],
+    "valid": true
+  }
+]
