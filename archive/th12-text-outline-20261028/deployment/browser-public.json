@@ -1,0 +1,102 @@
+[
+  {
+    "origin": "https://touhouonline.com/",
+    "status": 200,
+    "valid": true,
+    "groups": [
+      {
+        "root": "runtime/th12/",
+        "generation": "10bcfb2d5c89bd07b0542cde36a3bb4c27f4c9b126e4f81ecfe975605ffcb82b",
+        "rendererSha256": "db640fe251783843765d7d5e49dd18bf5ca03ad7073077579a2a8cd3c39e447c",
+        "rows": [
+          {
+            "profile": "ending",
+            "foregroundDraws": 1,
+            "contours": 1,
+            "baseline": 0,
+            "ink": 2926
+          },
+          {
+            "profile": "dialogue",
+            "foregroundDraws": 1,
+            "contours": 1,
+            "baseline": 2,
+            "ink": 2910
+          }
+        ]
+      },
+      {
+        "root": "runtime/th12/multiplayer/",
+        "generation": "57f4766e4f0971fae0af308ad0a2d9ffd069fd48a84dc6526fc14c655fd94dd3",
+        "rendererSha256": "cdc5440302d40af08a58ac6cccf05fd04fb2f20a1ddcedbdd1fcf4415a23115f",
+        "rows": [
+          {
+            "profile": "ending",
+            "foregroundDraws": 1,
+            "contours": 1,
+            "baseline": 0,
+            "ink": 2926
+          },
+          {
+            "profile": "dialogue",
+            "foregroundDraws": 1,
+            "contours": 1,
+            "baseline": 2,
+            "ink": 2910
+          }
+        ]
+      }
+    ],
+    "errors": []
+  },
+  {
+    "origin": "https://touhou.vip/",
+    "status": 200,
+    "valid": true,
+    "groups": [
+      {
+        "root": "runtime/th12/",
+        "generation": "10bcfb2d5c89bd07b0542cde36a3bb4c27f4c9b126e4f81ecfe975605ffcb82b",
+        "rendererSha256": "db640fe251783843765d7d5e49dd18bf5ca03ad7073077579a2a8cd3c39e447c",
+        "rows": [
+          {
+            "profile": "ending",
+            "foregroundDraws": 1,
+            "contours": 1,
+            "baseline": 0,
+            "ink": 2926
+          },
+          {
+            "profile": "dialogue",
+            "foregroundDraws": 1,
+            "contours": 1,
+            "baseline": 2,
+            "ink": 2910
+          }
+        ]
+      },
+      {
+        "root": "runtime/th12/multiplayer/",
+        "generation": "57f4766e4f0971fae0af308ad0a2d9ffd069fd48a84dc6526fc14c655fd94dd3",
+        "rendererSha256": "cdc5440302d40af08a58ac6cccf05fd04fb2f20a1ddcedbdd1fcf4415a23115f",
+        "rows": [
+          {
+            "profile": "ending",
+            "foregroundDraws": 1,
+            "contours": 1,
+            "baseline": 0,
+            "ink": 2926
+          },
+          {
+            "profile": "dialogue",
+            "foregroundDraws": 1,
+            "contours": 1,
+            "baseline": 2,
+            "ink": 2910
+          }
+        ]
+      }
+    ],
+    "errors": []
+  }
+]

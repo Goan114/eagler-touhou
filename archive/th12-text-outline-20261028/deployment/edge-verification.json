@@ -1,0 +1,28 @@
+{
+  "jp": {
+    "published": "th12-text-3f219232c-20261028",
+    "fingerprint": "b03eba9ade3245e82d893577f6dd343ca6e39ee7b010eb02a809e5b71ae99899",
+    "versions": [
+      {
+        "version_id": "f11c47be-6d35-4ea6-b612-9ff82f1214af",
+        "percentage": 100
+      }
+    ],
+    "edgeAddress": "172.67.186.107",
+    "verifiedFiles": 76,
+    "verifiedResourceRoutes": 3
+  },
+  "cn": {
+    "published": "th12-text-3f219232c-20261028",
+    "fingerprint": "6fc7ba9739625827b895162774009ed32706371f9c428c0ba121b599648382a4",
+    "versions": [
+      {
+        "version_id": "6b01d2c0-dd28-4b0b-b907-543c9f21d879",
+        "percentage": 100
+      }
+    ],
+    "edgeAddress": "104.21.19.135",
+    "verifiedFiles": 76,
+    "verifiedResourceRoutes": 3
+  }
+}
