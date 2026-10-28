@@ -2282,7 +2282,7 @@
       "game": "th15",
       "variant": "multiplayer",
       "directory": "ports/th15-mp",
-      "sourceDigest": "f1aaf5445e0c60c97614e016c1715109746ca3d06ff8d8d0a37034d5b2d9621e",
+      "sourceDigest": "8499db1e54d6998a1b550e2e499d02b92fefa6b620081fcbe1277f625d931b19",
       "sourceSelection": "build-entrypoint",
       "dependencies": [],
       "translationUnits": 271,

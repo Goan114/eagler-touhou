@@ -4,6 +4,7 @@
 #include "../multiplayer/NetplayRuntime.hpp"
 #include "../multiplayer/FrameFence.hpp"
 #include "../multiplayer/PredictionBoundary.hpp"
+#include "../multiplayer/FrameCache.hpp"
 #include "AppFrameState.hpp"
 #include "../multiplayer/InputLanes.hpp"
 #include "../multiplayer/ReplayArchive.hpp"
@@ -58,7 +59,7 @@ std::array<MpFrame,13> mp_frames;
 u32 mp_commit_frame=0,mp_replay_until=0;
 multiplayer::PredictionBoundary mp_boundary;
 u32 mp_corrections=0,mp_replayed_frames=0,mp_last_depth=0,mp_peak_depth=0;
-void mp_clear_frames(){reset_presentation_clock();multiplayer::FrameFence::tentative=multiplayer::FrameFence::blocked=false;for(auto& f:mp_frames){f.state.discard();f.effects.clear();f.publication={};f.valid=f.captured=false;f.frame=Netplay::INVALID_FRAME;}mp_commit_frame=mp_replay_until=0;mp_boundary.clear();}
+void mp_clear_frames(){reset_presentation_clock();multiplayer::FrameFence::tentative=multiplayer::FrameFence::blocked=false;for(auto& f:mp_frames){f.state.discard();f.effects.clear();f.publication={};f.valid=f.captured=false;f.frame=Netplay::INVALID_FRAME;}th15::multiplayer::release_confirmed_frame_cache(mp_frames);mp_commit_frame=mp_replay_until=0;mp_boundary.clear();}
 bool mp_commit_frames(){
  while(mp_commit_frame<network.NextFrame()){
   std::array<Netplay::FrameInput,3> actual;if(!network.ConfirmedInputs(mp_commit_frame,actual))break;
@@ -99,7 +100,10 @@ bool mp_finish_run(){
  clear_inputs(false);if(!app->begin_run()){last_error=app->failure;return false;}return true;
 }
 bool mp_apply_confirmed(const Netplay::SpectatorFramePacket& packet,bool historical){
- if(app->loading_waiting()&&!app->complete_loading()){last_error=app->failure;return false;}
+ if(app->loading_waiting()){
+  th15::multiplayer::release_confirmed_frame_cache(mp_frames);
+  if(!app->complete_loading()){last_error=app->failure;return false;}
+ }
  std::array<MultiplayerInput,3> lanes;
  if(!multiplayer::InputLanes::Decode(packet.inputs.data(),network.Setup().player_count,lanes)){last_error="Invalid TH15 spectator inputs";return false;}
  mp_update_menu(lanes);if(app->scene())app->scene()->battle.mp_input(lanes);
@@ -505,6 +509,9 @@ EMSCRIPTEN_KEEPALIVE void th15_loop_start(){
   // Startup retains native 180 loading frames; subsequent loads wait for
   // resource completion. Neither path accumulates gameplay simulation debt.
   if(app->loading_waiting()){
+#if TH15_MULTIPLAYER
+   th15::multiplayer::release_confirmed_frame_cache(mp_frames);
+#endif
    if(!loading_held){loading_preserve_keyboard=app->pending_load==2;clear_inputs(loading_preserve_keyboard);}loading_held=true;cadence.reset();presentation.reset();app->graphics.presentation.reset();
    if(!(app->loading_startup?app->advance_loading(delta):app->complete_loading())){running=false;th15_browser_frame(0,emscripten_get_now()-begin,0);return EM_FALSE;}
    app->audio_device.pump();return EM_TRUE;

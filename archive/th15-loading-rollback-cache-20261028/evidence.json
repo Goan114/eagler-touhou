@@ -1,0 +1,68 @@
+{
+  "reportId": "20261028T122634968Z-99fced",
+  "createdAt": "2026-10-28T12:26:34.968Z",
+  "game": "th15",
+  "multiplayer": true,
+  "generation": "9bd11b7eb674a1fbbd10f411c83ec0a50f38d22fc2070080ab4cf7e5f567824e",
+  "userContext": "Main game; approaching a boss, before fighting; exact stage unknown.",
+  "wasmMemoryBytes": 1073741824,
+  "memoryInterpretation": "Linear memory size, not measured live heap usage.",
+  "symbolizedWasmSha256": "dfcb9969c623d71b905b4ac7e2b18d2e94752b31c72f66e8c28ec7db87e1223c",
+  "allocationStack": [
+    {
+      "index": 5494,
+      "offset": "0x2fed02",
+      "symbol": "operator new(unsigned long)"
+    },
+    {
+      "index": 603,
+      "offset": "0x1ef01",
+      "symbol": "std::vector<unsigned char>::__assign_with_size"
+    },
+    {
+      "index": 538,
+      "offset": "0x14bfa",
+      "symbol": "th15::AnmManager::load"
+    },
+    {
+      "index": 1894,
+      "offset": "0x9fad7",
+      "symbol": "th15::StageAssets::load_animation"
+    },
+    {
+      "index": 1901,
+      "offset": "0xa1de7",
+      "symbol": "th15::StageAssets::load"
+    },
+    {
+      "index": 2097,
+      "offset": "0xeb6fd",
+      "symbol": "th15::sdl::ApplicationState::complete_loading"
+    }
+  ],
+  "newWasm": {
+    "sha256": "d02086076c28b5c1c795f2aaf4e3b471fac4ccfac8964c7713e68d74e1144a50",
+    "bytes": 3593078,
+    "features": {
+      "multiplayer": true,
+      "thprac": false,
+      "languages": true
+    }
+  },
+  "cacheFixture": {
+    "frames": 13,
+    "rootsPerFrame": 256,
+    "screenVerticesPerRoot": 512,
+    "allocatedBytes": 53769677,
+    "protectedFrames": 2,
+    "protectedBytes": 8272258,
+    "allConfirmedBytes": 0
+  },
+  "validation": {
+    "nativeTests": 15,
+    "nativeFailures": 0,
+    "portChecks": 7,
+    "portFailures": 0
+  },
+  "baseCommit": "654717ac6d7b0f9e28239e230d5c965025493434"
+}

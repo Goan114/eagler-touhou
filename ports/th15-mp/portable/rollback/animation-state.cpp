@@ -1,4 +1,6 @@
 #include "multiplayer/AnimationState.hpp"
+#include "multiplayer/FrameCache.hpp"
+#include <cstddef>
 #include "multiplayer/FramePointerIndex.hpp"
 #include "game/AnmOverlay.hpp"
 #include <array>
@@ -9,13 +11,21 @@
 #include <vector>
 #include <new>
 
-namespace {bool count_allocations=false;size_t allocation_count=0,largest_allocation=0;}
-void* operator new(size_t bytes){if(count_allocations){++allocation_count;largest_allocation=std::max(largest_allocation,bytes);}if(auto* value=std::malloc(bytes?bytes:1))return value;throw std::bad_alloc();}
-void operator delete(void* value)noexcept{std::free(value);}
+namespace {
+bool count_allocations=false;size_t allocation_count=0,largest_allocation=0,live_cache_bytes=0;
+struct alignas(std::max_align_t) AllocationHeader {size_t bytes;bool tracked;};
+}
+void* operator new(size_t bytes){
+    auto* header=static_cast<AllocationHeader*>(std::malloc(sizeof(AllocationHeader)+(bytes?bytes:1)));
+    if(!header)throw std::bad_alloc();header->bytes=bytes;header->tracked=count_allocations;
+    if(count_allocations){++allocation_count;largest_allocation=std::max(largest_allocation,bytes);live_cache_bytes+=bytes;}
+    return header+1;
+}
+void operator delete(void* value)noexcept{if(!value)return;auto* header=static_cast<AllocationHeader*>(value)-1;if(header->tracked)live_cache_bytes-=header->bytes;std::free(header);}
 void* operator new[](size_t bytes){return ::operator new(bytes);}
-void operator delete[](void* value)noexcept{std::free(value);}
-void operator delete(void* value,size_t)noexcept{std::free(value);}
-void operator delete[](void* value,size_t)noexcept{std::free(value);}
+void operator delete[](void* value)noexcept{::operator delete(value);}
+void operator delete(void* value,size_t)noexcept{::operator delete(value);}
+void operator delete[](void* value,size_t)noexcept{::operator delete(value);}
 
 using namespace th15;
 using th15::multiplayer::AnimationState;
@@ -169,5 +179,32 @@ void bounded_snapshot_growth(){
     for(unsigned i=0;i<handles.size();++i)require(graph.find(handles[i])->visual.translation.x==float(i),"bounded node growth lost VM state");
 }
 
+
+void loading_boundary_cache(){
+    struct Journal {AnimationState state;bool valid=false,captured=false;unsigned frame=0;};
+    AnmRegistry registry;std::vector<AnmVm> roots(256);std::vector<AnmVm*> input;
+    for(unsigned i=0;i<roots.size();++i){auto& vm=roots[i];vm.visual.translation.x=float(i+17);vm.geometry.screen_vertices.resize(512);vm.geometry.screen_vertices[0].position.x=float(i+23);input.push_back(&vm);}
+    std::array<Journal,13> frames;
+    require(live_cache_bytes==0,"earlier tracked snapshots were released");
+    count_allocations=true;
+    for(unsigned i=0;i<frames.size();++i){frames[i].frame=100+i;require(frames[i].state.capture(registry,input),"capture real heavy frame cache");}
+    count_allocations=false;const auto held=live_cache_bytes;
+    frames[0].valid=true;frames[1].captured=true;
+    th15::multiplayer::release_confirmed_frame_cache(frames);
+    const auto protected_bytes=live_cache_bytes;
+    require(protected_bytes<held/3,"loading boundary retained confirmed snapshot geometry");
+    for(unsigned i=0;i<frames.size();++i){require(frames[i].frame==100+i,"cache release changed a frame cursor");if(i>1)require(!frames[i].state.ready()&&frames[i].state.retained_bytes()==0,"confirmed cache still owns frame data");}
+    for(auto& vm:roots){vm.visual.translation.x=-1;vm.geometry.screen_vertices[0].position.x=-1;}
+    require(frames[0].state.restore(registry),"valid frame survives cache release");
+    for(unsigned i=0;i<roots.size();++i)require(roots[i].visual.translation.x==float(i+17)&&roots[i].geometry.screen_vertices[0].position.x==float(i+23),"valid frame lost exact geometry");
+    require(frames[1].state.restore(registry),"speculative captured frame survives cache release");
+    frames[0].valid=false;frames[1].captured=false;
+    th15::multiplayer::release_confirmed_frame_cache(frames);
+    require(live_cache_bytes==0,"confirmed boundary did not return all snapshot allocations");
+    input.resize(2);require(frames[3].state.capture(registry,input),"released cache can capture the next scene");
+    require(frames[3].state.instances()==2,"next scene kept old root count");
+    std::printf("loading boundary: cached %zu bytes, protected %zu bytes, confirmed cache 0 bytes\n",held,protected_bytes);
 }
-int main(){exact_graph();frozen_root();overflow_and_wrap();unregistered_overlay_owner();repeated_restore_allocations();capture_index_and_root_reuse();bounded_snapshot_growth();std::puts("TH15 animation rollback ownership checks passed");}
+
+}
+int main(){exact_graph();frozen_root();overflow_and_wrap();unregistered_overlay_owner();repeated_restore_allocations();capture_index_and_root_reuse();bounded_snapshot_growth();loading_boundary_cache();std::puts("TH15 animation rollback ownership checks passed");}
