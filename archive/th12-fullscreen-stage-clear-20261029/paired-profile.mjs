@@ -1,0 +1,32 @@
+import {createServer} from 'node:http';import {readFile,writeFile,mkdir} from 'node:fs/promises';import {resolve,extname} from 'node:path';import {launchBrowser} from '../../tools/browser/launch.mjs';
+const baseline=process.env.TH12_BASELINE==='1';const root=process.cwd(),base=resolve(root,'ports/th12'),assets=resolve(root,'../rollback-th12-performance/ports/th12/site/assets'),runtime=resolve(root,'../rollback-th12-performance/artifacts/th12-performance-20261028/runtime-normal'),out=resolve(root,'artifacts/th12-fullscreen-stage-clear');
+const html=`<canvas width="640" height="480"></canvas><script type="module">
+import create from '/runtime/core.mjs';import {Renderer} from '/src/renderer.mjs';import {StageLoader} from '/src/stage-loader.mjs';import {PracticeBridge} from '/src/practice/bridge.mjs';
+window.c=await create();window.atlases=await(await fetch('/assets/atlases.json')).json();window.r=new Renderer(document.querySelector('canvas'),atlases);await r.prepare();window.loader=new StageLoader(c,atlases,async file=>new Uint8Array(await(await fetch('/assets/'+file)).arrayBuffer()));window.bridge=new PracticeBridge(c);bridge.setEnabled(true);window.json=name=>{const p=c['_th12_'+name](),n=c['_th12_'+name+'_size']();return JSON.parse(new TextDecoder().decode(c.HEAPU8.subarray(p,p+n)));};window.ready=true;</script>`;
+const server=createServer(async(req,res)=>{try{const path=new URL(req.url,'http://x').pathname;let data;if(path==='/')data=html;else if(baseline&&path==='/src/renderer.mjs')data=(await import('node:child_process')).execFileSync('git',['show','upstream/main:ports/th12/src/renderer.mjs'],{cwd:root});else{const source=path.startsWith('/runtime/')?resolve(runtime,path.slice(9)):path.startsWith('/assets/')?resolve(assets,path.slice(8)):resolve(base,'.'+path);data=await readFile(source);}res.setHeader('Content-Type',path==='/'?'text/html':({'.mjs':'application/javascript','.wasm':'application/wasm','.json':'application/json','.png':'image/png'}[extname(path)]||'application/octet-stream'));res.end(data);}catch(e){res.statusCode=404;res.end(String(e));}});await new Promise(done=>server.listen(0,'127.0.0.1',done));const browser=await launchBrowser();
+try{const page=await browser.newPage();const errors=[];page.on('pageerror',e=>errors.push(String(e)));await page.goto('http://127.0.0.1:'+server.address().port);await page.waitForFunction(()=>window.ready,{timeout:120000});
+const report=await page.evaluate(async({baseline})=>{
+ const rows=[];for(const stage of [4,5]){
+  await r.prepareStage(stage);await loader.load(stage);bridge.configure({stage:stage-1,section:stage===4?30:39,power:400},{difficulty:1});bridge.start({character:0,shot:0,difficulty:1,seed:0x1234});bridge.setTools(1|4|8);
+  const measures={tick:[],capture:[],geometry:[],render:[]},events=[],resets=[];const geometry=r.background.geometry.bind(r.background);r.background.geometry=(...args)=>{const t=performance.now(),v=geometry(...args);measures.geometry.push(performance.now()-t);return v;};
+  let phase='';for(let i=0;i<9200;i++){
+   let t=performance.now();c._th12_tick(1,0);const tick=performance.now()-t;let flow=json('stage_flow');
+   const nowPhase=flow.status;if(nowPhase!==phase){events.push({i,flow});phase=nowPhase;}
+   if(i%4===0||flow.status==='stage-clear'){
+    t=performance.now();const p=r.capturePresentation(c,{stageClear:flow.status==='stage-clear',presentationContinuity:false});const capture=performance.now()-t;
+    t=performance.now();r.renderPresentation(null,p,1);const render=performance.now()-t;
+    if(i>120){measures.tick.push(tick);measures.capture.push(capture);measures.render.push(render);}
+    if(flow.status==='stage-clear')rows.push({stage,i,flow:flow.status,tick,capture,render,triangles:p.background.triangles.length,poses:p.poses.length,visible:p.backgroundVisible});
+    if(i===600||i===1800){
+     for(const label of ['before-reset','after-reset']){if(label==='after-reset')r.resetPresentation(baseline?undefined:{retainSamples:true});t=performance.now();r.capturePresentation(c,{presentationContinuity:false});resets.push({i,label,ms:performance.now()-t,tracks:r.animations.tracks.size});}
+    }
+   }
+   if(i%120===119)await new Promise(requestAnimationFrame);
+   if(flow.status==='result'||flow.status==='next-stage')break;
+  }
+  const summary={};for(const[key,a]of Object.entries(measures)){a.sort((a,b)=>a-b);summary[key]={mean:a.reduce((a,b)=>a+b,0)/a.length,p95:a[Math.floor(a.length*.95)],max:a.at(-1)};}
+  const cold=[];for(const next of [stage+1]){const samples=[],uploads=[],counts=[];let last=null,active=true,bucket=0;const original=r.gl.texImage2D.bind(r.gl);r.gl.texImage2D=(...args)=>{const t=performance.now();original(...args);uploads.push(performance.now()-t);bucket++;};const before=r.capturePresentation(c,{presentationContinuity:false,stageClear:true});r.renderPresentation(null,before,1);const pixels=()=>{const b=new Uint8Array(640*480*4);r.gl.readPixels(0,0,640,480,r.gl.RGBA,r.gl.UNSIGNED_BYTE,b);return b;};const beforePixels=pixels();const pulse=now=>{if(last!==null)samples.push(now-last);last=now;counts.push(bucket);bucket=0;r.renderPresentation(null,before,1);if(active)requestAnimationFrame(pulse);};requestAnimationFrame(pulse);const start=performance.now();await r.prepareStage(next,{activate:false});active=false;await new Promise(requestAnimationFrame);r.gl.texImage2D=original;const after=r.capturePresentation(c,{presentationContinuity:false,stageClear:true});r.renderPresentation(null,after,1);const afterPixels=pixels();let pixelDifferences=0;for(let i=0;i<beforePixels.length;i++)pixelDifferences+=beforePixels[i]!==afterPixels[i];const semanticEqual=JSON.stringify(before)===JSON.stringify(after);cold.push({next,ms:performance.now()-start,gaps:samples,uploads,uploadsPerFrame:counts,pixelDifferences,semanticEqual});}rows.push({stage,cold,summary,events,resets,final:json('stage_flow'),spell:json('spell'),practice:bridge.snapshot()});
+ }
+ return rows;
+},{baseline});await writeFile(resolve(out,'paired-'+(baseline?'before':'after')+'.json'),JSON.stringify({report,errors},null,2));console.log(JSON.stringify({summary:report.filter(x=>x.summary).map(({stage,cold,resets})=>({stage,resets,cold:cold.map(c=>({next:c.next,maxGap:Math.max(...c.gaps),maxUpload:Math.max(...c.uploads),maxUploadsPerFrame:Math.max(...c.uploadsPerFrame),pixelDifferences:c.pixelDifferences,semanticEqual:c.semanticEqual,ms:c.ms}))})),clearRows:report.filter(x=>x.flow).length,errors}));}finally{await browser.close();server.close();}
+
