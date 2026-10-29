@@ -1,0 +1,22 @@
+{
+  "site": "https://test.touhou.vip/",
+  "importPackage": "th13-ja-eagler-20261029.zip",
+  "packageImport": true,
+  "title": true,
+  "stageOne": true,
+  "musicEnabled": true,
+  "audioErrorCode": 0,
+  "browserErrors": [],
+  "classicShelfOrder": [
+    "singleplayer",
+    "classics",
+    "multiplayer"
+  ],
+  "classicCards": 5,
+  "viewports": [
+    "desktop",
+    "mobile"
+  ],
+  "nativeNavigation": true,
+  "coverage": "Chromium desktop software renderer for title/stage; desktop/mobile card navigation. Not a performance benchmark or full-game certification."
+}

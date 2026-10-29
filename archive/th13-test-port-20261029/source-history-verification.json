@@ -1,0 +1,12 @@
+{
+  "sourceAnchors": 13,
+  "subtrees": {
+    "ports/th12": "2cd188489d60109175204a96f4ebe1f14ef94634",
+    "ports/th12-mp": "e3c051c2100b621501d189c74d51bd14708adb21",
+    "ports/th13": "af934f46757c5bc2925fbed8bec73e5efa0f6c7a",
+    "ports/th15-mp": "91fd1d173832868e3064d7b4fa03d4794a50d180"
+  },
+  "verifiedHead": "bd79da698d461cf50b68864b7ee058ccab34c976",
+  "base": "34813aa457e9a04e0c3d713cd3e85b0274db0e16",
+  "platform": "Native Linux host, exact Git bundle from Windows; standard Git subtree helper. TH13 export also verified directly on Windows."
+}

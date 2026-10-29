@@ -1,0 +1,22 @@
+[
+  {
+    "viewport": "desktop",
+    "order": [
+      "singleplayer",
+      "classics",
+      "multiplayer"
+    ],
+    "cards": 5,
+    "nativeNavigation": "https://test.touhou.vip/th01/lan.html?network=public"
+  },
+  {
+    "viewport": "mobile",
+    "order": [
+      "singleplayer",
+      "classics",
+      "multiplayer"
+    ],
+    "cards": 5,
+    "nativeNavigation": "https://test.touhou.vip/th01/lan.html?network=public"
+  }
+]

@@ -1,0 +1,51 @@
+{
+  "site": "https://test.touhou.vip/",
+  "previous": "/var/www/eagler-touhou-test/releases/classics-restored-20261029",
+  "current": "/var/www/eagler-touhou-test/releases/th13-full-20261029",
+  "releaseId": "sha256-3d96ad0a2e3c69d91b9c859cc634f8eda83f67530d40624ff14dd400ee8afff8",
+  "games": [
+    "th06",
+    "th07",
+    "th075",
+    "th08",
+    "th09",
+    "th10",
+    "th11",
+    "th12",
+    "th15",
+    "th20",
+    "th13"
+  ],
+  "runtimeGenerations": {
+    "runtime/th06/": "8a86d3ff70409929893b1d7d2b351bc4bd5a21523cf6831068e090c7bef34bfd",
+    "runtime/th06/multiplayer/": "baf5dd272bda8e06b0daff131dd2550031d317e0d7fd5db4eaaf293f6a07e067",
+    "runtime/th07/": "6b272551679e0abb45792e9a888923579da4967587aeb170b83b124ecc604955",
+    "runtime/th07/multiplayer/": "7fe6f9a5eb017fa8baecb3c1436b55f98553bc5891e4fbab3a40b8160e54bd06",
+    "runtime/th075/": "8707df10daaaf3c17ae313543a1bedb6268f5c81714ec2c46f7c624f99150126",
+    "runtime/th075/multiplayer/": "5d85277586a93867b545e346bce7390311657f766ce983a2a2f24c15cf9b50ef",
+    "runtime/th08/": "3544f32f8edb6f163c7d2ed24f4645bb1caa67db8568f8df7d151abac58c0a81",
+    "runtime/th08/multiplayer/": "48103c9ead96ade78943b8f1d12152cebb70de9a9414c0bcdb0e062e8861200a",
+    "runtime/th09/": "465ab8f42b730b74296fe3e02e24b220049d3cfbfd208837ed691a51ff188daa",
+    "runtime/th09/multiplayer/": "16402c21ede6b11a7de95e31ce2ebf45de7bab752b48b8abbf2591038757585e",
+    "runtime/th10/": "cf05230c84601e98f15817ed866e0a51e96de4d7c47a338dfa43b809a8cb7c11",
+    "runtime/th10/multiplayer/": "afdae1f963e36188f47937894c1bc225d67520149b045565acdd4dd9b1843820",
+    "runtime/th11/": "783182f24d2221012ed18365136f8ae67efdf86e20be7fbb7c579d5adf8082f5",
+    "runtime/th11/multiplayer/": "3398e9137f99ee4ef43bf69eca53ef1835c22865d5b38eae13094017140dd99a",
+    "runtime/th12/": "5f64412b52a03c42cddf9144a8c8fbed5e74b921a54ef848d3edc6e0b70e7cee",
+    "runtime/th12/multiplayer/": "17916a73deea24dd6348b128cd42ee8620a09c0565ca56a3c2058ef459eb18c4",
+    "runtime/th15/": "24065eee08767aff00a6c26cb7226813b5b35d554456955b9811acf726390717",
+    "runtime/th15/multiplayer/": "94db993f3f2fd1652a1b6d6e32e078361dd793fcf9e208465ee27ed0ee7185ba",
+    "runtime/th20/": "057f6f8960695dd52e889da4ba0dbb1a53f6c9de9375061b10bf637fc8c8da16",
+    "runtime/th13/": "710d3918b1f5ae02bdb759cc2f1870fd52263f0818cf23c391360407352b7488"
+  },
+  "mainBefore": {
+    "current": "/var/www/eagler-touhou/releases/th12-hud-3d0c227ff-20261029",
+    "releaseId": "sha256-e6ef86b273202f2fd9ab371c28810cedfb81612475546fea9be7fcafb72fcdc3"
+  },
+  "mainAfter": {
+    "current": "/var/www/eagler-touhou/releases/th12-hud-3d0c227ff-20261029",
+    "releaseId": "sha256-e6ef86b273202f2fd9ab371c28810cedfb81612475546fea9be7fcafb72fcdc3"
+  },
+  "nginxReload": true,
+  "relayRestart": false
+}

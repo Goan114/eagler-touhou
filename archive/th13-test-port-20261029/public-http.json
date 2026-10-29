@@ -1,0 +1,153 @@
+{
+  "runtimeGroups": [
+    {
+      "root": "runtime/th06/",
+      "generation": "8a86d3ff70409929893b1d7d2b351bc4bd5a21523cf6831068e090c7bef34bfd",
+      "filesHashed": 1
+    },
+    {
+      "root": "runtime/th06/multiplayer/",
+      "generation": "baf5dd272bda8e06b0daff131dd2550031d317e0d7fd5db4eaaf293f6a07e067",
+      "filesHashed": 1
+    },
+    {
+      "root": "runtime/th07/",
+      "generation": "6b272551679e0abb45792e9a888923579da4967587aeb170b83b124ecc604955",
+      "filesHashed": 1
+    },
+    {
+      "root": "runtime/th07/multiplayer/",
+      "generation": "7fe6f9a5eb017fa8baecb3c1436b55f98553bc5891e4fbab3a40b8160e54bd06",
+      "filesHashed": 1
+    },
+    {
+      "root": "runtime/th075/",
+      "generation": "8707df10daaaf3c17ae313543a1bedb6268f5c81714ec2c46f7c624f99150126",
+      "filesHashed": 1
+    },
+    {
+      "root": "runtime/th075/multiplayer/",
+      "generation": "5d85277586a93867b545e346bce7390311657f766ce983a2a2f24c15cf9b50ef",
+      "filesHashed": 1
+    },
+    {
+      "root": "runtime/th08/",
+      "generation": "3544f32f8edb6f163c7d2ed24f4645bb1caa67db8568f8df7d151abac58c0a81",
+      "filesHashed": 1
+    },
+    {
+      "root": "runtime/th08/multiplayer/",
+      "generation": "48103c9ead96ade78943b8f1d12152cebb70de9a9414c0bcdb0e062e8861200a",
+      "filesHashed": 1
+    },
+    {
+      "root": "runtime/th09/",
+      "generation": "465ab8f42b730b74296fe3e02e24b220049d3cfbfd208837ed691a51ff188daa",
+      "filesHashed": 1
+    },
+    {
+      "root": "runtime/th09/multiplayer/",
+      "generation": "16402c21ede6b11a7de95e31ce2ebf45de7bab752b48b8abbf2591038757585e",
+      "filesHashed": 1
+    },
+    {
+      "root": "runtime/th10/",
+      "generation": "cf05230c84601e98f15817ed866e0a51e96de4d7c47a338dfa43b809a8cb7c11",
+      "filesHashed": 1
+    },
+    {
+      "root": "runtime/th10/multiplayer/",
+      "generation": "afdae1f963e36188f47937894c1bc225d67520149b045565acdd4dd9b1843820",
+      "filesHashed": 1
+    },
+    {
+      "root": "runtime/th11/",
+      "generation": "783182f24d2221012ed18365136f8ae67efdf86e20be7fbb7c579d5adf8082f5",
+      "filesHashed": 1
+    },
+    {
+      "root": "runtime/th11/multiplayer/",
+      "generation": "3398e9137f99ee4ef43bf69eca53ef1835c22865d5b38eae13094017140dd99a",
+      "filesHashed": 1
+    },
+    {
+      "root": "runtime/th12/",
+      "generation": "5f64412b52a03c42cddf9144a8c8fbed5e74b921a54ef848d3edc6e0b70e7cee",
+      "filesHashed": 1
+    },
+    {
+      "root": "runtime/th12/multiplayer/",
+      "generation": "17916a73deea24dd6348b128cd42ee8620a09c0565ca56a3c2058ef459eb18c4",
+      "filesHashed": 1
+    },
+    {
+      "root": "runtime/th15/",
+      "generation": "24065eee08767aff00a6c26cb7226813b5b35d554456955b9811acf726390717",
+      "filesHashed": 1
+    },
+    {
+      "root": "runtime/th15/multiplayer/",
+      "generation": "94db993f3f2fd1652a1b6d6e32e078361dd793fcf9e208465ee27ed0ee7185ba",
+      "filesHashed": 1
+    },
+    {
+      "root": "runtime/th20/",
+      "generation": "057f6f8960695dd52e889da4ba0dbb1a53f6c9de9375061b10bf637fc8c8da16",
+      "filesHashed": 1
+    },
+    {
+      "root": "runtime/th13/",
+      "generation": "710d3918b1f5ae02bdb759cc2f1870fd52263f0818cf23c391360407352b7488",
+      "filesHashed": 11
+    }
+  ],
+  "classics": [
+    {
+      "url": "https://test.touhou.vip/th01/lan.html?network=public",
+      "status": 200,
+      "bytes": 6305
+    },
+    {
+      "url": "https://test.touhou.vip/th02/lan.html?network=public",
+      "status": 200,
+      "bytes": 8087
+    },
+    {
+      "url": "https://test.touhou.vip/th03/lan.html?network=public",
+      "status": 200,
+      "bytes": 8063
+    },
+    {
+      "url": "https://test.touhou.vip/th04/lan.html?network=public",
+      "status": 200,
+      "bytes": 6932
+    },
+    {
+      "url": "https://test.touhou.vip/th05/lan.html?network=public",
+      "status": 200,
+      "bytes": 8407
+    }
+  ],
+  "resources": [
+    {
+      "path": "games/th13/th13.data",
+      "status": 206,
+      "contentRange": "bytes 0-0/142788413"
+    },
+    {
+      "path": "games/th13/music/ogg/thbgm.ogg",
+      "status": 206,
+      "contentRange": "bytes 0-0/57431845"
+    },
+    {
+      "path": "shared/msgothic.ttc",
+      "status": 206,
+      "contentRange": "bytes 0-0/8990160"
+    },
+    {
+      "path": "shared/unifont.otf",
+      "status": 206,
+      "contentRange": "bytes 0-0/5105508"
+    }
+  ]
+}

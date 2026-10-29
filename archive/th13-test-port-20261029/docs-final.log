@@ -1,0 +1,5 @@
+
+> docs:check
+> node tools/docs/check.mjs
+
+文档检查通过：扫描 364 份文档、17 个源码目录。
