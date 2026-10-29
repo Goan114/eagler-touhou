@@ -1,0 +1,13 @@
+✔ managed DATA accepts a parent-realm buffer and rejects forged size objects (3.4178ms)
+✔ managed touch settings reach native endpoints with clamped sensitivity (2.6382ms)
+✔ managed direct touch normalizes coordinates and fails closed outside live input (0.6311ms)
+✔ managed pointer cancellation releases only the cancelled finger (0.6521ms)
+✔ managed frame callback reports the actual SDL audio queue (1.05ms)
+ℹ tests 5
+ℹ suites 0
+ℹ pass 5
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 143.1783

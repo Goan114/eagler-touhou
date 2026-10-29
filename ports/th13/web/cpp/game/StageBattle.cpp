@@ -300,6 +300,7 @@ void StageBattle::activate_stage_player() {
     player_phase_clock_.set(0);
     player_state_.startup_clock.set(0);
     fire_clock_.set(-1);
+    player_state_.youmu_charge_clock.set(0);
     option_power_ = -1;
     option_reset_pending_ = false;
     option_movement_tick_ = false;
@@ -317,8 +318,21 @@ void StageBattle::move_player(u32 held) {
         speed = i32(float(speed) * 0.2f); // 0040a860 player+0xa2b4
     // 0x442960:223-236：定点累加 + 钳制（±0x5c00 / [0x1000,0xd800]）。
     const float rate = sim.time_rate(); //442d3b stores f32 velocity, then truncates.
-    pos_fx += truncate_int(float(float(speed * kDirX[dir]) * rate));
-    pos_fy += truncate_int(float(float(speed * kDirY[dir]) * rate));
+    if (touch.mode && !(held & 0xf0u) && std::isfinite(touch.x) && std::isfinite(touch.y)) {
+        double x = double(touch.x) * 128 - pos_fx;
+        double y = double(touch.y) * 128 - pos_fy;
+        if (touch.mode != 2) {
+            double limit = double(focus ? speed_orth_focus : speed_orth) * rate;
+            if (character_ == 1 && bomb_timer > 0) limit *= .2;
+            const double length = std::sqrt(x * x + y * y);
+            if (length > limit && length > 0) { x *= limit / length; y *= limit / length; }
+        }
+        pos_fx += truncate_int(float(x));
+        pos_fy += truncate_int(float(y));
+    } else {
+        pos_fx += truncate_int(float(float(speed * kDirX[dir]) * rate));
+        pos_fy += truncate_int(float(float(speed * kDirY[dir]) * rate));
+    }
     if (pos_fx < -0x5c00) pos_fx = -0x5c00;
     else if (pos_fx > 0x5c00) pos_fx = 0x5c00;
     if (pos_fy < 0x1000) pos_fy = 0x1000;
@@ -387,10 +401,43 @@ void StageBattle::update_firing(bool held) {
                              [](const auto& enemy) { return !enemy->dead; }) &&
                          !(progress_ && (progress_->scene_flags & 0x4000u)) &&
                          !(sim.dialog_host && sim.dialog_host->dialog_active());
-    if (!enabled) { fire_clock_.set(-1); return; }
+    if (!enabled) {
+        fire_clock_.set(-1);
+        player_state_.youmu_charge_clock.set(0);
+        return;
+    }
     // 004460d0's non-active branch clears charge feedback, but preserves
     // the firing timer at +146c8..146d8. A deathbomb resumes that same burst.
     if (player_dead || player_phase != PlayerPhase::Active) return;
+    if (character_ == 3) {
+        // 004460d0: focused Youmu charges instead of running the ordinary
+        // 15-frame firing cycle. Release after60 starts a40-frame SHT burst
+        // from the saved player position, even if focus is released meanwhile.
+        auto& charge = player_state_.youmu_charge_clock;
+        const float rate = sim.time_rate();
+        if (charge.current < 0) {
+            const float saved_x = player_x, saved_y = player_y;
+            const bool saved_focus = focus;
+            player_x = player_state_.youmu_charge_origin.x;
+            player_y = player_state_.youmu_charge_origin.y;
+            focus = true;
+            fire_shots(charge.current + 40);
+            player_x = saved_x; player_y = saved_y; focus = saved_focus;
+            charge.tick(&rate);
+            if (charge.current >= 0) charge.set(0);
+            if (focus) return;
+        } else if (focus && held) {
+            charge.tick(&rate);
+            return;
+        } else {
+            if (charge.current > 0) {
+                const bool ready = charge.current >= 60;
+                charge.set(ready ? -40 : 0);
+                if (ready) player_state_.youmu_charge_origin = {player_x, player_y, 0};
+            }
+            if (focus) return;
+        }
+    }
     if (fire_clock_.current < 0) {
         if (!held) return;
         fire_clock_.set(0);
@@ -649,6 +696,13 @@ float StageBattle::query_enemy_damage(StageEnemy& state, float width, float heig
                                  ex, ey, width, height,
                                  shot.angle))
             continue;
+        if (shot.hit_behavior == 4) {
+            // 00447530: the slash remains active; each hit returns its
+            // decremented damage, bounded below by1. ANM completion retires it.
+            if (shot.damage > 1.0f) shot.damage -= 1.0f;
+            damage += shot.damage;
+            continue;
+        }
         damage += shot.damage;
         if (shot.hit_behavior == 3) {
             // 4474b0 disables damage but keeps mode4 for the dying ANM.
@@ -1298,8 +1352,22 @@ void StageBattle::update_item_side() {
     collector.progress = progress_;
     collector.player = player_;
     collector.score = score_;
+    const i32 old_lives = player_ ? player_->extra_lives : 0;
+    const i32 old_life_pieces = player_ ? player_->life_pieces : 0;
+    const i32 old_bombs = player_ ? player_->bombs : 0;
+    const i32 old_bomb_pieces = player_ ? player_->bomb_pieces : 0;
+    const i32 old_life_threshold = progress_ ? progress_->life_piece_threshold_index : 0;
     item_manager.update(collector);
     item_manager.update_spirits(collector);
+    if (player_) {
+        if ((player_->extra_lives != old_lives || player_->life_pieces != old_life_pieces ||
+             (progress_ && progress_->life_piece_threshold_index != old_life_threshold)) &&
+            !host_->life_hud(player_->extra_lives, player_->life_pieces))
+            error_ = "Item collection life HUD failed";
+        if ((player_->bombs != old_bombs || player_->bomb_pieces != old_bomb_pieces) &&
+            !host_->bomb_hud(player_->bombs, player_->bomb_pieces))
+            error_ = "Item collection bomb HUD failed";
+    }
     // 收集音（0x42e380 合并尾 0x460c50(...,0x25)=37）；其余事件留给表现层。
     for (const auto& event : item_manager.events()) {
         if (event.kind == ItemEvent::Kind::Collected && event.value > 0)

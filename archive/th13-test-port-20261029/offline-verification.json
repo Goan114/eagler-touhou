@@ -1,0 +1,18 @@
+{
+  "file": "C:\\Users\\w3051\\Downloads\\th13-ja-eagler-20261029.zip",
+  "bytes": 146186997,
+  "sha256": "c4a9dca6dce840b4d877473cc645529873c606dd35ef872d79dad4716a306d02",
+  "members": [
+    "games/th13/th13.data",
+    "shared/msgothic.ttc",
+    "shared/unifont.otf",
+    "games/th13/music/ogg/thbgm.ogg",
+    "package.json"
+  ],
+  "targets": [
+    "/th13.data",
+    "/msgothic.ttc",
+    "/unifont.otf",
+    "/assets/thbgm.ogg"
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "format": "entire original stereo s16le virtual PCM timeline including 16-byte ZWAV prefix",
+  "expectedFrames": 123004902,
+  "sourceDatSha256": "3443fe0df11de4b9ed950d09e978317547aae4f029792238a6acca7399670089",
+  "probe": {
+    "programs": [],
+    "stream_groups": [],
+    "streams": [
+      {
+        "codec_name": "vorbis",
+        "sample_rate": "44100",
+        "channels": 2,
+        "time_base": "1/44100",
+        "duration_ts": 123004902
+      }
+    ]
+  }
+}
