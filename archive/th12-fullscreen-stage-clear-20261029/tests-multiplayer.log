@@ -1,0 +1,19 @@
+✔ 60 redraws per second with 20 new worlds report 20 FPS, then a network stall reports zero (0.8107ms)
+✔ interpolated high refresh counts distinct subframes; redrawing without interpolation counts the 60 Hz world (0.8267ms)
+✔ catch-up ticks do not multiply visible frames; paused menu frames retain their refresh rate (0.1347ms)
+✔ the actual game drawing boundary passes advancing-world FPS instead of callback FPS (2.1574ms)
+✔ waiting for input holds the exact endpoint without rebuilding the native presentation (1.3462ms)
+✔ rollback keeps immutable age sampling caches and rebuilds only a track that seeks backward (2.5186ms)
+✔ remote body, shots, options and custom bomb meshes fade without changing authority (1.902ms)
+✔ remote mesh opacity stays on the contiguous-buffer draw path without expanding vertices (0.543ms)
+✔ guest uses the host dialogue route and renders patched Chinese; diagnostics do not serialize the world hash (27.2669ms)
+✔ TH12 restores rollback and retains measured/manual delay (0.5439ms)
+✔ TH12 accepts restored rollback and unchanged delay sessions (6.5632ms)
+ℹ tests 11
+ℹ suites 0
+ℹ pass 11
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 850.5202
