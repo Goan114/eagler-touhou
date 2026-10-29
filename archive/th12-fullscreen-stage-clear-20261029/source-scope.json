@@ -1,0 +1,26 @@
+{
+  "sourceHead": "55a8d5ecd77340c2f1401de41726c1272efbef3b",
+  "normalProjection": "b448d31b815e37b58bdfbcd7eae908ccca7e812f",
+  "multiplayerProjection": "9428dd246b547b789db21037bede24064b80e8e4",
+  "sameSharedImplementation": {
+    "site/game.mjs": "mode-specific loop retained; both receive viewport clock and cache policy",
+    "src/renderer.mjs": "shared warmup and sample policy; multiplayer spell clock retained",
+    "src/practice/overlay.mjs": "identical",
+    "src/practice/imgui-renderer.mjs": "identical"
+  },
+  "sources": {
+    "th12": {
+      "site/game.mjs": "8400dd06c831ac7d33be48680a680446c7a1370d",
+      "src/renderer.mjs": "a006b7ff5b76c0ac42234ea12712a858fce27750",
+      "src/practice/overlay.mjs": "eecfe19acf5a9119b160e5c992084e63431fa0e8",
+      "src/practice/imgui-renderer.mjs": "e88854cd22e36ebfa3dd15f93b42aca39d7d0cbd"
+    },
+    "th12-mp": {
+      "site/game.mjs": "a2fe2d4f4d70f6be646394ade5f4d3396a979ddb",
+      "src/renderer.mjs": "4679fa0554684bcfe8fc17e1071bea647e9f63a8",
+      "src/practice/overlay.mjs": "eecfe19acf5a9119b160e5c992084e63431fa0e8",
+      "src/practice/imgui-renderer.mjs": "e88854cd22e36ebfa3dd15f93b42aca39d7d0cbd"
+    }
+  },
+  "delivery": "Ordinary monorepo commits. No projected parent chain or subtree control trailers added, following the user preference for isolated bug-fix history."
+}
