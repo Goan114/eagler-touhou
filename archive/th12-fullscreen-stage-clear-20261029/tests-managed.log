@@ -1,69 +1,31 @@
-✔ room preview animates for minutes without entering or loading a demo (8.7196ms)
-✔ managed protocol: authenticates navigation, serializes resources and configures before launch (1.6074ms)
-✔ managed touch: accepts shared sensitivity bounds and rejects invalid values (0.2514ms)
-✔ room Start cannot announce gameplay while its native launch is still pending (1.4216ms)
-✔ managed gamepad: maps every semantic action and rejects retired owners (0.2205ms)
-✔ managed presentation: actual browser loop keeps 60 Hz logic at 60, 120 and 144 Hz (30.3718ms)
-✔ a saturated catch-up budget still publishes a fresh game picture on every browser frame (10.8489ms)
-✔ replay pause third row restarts the selected recording and original selected stage (1.8232ms)
-✔ hidden Replay workspace overlay retains THPrac playback core without initializing interactive ImGui (0.1848ms)
-✔ retired logical MSG rectangles never resurrect through legacy text fallback (0.7594ms)
-✖ live replay controls advance every recorded tick (THPrac false) (1.8354ms)
-✖ live replay controls advance every recorded tick (THPrac true) (1.1026ms)
-✔ reconfiguration preserves the local display limit when omitted (2.7006ms)
-✔ managed protocol: authenticates navigation, serializes resources and configures before launch (1.4636ms)
-✔ managed touch: accepts shared sensitivity bounds and rejects invalid values (0.2732ms)
-✔ managed gamepad: maps every semantic action and rejects retired owners (0.2291ms)
-✔ managed presentation: actual browser loop keeps 60 Hz logic at 60, 120 and 144 Hz (52.7243ms)
-✔ a saturated catch-up budget still publishes a fresh game picture on every browser frame (6.8965ms)
-✔ replay pause third row restarts the selected recording and original selected stage (5.104ms)
-✔ hidden Replay workspace overlay retains THPrac playback core without initializing interactive ImGui (0.5288ms)
-✔ retired logical MSG rectangles never resurrect through legacy text fallback (1.0693ms)
-✔ live replay controls advance every recorded tick (THPrac false) (12.2863ms)
-✔ live replay controls advance every recorded tick (THPrac true) (11.3885ms)
+✔ room preview animates for minutes without entering or loading a demo (10.3415ms)
+✔ managed protocol: authenticates navigation, serializes resources and configures before launch (2.2493ms)
+✔ managed touch: accepts shared sensitivity bounds and rejects invalid values (0.2821ms)
+✔ room Start cannot announce gameplay while its native launch is still pending (2.993ms)
+✔ managed gamepad: maps every semantic action and rejects retired owners (0.3355ms)
+✔ managed presentation: actual browser loop keeps 60 Hz logic at 60, 120 and 144 Hz (24.1237ms)
+✔ a saturated catch-up budget still publishes a fresh game picture on every browser frame (7.8967ms)
+✔ replay pause third row restarts the selected recording and original selected stage (2.0203ms)
+✔ hidden Replay workspace overlay retains THPrac playback core without initializing interactive ImGui (0.2013ms)
+✔ retired logical MSG rectangles never resurrect through legacy text fallback (0.4174ms)
+✔ live replay controls advance every recorded tick (THPrac false) (10.703ms)
+✔ live replay controls advance every recorded tick (THPrac true) (7.3326ms)
+✔ reconfiguration preserves the local display limit when omitted (2.0348ms)
+✔ managed protocol: authenticates navigation, serializes resources and configures before launch (2.7404ms)
+✔ managed touch: accepts shared sensitivity bounds and rejects invalid values (0.55ms)
+✔ managed gamepad: maps every semantic action and rejects retired owners (0.8128ms)
+✔ managed presentation: actual browser loop keeps 60 Hz logic at 60, 120 and 144 Hz (44.0426ms)
+✔ a saturated catch-up budget still publishes a fresh game picture on every browser frame (5.8362ms)
+✔ replay pause third row restarts the selected recording and original selected stage (2.7852ms)
+✔ hidden Replay workspace overlay retains THPrac playback core without initializing interactive ImGui (0.2559ms)
+✔ retired logical MSG rectangles never resurrect through legacy text fallback (0.5279ms)
+✔ live replay controls advance every recorded tick (THPrac false) (9.1533ms)
+✔ live replay controls advance every recorded tick (THPrac true) (6.9015ms)
 ℹ tests 23
 ℹ suites 0
-ℹ pass 21
-ℹ fail 2
+ℹ pass 23
+ℹ fail 0
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 229.5071
-
-✖ failing tests:
-
-test at ports\th12-mp\tests\replay-transition-regressions.test.mjs:42:33
-✖ live replay controls advance every recorded tick (THPrac false) (1.8354ms)
-  file:///C:/Users/w3051/Desktop/eagler/worktrees/th12-fullscreen-stage-clear/ports/th12-mp/tests/replay-transition-regressions.test.mjs:39
-    const context={TICK,presentationLimiter:new PresentationLimiter(),presentationCadence:new PresentationCadence(),needsPresentationCapture,interpolateGamePresentation:()=>false,terminated:false,backgrounded:false,fatalError:false,viewportClockReset:false,runtimeOptions:{thpracEnabled:tools,replayViewer:false},lastPresentation:0,last:0,meter:{frame(){},value:60},loadingScreen:{advance(){},renderOverlay(){},waiting:false},ready:true,busy:false,session:{replay:replay?{}:null},model:{state:{scene:'playing'},actions:[]},profile:{settings:{keyMap:{shoot:'KeyZ',focus:'ShiftLeft',skip:'ControlLeft'}}},previousPadUI:0,keyDown:key=>keys.has(key),practiceBridge:{interval:({fast,slow})=>fast?1/180:slow?1/15:1/60},logicalStep:TICK,accumulator:0,tick(){ticks++;},present(){},launched:false,requestAnimationFrame(){},fail(error){throw error;}};
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          ^
-  
-  ReferenceError: multiplayer is not defined
-      at frame (evalmachine.<anonymous>:22:119)
-      at evalmachine.<anonymous>:35:1
-      at Script.runInContext (node:vm:150:12)
-      at Script.runInNewContext (node:vm:155:17)
-      at Object.runInNewContext (node:vm:311:38)
-      at playbackFrame (file:///C:/Users/w3051/Desktop/eagler/worktrees/th12-fullscreen-stage-clear/ports/th12-mp/tests/replay-transition-regressions.test.mjs:40:6)
-      at TestContext.<anonymous> (file:///C:/Users/w3051/Desktop/eagler/worktrees/th12-fullscreen-stage-clear/ports/th12-mp/tests/replay-transition-regressions.test.mjs:43:16)
-      at Test.runInAsyncScope (node:async_hooks:226:14)
-      at Test.run (node:internal/test_runner/test:1397:25)
-      at Test.processPendingSubtests (node:internal/test_runner/test:969:18)
-
-test at ports\th12-mp\tests\replay-transition-regressions.test.mjs:42:33
-✖ live replay controls advance every recorded tick (THPrac true) (1.1026ms)
-  file:///C:/Users/w3051/Desktop/eagler/worktrees/th12-fullscreen-stage-clear/ports/th12-mp/tests/replay-transition-regressions.test.mjs:39
-    const context={TICK,presentationLimiter:new PresentationLimiter(),presentationCadence:new PresentationCadence(),needsPresentationCapture,interpolateGamePresentation:()=>false,terminated:false,backgrounded:false,fatalError:false,viewportClockReset:false,runtimeOptions:{thpracEnabled:tools,replayViewer:false},lastPresentation:0,last:0,meter:{frame(){},value:60},loadingScreen:{advance(){},renderOverlay(){},waiting:false},ready:true,busy:false,session:{replay:replay?{}:null},model:{state:{scene:'playing'},actions:[]},profile:{settings:{keyMap:{shoot:'KeyZ',focus:'ShiftLeft',skip:'ControlLeft'}}},previousPadUI:0,keyDown:key=>keys.has(key),practiceBridge:{interval:({fast,slow})=>fast?1/180:slow?1/15:1/60},logicalStep:TICK,accumulator:0,tick(){ticks++;},present(){},launched:false,requestAnimationFrame(){},fail(error){throw error;}};
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          ^
-  
-  ReferenceError: multiplayer is not defined
-      at frame (evalmachine.<anonymous>:22:119)
-      at evalmachine.<anonymous>:35:1
-      at Script.runInContext (node:vm:150:12)
-      at Script.runInNewContext (node:vm:155:17)
-      at Object.runInNewContext (node:vm:311:38)
-      at playbackFrame (file:///C:/Users/w3051/Desktop/eagler/worktrees/th12-fullscreen-stage-clear/ports/th12-mp/tests/replay-transition-regressions.test.mjs:40:6)
-      at TestContext.<anonymous> (file:///C:/Users/w3051/Desktop/eagler/worktrees/th12-fullscreen-stage-clear/ports/th12-mp/tests/replay-transition-regressions.test.mjs:43:16)
-      at Test.runInAsyncScope (node:async_hooks:226:14)
-      at Test.run (node:internal/test_runner/test:1397:25)
-      at Test.processPendingSubtests (node:internal/test_runner/test:969:18)
+ℹ duration_ms 185.4271
