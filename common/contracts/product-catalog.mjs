@@ -465,7 +465,7 @@ export const PRODUCT_GAMES = Object.freeze({
         }),
         runtime: "./runtime/th13/th13.html",
         musicCapabilities: Object.freeze({ midi: false }),
-        musicRuntime: Object.freeze({ localOggConfigureMode: "runtime-selection" }),
+        musicRuntime: Object.freeze({ localOggConfigureMode: "runtime-selection", requiresCompleteOgg: true }),
         touchFire: TOGGLE_TOUCH_FIRE,
         support: Object.freeze({
             highRefreshRate: false,

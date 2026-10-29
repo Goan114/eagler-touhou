@@ -712,6 +712,7 @@ export declare const PRODUCT_GAMES: Readonly<{
         }>;
         musicRuntime: Readonly<{
             localOggConfigureMode: "runtime-selection";
+            requiresCompleteOgg: true;
         }>;
         touchFire: Readonly<{
             readonly mode: "toggle";
