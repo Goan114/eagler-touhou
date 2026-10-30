@@ -1,0 +1,146 @@
+{
+  "schema": "th12-sdl-background-cache-verification/1",
+  "baseline": "50084901cd28ab2342d295874afcef8abb6cd82e",
+  "implementation": "ec63a53c5656c60193106749ade9c85f4a6dbbc2",
+  "sdlUnitTests": {
+    "passed": 63,
+    "failed": 0
+  },
+  "adaptationChecks": {
+    "normal": {
+      "passed": 8,
+      "failed": 0
+    },
+    "multiplayer": {
+      "passed": 7,
+      "failed": 0
+    }
+  },
+  "standardSubtrees": {
+    "normal": {
+      "split": "455a2fdce5cb9abe4c16e0c5a7373be0943db77c",
+      "tree": "7713fd3435d91b08539ebe36002d8273b7c866a1",
+      "upstreamAncestor": true,
+      "previousSplitAncestor": true,
+      "treeMatches": true
+    },
+    "multiplayer": {
+      "split": "3340a68d1575a3bf336d85a5132e0869092e8204",
+      "tree": "7da6cdfffcdd26733b9653ac0988fc98f11f64b4",
+      "upstreamAncestor": true,
+      "previousSplitAncestor": true,
+      "treeMatches": true
+    }
+  },
+  "builds": {
+    "normal": {
+      "web": {
+        "touhou12.mjs": {
+          "bytes": 225055,
+          "sha256": "6fbd0a5ddecbebca5a63fafc753db7ae5ed28381b212641ffe3c2d9f98a66113"
+        },
+        "touhou12.wasm": {
+          "bytes": 3243548,
+          "sha256": "726bf849ac7e17ad315615ea7125a09c4b5f40a2ad05f2ca35cfbd7509aa2f1e"
+        }
+      },
+      "desktop": {
+        "bytes": 5346816,
+        "sha256": "b9650ed30c54ae0650eb5f589fe32d34bc53b1f8449eb7ac281c5f8ea7138632"
+      }
+    },
+    "multiplayer": {
+      "web": {
+        "touhou12.mjs": {
+          "bytes": 284030,
+          "sha256": "4d6eec6cb2533330fa17839a7333f68b97d23a6ac2721098c00f16cc34cd6097"
+        },
+        "touhou12.wasm": {
+          "bytes": 3263510,
+          "sha256": "73b30d216a68caa8448a416b8b0e393b54782567d7f3f32943394af5f1c63bc6"
+        }
+      },
+      "desktop": {
+        "bytes": 5149696,
+        "sha256": "94f226a9d67bf5f994f6fad6145f5175b62b49e9a19fa8d62ff7390400daf92c"
+      }
+    }
+  },
+  "singleBrowser": {
+    "passed": true,
+    "checks": [
+      "original-resources",
+      "touch",
+      "THPrac",
+      "fullscreen",
+      "pause",
+      "replay"
+    ],
+    "errors": []
+  },
+  "multiplayerBrowser": {
+    "passed": true,
+    "inputLatencyMs": 25,
+    "reports": [
+      {
+        "count": 2,
+        "mode": 0,
+        "delay": 0,
+        "automatic": false,
+        "difficulty": 1,
+        "restores": [
+          19,
+          24
+        ],
+        "frames": 456,
+        "hash": 376905982,
+        "spectatorVerified": true,
+        "replayReconstructionVerified": true,
+        "pausedCaptureReuseVerified": true,
+        "inputReleaseVerified": true,
+        "roomReturnCount": 3
+      },
+      {
+        "count": 3,
+        "mode": 0,
+        "delay": 0,
+        "automatic": false,
+        "difficulty": 1,
+        "restores": [
+          19,
+          27,
+          39
+        ],
+        "frames": 473,
+        "hash": 829738550,
+        "spectatorVerified": false,
+        "replayReconstructionVerified": true,
+        "pausedCaptureReuseVerified": true,
+        "inputReleaseVerified": true,
+        "roomReturnCount": 0
+      }
+    ]
+  },
+  "browserPrecondition": {
+    "baseline": "50084901cd28ab2342d295874afcef8abb6cd82e",
+    "originalAssertion": "held movement before pagehide",
+    "baselineResult": "timeout",
+    "optimizedResult": "timeout",
+    "observation": "All clients moved the same pilot while their current predicted-frame held fields differed.",
+    "replacement": "Require movement on every client and a held sender before pagehide; retain release, paused authoritative hash and replay reconstruction assertions."
+  },
+  "projections": {
+    "th12": {
+      "head": "455a2fdce5cb9abe4c16e0c5a7373be0943db77c",
+      "initialAncestor": true,
+      "latestAncestor": true,
+      "treeMatches": true
+    },
+    "th12mp": {
+      "head": "3fb7cc2b3511af81f411db8dbaab702c66a48998",
+      "initialAncestor": true,
+      "latestAncestor": true,
+      "treeMatches": true
+    }
+  }
+}

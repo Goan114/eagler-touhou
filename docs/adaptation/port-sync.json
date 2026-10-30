@@ -317,7 +317,7 @@
     "th12": {
       "normal": "ports/th12",
       "multiplayer": "ports/th12-mp",
-      "base": "74b842f80c7a6cfad02eb871d23068cb6894943d",
+      "base": "ec63a53c5656c60193106749ade9c85f4a6dbbc2",
       "origin": {
         "normalCommit": "5e5081a1d2a434b2f8d785ebbd6b965f1058d828",
         "multiplayerCommit": "02e3a62a7ff38ca5ec1f3ad2007c117534e9ba26",
@@ -724,6 +724,18 @@
             "ports/th12-mp/tests/sdl-boundary.test.mjs"
           ],
           "note": "普通版与 MP 同步页面隐藏时的键盘和触点清理、音频挂起恢复、原生音乐失败事件及替换重试。共用原生和浏览器回归已在两侧验证；MP 沿多人入口验收，普通版浏览器脚本继续归属普通版。共有新规则登记为逐作待验收。"
+        },
+        {
+          "kind": "manual",
+          "base": "74b842f80c7a6cfad02eb871d23068cb6894943d",
+          "source": "ec63a53c5656c60193106749ade9c85f4a6dbbc2",
+          "targetHead": "508857dded063639ccdad0233f9d4d99e7437f72",
+          "paths": [
+            "ports/th12-mp/portable/sdl/Scene.cpp",
+            "ports/th12-mp/portable/sdl/Scene.hpp",
+            "ports/th12-mp/tests/native/sdl-background-performance.cpp"
+          ],
+          "note": "普通版与多人版同步复用每次捕获的 STD 图元旋转角点；七关原版背景及同帧状态、资源替换、VM 移除的顶点哈希一致，保留多人状态与回滚路径。"
         }
       ]
     }
